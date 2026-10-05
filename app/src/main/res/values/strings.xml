@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MayChat</string>
+    <string name="home_tagline">Nhắn tin và gọi điện qua Wi-Fi hoặc Internet</string>
+    <string name="home_phase_title">Giai đoạn 1: nền móng dự án</string>
+    <string name="home_phase_body">Nếu bạn đang đọc dòng này trên điện thoại thì APK đã được GitHub Actions build thành công và giao diện Jetpack Compose đang chạy.</string>
+    <string name="home_next">Bước tiếp theo: Giai đoạn 2, đăng ký và đăng nhập bằng Firebase.</string>
+    <string name="home_tap_button">Bấm thử</string>
+    <string name="home_tap_count">Số lần bấm: %1$d</string>
+    <string name="home_version">Phiên bản %1$s</string>
+</resources>
