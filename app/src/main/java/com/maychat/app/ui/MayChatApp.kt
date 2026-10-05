@@ -18,6 +18,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.SupabaseProvider
@@ -33,6 +36,7 @@ import com.maychat.app.ui.main.MainBottomBar
 import com.maychat.app.ui.main.MainTab
 import com.maychat.app.ui.main.SearchScreen
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // A screen shown on top of the two main tabs.
@@ -84,6 +88,18 @@ private fun MainScreens(myId: String) {
     // A friend request arrived or was answered on another phone.
     LaunchedEffect(myId) {
         ChatRepository.friendEvents.collect { friends.reload() }
+    }
+
+    // Safety net: refresh friend requests every 20 seconds while the app is
+    // on screen, in case the live connection has silently stopped.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(myId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(20_000)
+                friends.reload()
+            }
+        }
     }
 
     // The phone's Back button closes the chat or search screen.

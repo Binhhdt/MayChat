@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -36,6 +37,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.ConversationItem
 import com.maychat.app.data.Profile
@@ -65,6 +68,7 @@ fun ConversationsScreen(
     var me by remember { mutableStateOf<Profile?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmSignOut by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         attempt { ChatRepository.loadConversations(myId) }
@@ -92,6 +96,18 @@ fun ConversationsScreen(
         }
     }
 
+    // Safety net: refresh the list every 12 seconds while it is on screen,
+    // in case the live connection has silently stopped.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(12_000)
+                reload()
+            }
+        }
+    }
+
     // Coming back to the app from the background.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         scope.launch { reload() }
@@ -114,7 +130,7 @@ fun ConversationsScreen(
                 },
                 actions = {
                     TextButton(onClick = onOpenSearch) { Text("Tìm bạn") }
-                    TextButton(onClick = { scope.launch { attempt { ChatRepository.signOut() } } }) {
+                    TextButton(onClick = { confirmSignOut = true }) {
                         Text("Đăng xuất")
                     }
                 },
@@ -164,6 +180,26 @@ fun ConversationsScreen(
                 }
             }
         }
+    }
+
+    // Ask before signing out, so one wrong tap does not log the user out.
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            title = { Text("Đăng xuất?") },
+            text = { Text("Bạn có chắc muốn đăng xuất khỏi tài khoản này không? Tin nhắn vẫn được giữ, bạn chỉ cần đăng nhập lại để xem.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmSignOut = false
+                        scope.launch { attempt { ChatRepository.signOut() } }
+                    },
+                ) { Text("Đăng xuất") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSignOut = false }) { Text("Không") }
+            },
+        )
     }
 }
 

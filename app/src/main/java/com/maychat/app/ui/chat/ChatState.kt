@@ -127,6 +127,24 @@ class ChatState(
         loading = false
     }
 
+    // Safety net for when the live connection silently stops: quietly fetch
+    // the newest few messages. Errors are ignored here; refresh() reports them.
+    suspend fun poll() {
+        if (loading) return
+        val page = attempt { ChatRepository.loadMessages(conversationId, limit = 15) }.getOrNull() ?: return
+        var changed = false
+        page.forEach {
+            if (confirmed[it.id] != it) {
+                confirmed[it.id] = it
+                changed = true
+            }
+        }
+        if (changed) {
+            publish()
+            markReadIfNeeded()
+        }
+    }
+
     // Loads the page before the oldest message currently shown.
     fun loadOlder() {
         if (loadingOlder) return

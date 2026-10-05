@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.ui.common.Avatar
@@ -99,6 +101,20 @@ fun ChatScreen(
     // Live messages and read receipts.
     LaunchedEffect(conversationId) {
         ChatRepository.messageEvents.collect { state.onEvent(it) }
+    }
+
+    // Safety net: while this chat is on screen, also ask the server for new
+    // messages every 4 seconds. Normally the live connection delivers them
+    // instantly and this finds nothing; if the live connection has silently
+    // died, a message is at most 4 seconds late instead of lost until reopen.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(conversationId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(4_000)
+                state.poll()
+            }
+        }
     }
 
     // Only mark messages as read while the chat is really on screen.

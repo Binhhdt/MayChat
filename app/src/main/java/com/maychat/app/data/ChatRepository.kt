@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -61,6 +63,16 @@ object ChatRepository {
         val result = supabase.postgrest.rpc(
             "username_available",
             buildJsonObject { put("p_username", username) },
+        )
+        return result.data.trim() == "true"
+    }
+
+    // Asks the database whether an account with this email exists
+    // (see supabase_migration_04_email_check.sql).
+    suspend fun isEmailRegistered(email: String): Boolean {
+        val result = supabase.postgrest.rpc(
+            "email_registered",
+            buildJsonObject { put("p_email", email) },
         )
         return result.data.trim() == "true"
     }
@@ -207,7 +219,11 @@ object ChatRepository {
 
     // Loads one page of messages, newest first. Pass the time of the oldest
     // message already shown to get the page before it.
-    suspend fun loadMessages(conversationId: String, before: String? = null): List<Message> {
+    suspend fun loadMessages(
+        conversationId: String,
+        before: String? = null,
+        limit: Int = PAGE_SIZE,
+    ): List<Message> {
         // Convert to the "...Z" form so the value contains no "+" sign.
         val beforeUtc = before?.let {
             runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
@@ -219,7 +235,7 @@ object ChatRepository {
                     if (beforeUtc != null) lt("created_at", beforeUtc)
                 }
                 order("created_at", Order.DESCENDING)
-                limit(PAGE_SIZE.toLong())
+                limit(limit.toLong())
             }
             .decodeList<Message>()
     }
@@ -292,8 +308,19 @@ object ChatRepository {
     private var presenceChannel: RealtimeChannel? = null
     private val onlineCounts = HashMap<String, Int>()
 
-    suspend fun startRealtime(myId: String) {
-        stopRealtime()
+    // Makes sure two restarts never run at the same time.
+    private val realtimeMutex = Mutex()
+
+    suspend fun startRealtime(myId: String) = realtimeMutex.withLock {
+        closeRealtime()
+        openRealtime(myId)
+    }
+
+    suspend fun stopRealtime() = realtimeMutex.withLock {
+        closeRealtime()
+    }
+
+    private fun openRealtime(myId: String) {
 
         // Channel 1: database changes of the "messages" and "friendships" tables. The server only
         // sends rows this user may read (Row Level Security).
@@ -367,6 +394,30 @@ object ChatRepository {
             delay(300)
             launch { joinWithRetry(db) }
             launch { joinWithRetry(presence) }
+
+            // Watchdog: phones often drop the live connection (screen off,
+            // Wi-Fi to mobile data, battery saver). If a channel stays
+            // disconnected for about 20 seconds, throw both channels away
+            // and build fresh ones.
+            launch {
+                var badChecks = 0
+                while (isActive) {
+                    delay(7_000)
+                    val healthy = db.status.value == RealtimeChannel.Status.SUBSCRIBED &&
+                        presence.status.value == RealtimeChannel.Status.SUBSCRIBED
+                    if (healthy) {
+                        badChecks = 0
+                    } else {
+                        badChecks++
+                        if (badChecks >= 3) {
+                            // Started from the outer scope because the restart
+                            // cancels this very coroutine.
+                            scope.launch { startRealtime(myId) }
+                            break
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -388,7 +439,7 @@ object ChatRepository {
         }
     }
 
-    suspend fun stopRealtime() {
+    private suspend fun closeRealtime() {
         realtimeJob?.cancel()
         realtimeJob = null
         dbChannel?.let { ch -> runCatching { supabase.realtime.removeChannel(ch) } }

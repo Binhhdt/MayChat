@@ -2,6 +2,13 @@ package com.maychat.app.data
 
 import kotlinx.coroutines.CancellationException
 
+// True when Supabase rejected a login because the email or password is wrong.
+// Supabase gives the same answer for "no such account" and "wrong password".
+fun Throwable.isInvalidCredentials(): Boolean {
+    val text = (message ?: "").lowercase()
+    return "invalid login credentials" in text || "invalid_credentials" in text
+}
+
 // Runs a backend call and returns either the result or the error,
 // so screens never crash when the network disappears.
 suspend fun <T> attempt(block: suspend () -> T): Result<T> =
@@ -13,8 +20,12 @@ suspend fun <T> attempt(block: suspend () -> T): Result<T> =
         Result.failure(e)
     }
 
+// An error whose message is already written for the user (in Vietnamese).
+class UserFacingException(message: String) : Exception(message)
+
 // Turns a technical error into a message a person can understand.
 fun Throwable.toUserMessage(): String {
+    if (this is UserFacingException) return message ?: "Có lỗi xảy ra."
     val text = (message ?: "").lowercase()
     val className = this::class.simpleName ?: ""
     return when {

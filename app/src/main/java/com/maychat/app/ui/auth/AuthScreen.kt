@@ -33,8 +33,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.UserFacingException
 import com.maychat.app.data.attempt
+import com.maychat.app.data.isInvalidCredentials
 import com.maychat.app.data.toUserMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private val usernameRule = Regex("^[a-z0-9_]{3,20}$")
@@ -77,18 +80,33 @@ fun AuthScreen() {
             val result = attempt {
                 if (registerMode) {
                     if (!ChatRepository.isUsernameAvailable(cleanUsername)) {
-                        throw IllegalStateException("invalid_username")
+                        throw UserFacingException("Tên người dùng này đã có người dùng. Hãy chọn tên khác.")
                     }
                     ChatRepository.signUp(cleanEmail, password, cleanUsername, cleanName)
                     if (ChatRepository.currentUserId() == null) {
                         // Happens only if "Confirm email" is still switched on in Supabase.
-                        throw IllegalStateException(
+                        throw UserFacingException(
                             "Tài khoản đã tạo nhưng chưa đăng nhập được. " +
                                 "Kiểm tra lại mục Confirm email trong Supabase.",
                         )
                     }
                 } else {
-                    ChatRepository.signIn(cleanEmail, password)
+                    try {
+                        ChatRepository.signIn(cleanEmail, password)
+                    } catch (e: Exception) {
+                        if (e is CancellationException || !e.isInvalidCredentials()) throw e
+                        // Find out which of the two it is. If this check itself
+                        // fails (for example migration 04 was not run), fall
+                        // back to the general "email or password is wrong".
+                        val registered = attempt { ChatRepository.isEmailRegistered(cleanEmail) }.getOrNull()
+                        throw when (registered) {
+                            false -> UserFacingException(
+                                "Email này chưa đăng ký tài khoản. Bấm \"Chưa có tài khoản? Đăng ký\" ở dưới để tạo.",
+                            )
+                            true -> UserFacingException("Mật khẩu không đúng.")
+                            null -> e
+                        }
+                    }
                 }
             }
             busy = false
