@@ -28,6 +28,8 @@ jobs:
       # unpack it into the repository, delete the zip and commit the result.
       # The .github folder inside a zip is ignored on purpose: the automatic
       # token is not allowed to change workflow files.
+      # A zip may contain a file named ".maychat-delete" listing old files
+      # (one path per line) that must be removed from the repository.
       - name: Unpack uploaded source zip (if any)
         run: |
           shopt -s nullglob dotglob
@@ -46,6 +48,17 @@ jobs:
               src="${entries[0]}"
             fi
             rm -rf "$src/.github" "$src/.git"
+            if [ -f "$src/.maychat-delete" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                path="$(printf '%s' "$line" | tr -d '\r')"
+                case "$path" in
+                  ""|"#"*|/*|*..*|.git*) continue ;;
+                esac
+                echo "Removing old file: $path"
+                rm -rf -- "$path"
+              done < "$src/.maychat-delete"
+              rm -f "$src/.maychat-delete"
+            fi
             cp -a "$src"/. .
             rm -f "$z"
             rm -rf "$tmp"
@@ -65,6 +78,30 @@ jobs:
           if [ ! -f settings.gradle.kts ]; then
             echo "::error::settings.gradle.kts not found. Upload MayChat.zip to the top of the repository, then run this workflow again."
             exit 1
+          fi
+
+      # The app needs the Supabase address and publishable key at build time.
+      # They are stored in GitHub Secrets, never in the source code.
+      - name: Check Supabase secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if grep -q "SUPABASE_URL" app/build.gradle.kts; then
+            if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+              echo "::error::Missing GitHub secret SUPABASE_URL or SUPABASE_KEY. Add both in Settings > Secrets and variables > Actions, then run this workflow again."
+              exit 1
+            fi
+            case "$SUPABASE_URL" in
+              https://*.supabase.co*) ;;
+              *) echo "::error::SUPABASE_URL must look like https://xxxxxxxx.supabase.co"; exit 1 ;;
+            esac
+            case "$SUPABASE_KEY" in
+              sb_secret_*) echo "::error::SUPABASE_KEY is a SECRET key. Use the publishable key (sb_publishable_...) instead, and delete this secret key in Supabase."; exit 1 ;;
+            esac
+            echo "Supabase secrets are present."
+          else
+            echo "This version of the app does not use Supabase yet."
           fi
 
       - name: Set up JDK 17
@@ -90,6 +127,9 @@ jobs:
           gradle-version: "9.4.1"
 
       - name: Build debug APK
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
