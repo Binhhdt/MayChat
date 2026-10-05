@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- No permissions yet. INTERNET is added in Phase 2 when Firebase needs it. -->
+    <!-- Needed to talk to Supabase. Granted automatically, no popup. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
@@ -11,9 +12,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MayChat">
 
+        <!-- configChanges: Compose redraws by itself on rotation, so the screen
+             state (open chat, typed text) is kept instead of being reset. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

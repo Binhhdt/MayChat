@@ -2,38 +2,44 @@
 
 Ứng dụng nhắn tin và gọi điện cho Android, viết bằng Kotlin và Jetpack Compose. Mã nguồn nằm trên GitHub, APK được build tự động bằng GitHub Actions.
 
-**Trạng thái hiện tại: Giai đoạn 1** (khung dự án, màn hình chính đơn giản, build APK tự động). Chưa có đăng nhập, chưa có nhắn tin.
+**Trạng thái hiện tại: Mốc 1.** Đăng ký, đăng nhập, tìm người dùng, nhắn tin văn bản realtime, trạng thái online, đã xem. Backend là Supabase gói Free. Chưa có thông báo đẩy, gọi điện, gửi ảnh.
 
-## Tính năng theo giai đoạn
+## Các mốc
 
-| Giai đoạn | Nội dung | Trạng thái |
+| Mốc | Nội dung | Trạng thái |
 |---|---|---|
-| 1 | Dự án Android, Compose, GitHub Actions build APK | Đang kiểm tra |
-| 2 | Đăng ký, đăng nhập, đăng xuất (Firebase Auth) | Chưa làm |
-| 3 | Hồ sơ người dùng, username, avatar | Chưa làm |
-| 4 | Tìm người dùng, kết bạn | Chưa làm |
-| 5 | Nhắn tin realtime giữa 2 điện thoại thật | Chưa làm |
-| 6 | Thông báo đẩy | Chưa làm |
-| 7 | Gọi thoại WebRTC | Chưa làm |
-| 8 | Gọi video WebRTC | Chưa làm |
-| 9 | Gửi ảnh | Chưa làm |
-| 10 | Tin nhắn thoại | Chưa làm |
-| 11 | Tăng cường bảo mật | Chưa làm |
-| 12 | Hoàn thiện giao diện, tối ưu | Chưa làm |
+| Khung | Dự án Android, Compose, GitHub Actions build APK | Xong, đã chạy trên điện thoại |
+| 1 | Tài khoản, tìm người dùng, chat realtime, online, đã xem | Đang kiểm tra |
+| 2 | Thông báo đẩy (FCM) | Chưa làm |
+| 3 | Kết bạn, chặn | Chưa làm |
+| 4 | Gọi thoại, gọi video (WebRTC, STUN) | Chưa làm |
+| 5 | Ảnh, tin nhắn thoại | Chưa làm |
 
 ## Công nghệ
 
 | Thành phần | Phiên bản | Ghi chú |
 |---|---|---|
-| Android Gradle Plugin | 9.2.0 | Tự biên dịch Kotlin (built-in Kotlin) |
-| Gradle | 9.4.1 | Mức tối thiểu mà AGP 9.2.0 yêu cầu |
+| Android Gradle Plugin | 9.2.0 | Tự biên dịch Kotlin |
+| Gradle | 9.4.1 | |
 | Kotlin | 2.3.10 | |
 | JDK | 17 | |
-| Compose BOM | 2025.12.00 | Chọn bản đã ổn định lâu, sẽ nâng sau khi build đầu tiên thành công |
-| compileSdk / targetSdk | 36 | |
-| minSdk | 26 | Android 8.0 trở lên |
+| Compose BOM | 2025.12.00 | |
+| supabase-kt | 3.6.0 | Thư viện Kotlin cho Supabase, do cộng đồng duy trì |
+| Ktor (OkHttp engine) | theo supabase-kt | Gradle tự chọn phiên bản khớp |
+| compileSdk / minSdk | 36 / 26 | Android 8.0 trở lên |
 
-Tên gói (package name): `com.maychat.app`. Firebase ở Giai đoạn 2 sẽ gắn với tên này, nên nếu muốn đổi thì đổi **trước** Giai đoạn 2.
+Tên gói: `com.maychat.app`.
+
+## Supabase
+
+Cơ sở dữ liệu được tạo bằng file `supabase_schema.sql` (chạy một lần trong SQL Editor). App cần hai giá trị, lưu trong GitHub Secrets chứ không nằm trong mã nguồn:
+
+| Tên secret | Giá trị |
+|---|---|
+| `SUPABASE_URL` | Project URL, dạng `https://xxxxxxxx.supabase.co` |
+| `SUPABASE_KEY` | Publishable key, bắt đầu bằng `sb_publishable_` |
+
+Không bao giờ dùng Secret key (`sb_secret_...`) trong app.
 
 ## Cấu trúc thư mục
 
@@ -46,9 +52,8 @@ MayChat/
 │       ├── AndroidManifest.xml
 │       ├── java/com/maychat/app/
 │       │   ├── MainActivity.kt       ← điểm khởi động app
-│       │   └── ui/
-│       │       ├── home/HomeScreen.kt
-│       │       └── theme/Theme.kt
+│       │   ├── data/                 ← mọi thứ nói chuyện với Supabase
+│       │   └── ui/                   ← các màn hình (auth, main, chat)
 │       └── res/                      ← chữ, màu, icon
 ├── build.gradle.kts                  ← phiên bản các plugin
 ├── settings.gradle.kts
