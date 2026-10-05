@@ -55,6 +55,7 @@ fun ConversationsScreen(
     myId: String,
     onOpenSearch: () -> Unit,
     onOpenChat: (conversationId: String, other: Profile) -> Unit,
+    bottomBar: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val online by ChatRepository.onlineUsers.collectAsState()
@@ -119,6 +120,7 @@ fun ConversationsScreen(
                 },
             )
         },
+        bottomBar = bottomBar,
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             error?.let {

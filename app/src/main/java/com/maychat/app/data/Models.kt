@@ -33,6 +33,11 @@ data class Message(
     val content: String,
     @SerialName("created_at") val createdAt: String,
     @SerialName("read_at") val readAt: String? = null,
+    // "text", "image" or "voice"
+    val kind: String = "text",
+    // Where the image/voice file is in Supabase Storage (null for text).
+    @SerialName("media_path") val mediaPath: String? = null,
+    @SerialName("duration_ms") val durationMs: Int? = null,
 )
 
 // What the app sends when creating a message. The database fills in the
@@ -47,4 +52,30 @@ data class NewMessage(
 data class ConversationItem(
     val conversation: Conversation,
     val other: Profile,
+)
+
+// One row of the "friendships" table: a pending request or an accepted friendship.
+@Serializable
+data class Friendship(
+    val id: String,
+    @SerialName("user_a") val userA: String,
+    @SerialName("user_b") val userB: String,
+    @SerialName("requested_by") val requestedBy: String,
+    val status: String,
+)
+
+// One row of the "blocks" table (only rows where I am the blocker are visible).
+@Serializable
+data class Block(
+    @SerialName("blocked_id") val blockedId: String,
+)
+
+// What the app sends when creating an image or voice message.
+@Serializable
+data class NewMediaMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    val kind: String,
+    @SerialName("media_path") val mediaPath: String,
+    @SerialName("duration_ms") val durationMs: Int?,
 )

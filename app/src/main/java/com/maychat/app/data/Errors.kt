@@ -38,6 +38,15 @@ fun Throwable.toUserMessage(): String {
         "weak_password" in text || ("password" in text && "at least" in text) ->
             "Mật khẩu quá yếu. Cần ít nhất 6 ký tự."
 
+        "blocked" in text || "row-level security" in text ->
+            "Không thực hiện được vì một trong hai người đã chặn người kia."
+
+        "payload too large" in text || "exceeded the maximum allowed size" in text ->
+            "File quá lớn (tối đa 5 MB)."
+
+        "bucket not found" in text ->
+            "Máy chủ chưa bật lưu ảnh và ghi âm. Hãy chạy file supabase_migration_03_media.sql."
+
         "rate limit" in text || "over_request_rate_limit" in text ->
             "Thao tác quá nhanh. Chờ một lát rồi thử lại."
 

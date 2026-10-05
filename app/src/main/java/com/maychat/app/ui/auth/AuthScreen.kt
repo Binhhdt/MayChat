@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.attempt
@@ -48,6 +49,7 @@ fun AuthScreen() {
     var registerMode by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -127,7 +129,13 @@ fun AuthScreen() {
             label = { Text("Mật khẩu") },
             singleLine = true,
             enabled = !busy,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation =
+                if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                TextButton(onClick = { showPassword = !showPassword }) {
+                    Text(if (showPassword) "Ẩn" else "Hiện")
+                }
+            },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
         )

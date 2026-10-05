@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -20,10 +21,24 @@ data class UiMessage(
     val mine: Boolean,
     val createdAt: String?,
     val state: SendState,
+    val kind: String = "text",          // "text", "image" or "voice"
+    val mediaPath: String? = null,      // null while my own file is still uploading
+    val durationMs: Int? = null,
 )
 
-// A message I typed that the server has not confirmed yet.
-private class PendingMessage(val localId: String, val text: String, var failed: Boolean = false)
+// A message I created that the server has not confirmed yet.
+private class PendingMessage(
+    val localId: String,
+    val text: String,
+    val kind: String = "text",
+    val bytes: ByteArray? = null,
+    val durationMs: Int? = null,
+) {
+    var failed: Boolean = false
+
+    // Set once the file is uploaded, so a retry does not upload it twice.
+    var uploadedPath: String? = null
+}
 
 // Holds everything the chat screen shows for ONE conversation and talks to
 // the repository. All functions are called from the main thread.
@@ -51,6 +66,10 @@ class ChatState(
     var error by mutableStateOf<String?>(null)
         private set
 
+    fun showError(message: String) {
+        error = message
+    }
+
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
         val sent = confirmed.values
@@ -63,6 +82,9 @@ class ChatState(
                     mine = mine,
                     createdAt = m.createdAt,
                     state = if (mine && m.readAt != null) SendState.READ else SendState.SENT,
+                    kind = m.kind,
+                    mediaPath = m.mediaPath,
+                    durationMs = m.durationMs,
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -72,6 +94,9 @@ class ChatState(
                 mine = true,
                 createdAt = null,
                 state = if (p.failed) SendState.FAILED else SendState.SENDING,
+                kind = p.kind,
+                mediaPath = p.uploadedPath,
+                durationMs = p.durationMs,
             )
         }
         messages = waiting + sent
@@ -131,10 +156,23 @@ class ChatState(
     fun send(text: String) {
         val clean = text.trim()
         if (clean.isEmpty()) return
-        val item = PendingMessage(UUID.randomUUID().toString(), clean.take(4000))
-        pending.add(item)
-        publish()
-        deliver(item)
+        enqueue(PendingMessage(UUID.randomUUID().toString(), clean.take(4000)))
+    }
+
+    fun sendImage(jpegBytes: ByteArray) {
+        enqueue(PendingMessage(UUID.randomUUID().toString(), "📷 Ảnh", kind = "image", bytes = jpegBytes))
+    }
+
+    fun sendVoice(audioBytes: ByteArray, durationMs: Int) {
+        enqueue(
+            PendingMessage(
+                UUID.randomUUID().toString(),
+                "🎤 Tin nhắn thoại",
+                kind = "voice",
+                bytes = audioBytes,
+                durationMs = durationMs,
+            ),
+        )
     }
 
     fun retry(localId: String) {
@@ -144,15 +182,42 @@ class ChatState(
         deliver(item)
     }
 
+    private fun enqueue(item: PendingMessage) {
+        pending.add(item)
+        publish()
+        deliver(item)
+    }
+
     private fun deliver(item: PendingMessage) {
         scope.launch {
-            attempt { ChatRepository.sendMessage(conversationId, item.text) }
+            attempt {
+                val data = item.bytes
+                if (item.kind == "text" || data == null) {
+                    ChatRepository.sendMessage(conversationId, item.text)
+                } else {
+                    // Step 1: upload the file (skipped on retry if already done).
+                    val path = item.uploadedPath ?: run {
+                        val extension = if (item.kind == "image") "jpg" else "m4a"
+                        val newPath = "$conversationId/${UUID.randomUUID()}.$extension"
+                        ChatRepository.uploadMedia(newPath, data)
+                        MediaCache.put(newPath, data)
+                        item.uploadedPath = newPath
+                        newPath
+                    }
+                    // Step 2: create the message that points to the file.
+                    ChatRepository.sendMediaMessage(conversationId, item.kind, path, item.text, item.durationMs)
+                }
+            }
                 .onSuccess { saved ->
                     pending.remove(item)
                     // Keep a newer copy if the live event already arrived.
                     if (confirmed[saved.id] == null) confirmed[saved.id] = saved
+                    error = null
                 }
-                .onFailure { item.failed = true }
+                .onFailure {
+                    item.failed = true
+                    error = it.toUserMessage()
+                }
             publish()
         }
     }

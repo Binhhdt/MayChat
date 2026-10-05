@@ -6,6 +6,7 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.storage.Storage
 
 // Creates the one Supabase client used by the whole app.
 // The URL and the publishable key come from the build (GitHub Secrets),
@@ -25,6 +26,7 @@ object SupabaseProvider {
             install(Auth)       // accounts, login session (saved on the phone)
             install(Postgrest)  // read/write database tables
             install(Realtime)   // live updates over a WebSocket
+            install(Storage)    // image and voice files
         }
     }
 }

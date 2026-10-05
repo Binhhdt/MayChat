@@ -11,6 +11,7 @@ import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -116,6 +117,56 @@ object ChatRepository {
             .decodeList<Profile>()
     }
 
+    suspend fun loadProfiles(ids: List<String>): List<Profile> {
+        if (ids.isEmpty()) return emptyList()
+        return supabase.postgrest.from("profiles")
+            .select { filter { isIn("id", ids) } }
+            .decodeList<Profile>()
+    }
+
+    // ------------------------------------------------------------------
+    // Friends and blocking
+    // The security rules only return rows that involve me. All changes go
+    // through database functions that check who is calling.
+    // ------------------------------------------------------------------
+
+    suspend fun loadFriendships(): List<Friendship> =
+        supabase.postgrest.from("friendships")
+            .select { limit(500L) }
+            .decodeList<Friendship>()
+
+    suspend fun loadBlockedIds(): List<String> =
+        supabase.postgrest.from("blocks")
+            .select { limit(500L) }
+            .decodeList<Block>()
+            .map { it.blockedId }
+
+    suspend fun sendFriendRequest(otherId: String) {
+        supabase.postgrest.rpc("send_friend_request", buildJsonObject { put("p_other", otherId) })
+    }
+
+    suspend fun respondFriendRequest(otherId: String, accept: Boolean) {
+        supabase.postgrest.rpc(
+            "respond_friend_request",
+            buildJsonObject {
+                put("p_other", otherId)
+                put("p_accept", accept)
+            },
+        )
+    }
+
+    suspend fun removeFriend(otherId: String) {
+        supabase.postgrest.rpc("remove_friend", buildJsonObject { put("p_other", otherId) })
+    }
+
+    suspend fun blockUser(otherId: String) {
+        supabase.postgrest.rpc("block_user", buildJsonObject { put("p_other", otherId) })
+    }
+
+    suspend fun unblockUser(otherId: String) {
+        supabase.postgrest.rpc("unblock_user", buildJsonObject { put("p_other", otherId) })
+    }
+
     // ------------------------------------------------------------------
     // Conversations
     // ------------------------------------------------------------------
@@ -178,6 +229,31 @@ object ChatRepository {
             .insert(NewMessage(conversationId, text)) { select() }
             .decodeSingle<Message>()
 
+    // ------------------------------------------------------------------
+    // Images and voice messages (Supabase Storage, private bucket)
+    // ------------------------------------------------------------------
+
+    const val MEDIA_BUCKET = "chat-media"
+
+    // path looks like "<conversation id>/<random name>.jpg"
+    suspend fun uploadMedia(path: String, bytes: ByteArray) {
+        supabase.storage.from(MEDIA_BUCKET).upload(path, bytes)
+    }
+
+    suspend fun downloadMedia(path: String): ByteArray =
+        supabase.storage.from(MEDIA_BUCKET).downloadAuthenticated(path)
+
+    suspend fun sendMediaMessage(
+        conversationId: String,
+        kind: String,
+        mediaPath: String,
+        label: String,
+        durationMs: Int?,
+    ): Message =
+        supabase.postgrest.from("messages")
+            .insert(NewMediaMessage(conversationId, label, kind, mediaPath, durationMs)) { select() }
+            .decodeSingle<Message>()
+
     suspend fun markConversationRead(conversationId: String) {
         supabase.postgrest.rpc(
             "mark_conversation_read",
@@ -193,6 +269,11 @@ object ChatRepository {
 
     // Every new or changed message I am allowed to see arrives here.
     val messageEvents: SharedFlow<Message> = _messageEvents.asSharedFlow()
+
+    private val _friendEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
+
+    // Fires when a friend request or friendship that involves me changes.
+    val friendEvents: SharedFlow<Unit> = _friendEvents.asSharedFlow()
 
     private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
 
@@ -214,7 +295,7 @@ object ChatRepository {
     suspend fun startRealtime(myId: String) {
         stopRealtime()
 
-        // Channel 1: database changes of the "messages" table. The server only
+        // Channel 1: database changes of the "messages" and "friendships" tables. The server only
         // sends rows this user may read (Row Level Security).
         val db = supabase.channel("messages-$myId-${System.currentTimeMillis()}")
         // Channel 2: one shared channel where every open app announces itself.
@@ -238,6 +319,13 @@ object ChatRepository {
                             .onSuccess { _messageEvents.emit(it) }
                     }
                 }
+            }
+
+            val friendChanges = db.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "friendships"
+            }
+            launch {
+                friendChanges.collect { _friendEvents.emit(Unit) }
             }
 
             val presenceChanges = presence.presenceChangeFlow()

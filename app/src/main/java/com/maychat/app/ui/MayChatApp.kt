@@ -14,24 +14,31 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.SupabaseProvider
+import com.maychat.app.data.attempt
+import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.main.ConversationsScreen
+import com.maychat.app.ui.main.FriendsScreen
+import com.maychat.app.ui.main.FriendsState
+import com.maychat.app.ui.main.MainBottomBar
+import com.maychat.app.ui.main.MainTab
 import com.maychat.app.ui.main.SearchScreen
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.launch
 
-// Which screen is showing after login.
-private sealed interface Screen {
-    data object Conversations : Screen
-    data object Search : Screen
-    data class Chat(val conversationId: String, val other: Profile) : Screen
+// A screen shown on top of the two main tabs.
+private sealed interface Overlay {
+    data object Search : Overlay
+    data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
 
 // Top of the app: decides between "not configured", login, and the main screens.
@@ -57,34 +64,77 @@ fun MayChatApp() {
 
 @Composable
 private fun MainScreens(myId: String) {
-    var screen by remember(myId) { mutableStateOf<Screen>(Screen.Conversations) }
+    val scope = rememberCoroutineScope()
+    val friends = remember(myId) { FriendsState(myId, scope) }
+    val connectionCount by ChatRepository.connectionCount.collectAsState()
+
+    var tab by remember(myId) { mutableStateOf(MainTab.CHATS) }
+    var overlay by remember(myId) { mutableStateOf<Overlay?>(null) }
 
     // Open the live connection once per logged-in user.
     LaunchedEffect(myId) {
         ChatRepository.startRealtime(myId)
     }
 
-    // The phone's Back button goes back to the conversation list.
-    BackHandler(enabled = screen != Screen.Conversations) {
-        screen = Screen.Conversations
+    // Load friends at start, and again whenever the live connection comes back.
+    LaunchedEffect(myId, connectionCount) {
+        friends.reload()
     }
 
-    when (val current = screen) {
-        Screen.Conversations -> ConversationsScreen(
-            myId = myId,
-            onOpenSearch = { screen = Screen.Search },
-            onOpenChat = { id, other -> screen = Screen.Chat(id, other) },
+    // A friend request arrived or was answered on another phone.
+    LaunchedEffect(myId) {
+        ChatRepository.friendEvents.collect { friends.reload() }
+    }
+
+    // The phone's Back button closes the chat or search screen.
+    BackHandler(enabled = overlay != null) {
+        overlay = null
+    }
+
+    // Finds (or creates) my conversation with this person, then shows it.
+    fun openChat(person: Profile) {
+        scope.launch {
+            attempt { ChatRepository.openConversation(person.id) }
+                .onSuccess { id -> overlay = Overlay.Chat(id, person) }
+                .onFailure { friends.error = it.toUserMessage() }
+        }
+    }
+
+    val bottomBar: @Composable () -> Unit = {
+        MainBottomBar(
+            selected = tab,
+            incomingRequests = friends.incoming.size,
+            onSelect = { tab = it },
         )
-        Screen.Search -> SearchScreen(
+    }
+
+    when (val current = overlay) {
+        null -> when (tab) {
+            MainTab.CHATS -> ConversationsScreen(
+                myId = myId,
+                onOpenSearch = { overlay = Overlay.Search },
+                onOpenChat = { id, other -> overlay = Overlay.Chat(id, other) },
+                bottomBar = bottomBar,
+            )
+            MainTab.FRIENDS -> FriendsScreen(
+                friends = friends,
+                onOpenSearch = { overlay = Overlay.Search },
+                onOpenChat = { openChat(it) },
+                bottomBar = bottomBar,
+            )
+        }
+        Overlay.Search -> SearchScreen(
             myId = myId,
-            onBack = { screen = Screen.Conversations },
-            onOpenChat = { id, other -> screen = Screen.Chat(id, other) },
+            friends = friends,
+            onBack = { overlay = null },
+            onOpenChat = { openChat(it) },
         )
-        is Screen.Chat -> ChatScreen(
+        is Overlay.Chat -> ChatScreen(
             myId = myId,
             conversationId = current.conversationId,
             other = current.other,
-            onBack = { screen = Screen.Conversations },
+            friends = friends,
+            onBack = { overlay = null },
         )
     }
 }

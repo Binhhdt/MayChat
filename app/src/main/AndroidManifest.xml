@@ -4,6 +4,12 @@
     <!-- Needed to talk to Supabase. Granted automatically, no popup. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Needed only for voice messages. Android asks the user the first time
+         the microphone button is pressed. Picking a photo needs no permission:
+         the system photo picker is used. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
