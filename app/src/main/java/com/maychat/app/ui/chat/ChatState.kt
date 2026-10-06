@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
+import com.maychat.app.data.Reaction
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +26,13 @@ data class UiMessage(
     val mediaPath: String? = null,      // null while my own file is still uploading
     val durationMs: Int? = null,
     val recalled: Boolean = false,      // the sender took it back
+    val replyPreview: String? = null,   // quoted text, when this message is a reply
+    val replyToMine: Boolean = false,   // the quoted message was written by me
+    val reactions: List<ReactionChip> = emptyList(),
 )
+
+// One emoji under a message: how many people chose it, and whether I did.
+data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
 
 // A message I created that the server has not confirmed yet.
 private class PendingMessage(
@@ -34,6 +41,10 @@ private class PendingMessage(
     val kind: String = "text",
     val bytes: ByteArray? = null,
     val durationMs: Int? = null,
+    // Filled in when this message answers another one.
+    val replyToId: String? = null,
+    val replyPreview: String? = null,
+    val replySenderId: String? = null,
 ) {
     var failed: Boolean = false
 
@@ -55,6 +66,10 @@ class ChatState(
 
     // Messages I chose to hide on my side only ("delete for me").
     private val hidden = HashSet<String>()
+
+    // Reactions by message id.
+    private var reactions: Map<String, List<Reaction>> = emptyMap()
+    private var pollCount = 0
 
     // True while the chat is on screen. Messages are only marked as read then.
     var visible = false
@@ -91,6 +106,9 @@ class ChatState(
                     mediaPath = m.mediaPath,
                     durationMs = m.durationMs,
                     recalled = m.recalledAt != null,
+                    replyPreview = m.replyPreview,
+                    replyToMine = m.replySenderId == myId,
+                    reactions = chipsFor(m.id),
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -103,9 +121,46 @@ class ChatState(
                 kind = p.kind,
                 mediaPath = p.uploadedPath,
                 durationMs = p.durationMs,
+                replyPreview = p.replyPreview,
+                replyToMine = p.replySenderId == myId,
             )
         }
         messages = waiting + sent
+    }
+
+    // Groups the reactions of one message: same emoji together, most used first.
+    private fun chipsFor(messageId: String): List<ReactionChip> {
+        val list = reactions[messageId] ?: return emptyList()
+        return list.groupBy { it.emoji }
+            .map { (emoji, group) -> ReactionChip(emoji, group.size, group.any { it.userId == myId }) }
+            .sortedByDescending { it.count }
+    }
+
+    // Loads all reactions of this conversation. If this fails (for example
+    // migration 10 was not run) no reactions are shown, exactly as before.
+    suspend fun reloadReactions() {
+        attempt { ChatRepository.loadReactions(conversationId) }.onSuccess { all ->
+            reactions = all.groupBy { it.messageId }
+            publish()
+        }
+    }
+
+    // Tap an emoji: sets it as my reaction; tapping my current one removes it.
+    fun react(messageId: String, emoji: String) {
+        val current = reactions[messageId]?.firstOrNull { it.userId == myId }?.emoji
+        val next: String? = if (current == emoji) null else emoji
+
+        // Show the change at once, then confirm with the server.
+        val others = (reactions[messageId] ?: emptyList()).filter { it.userId != myId }
+        val updated = if (next == null) others else others + Reaction(messageId, myId, next)
+        reactions = reactions + (messageId to updated)
+        publish()
+
+        scope.launch {
+            attempt { ChatRepository.setReaction(messageId, next) }
+                .onFailure { error = it.toUserMessage() }
+            reloadReactions()
+        }
     }
 
     private fun markReadIfNeeded() {
@@ -137,12 +192,16 @@ class ChatState(
             }
             .onFailure { error = it.toUserMessage() }
         loading = false
+        reloadReactions()
     }
 
     // Safety net for when the live connection silently stops: quietly fetch
     // the newest few messages. Errors are ignored here; refresh() reports them.
     suspend fun poll() {
         if (loading) return
+        // Every third time (about every 12 seconds) also re-read reactions.
+        pollCount++
+        if (pollCount % 3 == 0) reloadReactions()
         val page = attempt { ChatRepository.loadMessages(conversationId, limit = 15) }.getOrNull() ?: return
         var changed = false
         page.forEach {
@@ -209,10 +268,24 @@ class ChatState(
         }
     }
 
-    fun send(text: String) {
+    // replyToKey: the message being answered (its key on screen), or null.
+    fun send(text: String, replyToKey: String? = null) {
         val clean = text.trim()
         if (clean.isEmpty()) return
-        enqueue(PendingMessage(UUID.randomUUID().toString(), clean.take(4000)))
+        val original = replyToKey?.let { confirmed[it] }
+        if (original == null) {
+            enqueue(PendingMessage(UUID.randomUUID().toString(), clean.take(4000)))
+        } else {
+            enqueue(
+                PendingMessage(
+                    UUID.randomUUID().toString(),
+                    clean.take(4000),
+                    replyToId = original.id,
+                    replyPreview = original.content.take(120),
+                    replySenderId = original.senderId,
+                ),
+            )
+        }
     }
 
     fun sendImage(jpegBytes: ByteArray) {
@@ -248,7 +321,12 @@ class ChatState(
         scope.launch {
             attempt {
                 val data = item.bytes
-                if (item.kind == "text" || data == null) {
+                val replyToId = item.replyToId
+                val replyPreview = item.replyPreview
+                val replySenderId = item.replySenderId
+                if (item.kind == "text" && replyToId != null && replyPreview != null && replySenderId != null) {
+                    ChatRepository.sendReply(conversationId, item.text, replyToId, replyPreview, replySenderId)
+                } else if (item.kind == "text" || data == null) {
                     ChatRepository.sendMessage(conversationId, item.text)
                 } else {
                     // Step 1: upload the file (skipped on retry if already done).

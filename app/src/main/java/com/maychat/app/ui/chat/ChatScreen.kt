@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -18,19 +19,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -52,17 +62,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.maychat.app.R
 import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
@@ -110,6 +126,16 @@ fun ChatScreen(
 
     // The picture currently open on the whole screen (null = none).
     var viewerPath by remember(conversationId) { mutableStateOf<String?>(null) }
+
+    // The message I am answering (null = a normal message).
+    var replyingTo by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
+    // Whether the emoji panel under the text box is open.
+    var emojiOpen by remember(conversationId) { mutableStateOf(false) }
+
+    // Someone reacted to a message: refresh the reactions.
+    LaunchedEffect(conversationId) {
+        ChatRepository.reactionEvents.collect { state.reloadReactions() }
+    }
 
     val relation = friends.relation(other.id)
     val blockedByMe = relation == Relation.BLOCKED
@@ -401,6 +427,9 @@ fun ChatScreen(
                                 onOpenImage = { viewerPath = it },
                                 onRecall = { state.recall(message.key) },
                                 onHide = { state.hide(message.key) },
+                                otherName = other.displayName,
+                                onReply = { replyingTo = message },
+                                onReact = { emoji -> state.react(message.key, emoji) },
                             )
                         }
                         if (state.hasOlder) {
@@ -494,30 +523,58 @@ fun ChatScreen(
                     Button(onClick = { finishRecording(send = true) }) { Text("Gửi") }
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    TextButton(
-                        onClick = {
-                            pickImage.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                // "Replying to ..." strip above the text box.
+                replyingTo?.let { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_reply),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (target.mine) "Trả lời chính bạn" else "Trả lời ${other.displayName}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                        },
-                        enabled = !blockedByMe,
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                    ) { Text("🖼", style = MaterialTheme.typography.titleLarge) }
-                    TextButton(
-                        onClick = {
-                            val granted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO,
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (granted) startRecording() else askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        enabled = !blockedByMe,
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                    ) { Text("🎤", style = MaterialTheme.typography.titleLarge) }
+                            Text(
+                                target.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        TextButton(onClick = { replyingTo = null }) { Text("✕") }
+                    }
+                }
+
+                // Text box row: emoji on the left; microphone and picture on the
+                // right while the box is empty, the send button once there is text.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { emojiOpen = !emojiOpen }, enabled = !blockedByMe) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_emoji),
+                            contentDescription = "Biểu tượng cảm xúc",
+                            tint = if (emojiOpen) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
                     OutlinedTextField(
                         value = draft,
                         onValueChange = {
@@ -529,22 +586,68 @@ fun ChatScreen(
                                 scope.launch { ChatRepository.sendTyping(conversationId, myId) }
                             }
                         },
-                        placeholder = { Text("Nhập tin nhắn") },
+                        placeholder = { Text("Tin nhắn") },
                         enabled = !blockedByMe,
                         maxLines = 4,
+                        shape = RoundedCornerShape(24.dp),
                         modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            state.send(draft)
-                            draft = ""
-                        },
-                        enabled = draft.isNotBlank() && !blockedByMe,
-                    ) {
-                        Text("Gửi")
+                    if (draft.isBlank()) {
+                        IconButton(
+                            onClick = {
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (granted) startRecording() else askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            enabled = !blockedByMe,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_mic),
+                                contentDescription = "Ghi tin nhắn thoại",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                pickImage.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            enabled = !blockedByMe,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_image),
+                                contentDescription = "Gửi ảnh",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.width(4.dp))
+                        FilledIconButton(
+                            onClick = {
+                                state.send(draft, replyToKey = replyingTo?.key)
+                                draft = ""
+                                replyingTo = null
+                            },
+                            enabled = !blockedByMe,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_send),
+                                contentDescription = "Gửi",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
                     }
-                    Spacer(Modifier.width(8.dp))
+                }
+
+                // Emoji panel: tap one to add it to the message.
+                if (emojiOpen) {
+                    EmojiPanel(onPick = { draft += it })
                 }
             }
         }
@@ -584,6 +687,9 @@ private fun MessageBubble(
     onOpenImage: (String) -> Unit,
     onRecall: () -> Unit,
     onHide: () -> Unit,
+    otherName: String,
+    onReply: () -> Unit,
+    onReact: (String) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     var menuOpen by remember(message.key) { mutableStateOf(false) }
@@ -666,16 +772,63 @@ private fun MessageBubble(
                             onClick = { if (failed) onRetry() },
                         ),
                 ) {
-                    Text(
-                        message.text,
-                        color = textColor,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        // The quoted message, when this one is a reply.
+                        val quote = message.replyPreview
+                        if (quote != null) {
+                            Surface(
+                                color = textColor.copy(alpha = 0.14f),
+                                contentColor = textColor,
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                    Text(
+                                        if (message.replyToMine) "Bạn" else otherName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        quote,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        Text(message.text, color = textColor)
+                    }
                 }
             }
 
             // Press-and-hold menu.
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (!message.recalled) {
+                    // Quick reactions.
+                    Row(modifier = Modifier.padding(horizontal = 8.dp)) {
+                        QUICK_REACTIONS.forEach { emoji ->
+                            Text(
+                                emoji,
+                                fontSize = 24.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        menuOpen = false
+                                        onReact(emoji)
+                                    }
+                                    .padding(8.dp),
+                            )
+                        }
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Trả lời") },
+                        onClick = {
+                            menuOpen = false
+                            onReply()
+                        },
+                    )
+                }
                 if (message.kind == "text" && !message.recalled) {
                     DropdownMenuItem(
                         text = { Text("Sao chép") },
@@ -703,6 +856,31 @@ private fun MessageBubble(
                 )
             }
         }
+        // Reactions under the bubble. Tapping mine removes it.
+        if (message.reactions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                message.reactions.forEach { chip ->
+                    Surface(
+                        onClick = { onReact(chip.emoji) },
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (chip.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        ),
+                    ) {
+                        Text(
+                            if (chip.count > 1) "${chip.emoji} ${chip.count}" else chip.emoji,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+            }
+        }
         Text(
             meta,
             style = MaterialTheme.typography.labelSmall,
@@ -713,5 +891,44 @@ private fun MessageBubble(
             },
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
         )
+    }
+}
+
+// The six reactions offered in the press-and-hold menu.
+private val QUICK_REACTIONS = listOf("❤️", "👍", "😆", "😮", "😢", "😡")
+
+// Emojis offered in the panel under the text box.
+private val PANEL_EMOJIS = listOf(
+    "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😋",
+    "😎", "🤔", "😴", "😢", "😭", "😡", "😱", "🥰",
+    "😇", "🙂", "😉", "😅", "🤗", "🤩", "😏", "😬",
+    "👍", "👎", "👏", "🙏", "💪", "👌", "🤝", "✌️",
+    "❤️", "💔", "💕", "🔥", "✨", "🎉", "🎂", "🌹",
+    "☕", "🍜", "🍻", "⚽", "🎵", "📞", "✅", "❌",
+)
+
+// Simple emoji keyboard: a grid of common emojis.
+@Composable
+private fun EmojiPanel(onPick: (String) -> Unit) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(8),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentPadding = PaddingValues(8.dp),
+    ) {
+        items(PANEL_EMOJIS) { emoji ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clip(CircleShape)
+                    .clickable { onPick(emoji) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(emoji, fontSize = 24.sp)
+            }
+        }
     }
 }

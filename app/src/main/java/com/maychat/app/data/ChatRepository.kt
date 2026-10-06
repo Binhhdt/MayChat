@@ -388,6 +388,38 @@ object ChatRepository {
             buildJsonObject { put("p_conversation", conversationId) },
         ).decodeList<String>().toSet()
 
+    // ------------------------------------------------------------------
+    // Reply (quote) and reactions (see supabase_migration_10_...sql)
+    // ------------------------------------------------------------------
+
+    suspend fun sendReply(
+        conversationId: String,
+        text: String,
+        replyToId: String,
+        replyPreview: String,
+        replySenderId: String,
+    ): Message =
+        supabase.postgrest.from("messages")
+            .insert(NewReplyMessage(conversationId, text, replyToId, replyPreview, replySenderId)) { select() }
+            .decodeSingle<Message>()
+
+    // emoji = null removes my reaction.
+    suspend fun setReaction(messageId: String, emoji: String?) {
+        supabase.postgrest.rpc(
+            "set_reaction",
+            buildJsonObject {
+                put("p_message", messageId)
+                put("p_emoji", emoji ?: "")
+            },
+        )
+    }
+
+    suspend fun loadReactions(conversationId: String): List<Reaction> =
+        supabase.postgrest.rpc(
+            "conversation_reactions",
+            buildJsonObject { put("p_conversation", conversationId) },
+        ).decodeList<Reaction>()
+
     suspend fun markConversationRead(conversationId: String) {
         supabase.postgrest.rpc(
             "mark_conversation_read",
@@ -408,6 +440,11 @@ object ChatRepository {
 
     // Fires when a friend request or friendship that involves me changes.
     val friendEvents: SharedFlow<Unit> = _friendEvents.asSharedFlow()
+
+    private val _reactionEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
+
+    // Fires when a reaction is added, changed or removed in one of my chats.
+    val reactionEvents: SharedFlow<Unit> = _reactionEvents.asSharedFlow()
 
     private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
 
@@ -471,6 +508,13 @@ object ChatRepository {
             }
             launch {
                 friendChanges.collect { _friendEvents.emit(Unit) }
+            }
+
+            val reactionChanges = db.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "message_reactions"
+            }
+            launch {
+                reactionChanges.collect { _reactionEvents.emit(Unit) }
             }
 
             val presenceChanges = presence.presenceChangeFlow()

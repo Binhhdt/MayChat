@@ -42,6 +42,11 @@ data class Message(
     @SerialName("duration_ms") val durationMs: Int? = null,
     // Set when the sender took the message back.
     @SerialName("recalled_at") val recalledAt: String? = null,
+    // Reply (quote): the message being answered, a short copy of its text,
+    // and who wrote it. All null for a normal message.
+    @SerialName("reply_to_id") val replyToId: String? = null,
+    @SerialName("reply_preview") val replyPreview: String? = null,
+    @SerialName("reply_sender_id") val replySenderId: String? = null,
 )
 
 // What the app sends when creating a message. The database fills in the
@@ -89,4 +94,22 @@ data class NewMediaMessage(
 data class UnreadCount(
     @SerialName("conversation_id") val conversationId: String,
     val unread: Int,
+)
+
+// What the app sends when creating a text message that answers another one.
+@Serializable
+data class NewReplyMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    @SerialName("reply_to_id") val replyToId: String,
+    @SerialName("reply_preview") val replyPreview: String,
+    @SerialName("reply_sender_id") val replySenderId: String,
+)
+
+// One reaction: this user put this emoji on this message.
+@Serializable
+data class Reaction(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("user_id") val userId: String,
+    val emoji: String,
 )
