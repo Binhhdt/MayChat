@@ -1,5 +1,6 @@
 package com.maychat.app.ui.auth
 
+import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +53,14 @@ fun AuthScreen() {
     val scope = rememberCoroutineScope()
 
     var registerMode by remember { mutableStateOf(false) }
-    var email by remember { mutableStateOf("") }
+    // The last email typed on this phone is remembered, so it does not have
+    // to be typed again after a failed or refused login. The password is
+    // never stored.
+    val context = LocalContext.current
+    val loginPrefs = remember {
+        context.applicationContext.getSharedPreferences("maychat_login", Context.MODE_PRIVATE)
+    }
+    var email by remember { mutableStateOf(loginPrefs.getString("email", "") ?: "") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
@@ -81,6 +90,7 @@ fun AuthScreen() {
         }
         if (error != null) return
 
+        loginPrefs.edit().putString("email", cleanEmail).apply()
         busy = true
         scope.launch {
             val result = attempt {
