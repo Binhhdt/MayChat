@@ -78,7 +78,12 @@ fun MayChatApp() {
                 val myId = ChatRepository.currentUserId()
                 if (myId == null) LoadingScreen("Đang tải tài khoản…") else SessionGate(myId)
             }
-            is SessionStatus.NotAuthenticated -> AuthScreen()
+            is SessionStatus.NotAuthenticated -> {
+                // Nobody is logged in, so a call announced by a notification
+                // has no screen to appear on: stop its ringing.
+                LaunchedEffect(Unit) { CallManager.dismissAny() }
+                AuthScreen()
+            }
             else -> LoadingScreen("Đang kết nối…")
         }
     }

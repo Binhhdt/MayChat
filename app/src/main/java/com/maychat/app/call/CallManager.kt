@@ -93,6 +93,13 @@ object CallManager {
     private var ringtone: Ringtone? = null
     private var ringback: ToneGenerator? = null   // the "tuu... tuu..." the caller hears
 
+    // A call announced by a push notification, before the real call data has
+    // arrived over the live connection (see prepareIncoming).
+    private var acceptWhenOfferArrives = false
+    private var pendingTimeoutJob: Job? = null
+    private var ignorePeerId: String? = null      // I rejected before the offer arrived
+    private var ignoreUntilMs = 0L
+
     // ------------------------------------------------------------------
     // Start / stop listening for calls (after login / on logout)
     // ------------------------------------------------------------------
@@ -166,13 +173,51 @@ object CallManager {
         }
     }
 
+    // A push notification says this person is calling. Show the incoming call
+    // screen and ring IMMEDIATELY, without waiting for the app to reconnect.
+    // The real call data (the "offer") arrives a few seconds later.
+    fun prepareIncoming(context: Context, senderId: String, senderName: String) {
+        if (ui != null) return
+        appContext = context.applicationContext
+        callId = null
+        peerId = senderId
+        iAmCaller = false
+        offerFromPeer = null
+        myAnswer = null
+        acceptWhenOfferArrives = false
+        ui = CallUi(
+            CallPhase.INCOMING,
+            Profile(id = senderId, username = "", displayName = senderName),
+            "Cuộc gọi thoại đến",
+        )
+        startRingtone()
+        pendingTimeoutJob?.cancel()
+        pendingTimeoutJob = main.launch {
+            // The caller gives up after 45 seconds.
+            delay(45_000)
+            if (callId == null && peerId == senderId && ui != null) finish("Cuộc gọi nhỡ")
+        }
+    }
+
+    // Used when nobody is logged in: there is no screen to show a call on.
+    fun dismissAny() {
+        if (ui != null) finish("")
+    }
+
     // Answer the incoming call. The microphone permission must be granted.
     fun accept() {
         val current = ui ?: return
-        val id = callId ?: return
-        val peer = peerId ?: return
-        val offer = offerFromPeer ?: return
         if (current.phase != CallPhase.INCOMING) return
+        val peer = peerId ?: return
+        val id = callId
+        val offer = offerFromPeer
+        if (id == null || offer == null) {
+            // Accepted before the call data arrived: continue as soon as it does.
+            stopRingtone()
+            acceptWhenOfferArrives = true
+            ui = current.copy(phase = CallPhase.CONNECTING, message = "Đang kết nối…")
+            return
+        }
         stopRingtone()
         ui = current.copy(phase = CallPhase.CONNECTING, message = "Đang kết nối…")
 
@@ -201,6 +246,11 @@ object CallManager {
         val peer = peerId
         if (id != null && peer != null) {
             main.launch { attempt { CallSignaling.send(peer, signal("reject", id)) } }
+        } else if (peer != null) {
+            // Rejected before the call data arrived: remember it, so the
+            // offer that is still on its way does not ring again.
+            ignorePeerId = peer
+            ignoreUntilMs = System.currentTimeMillis() + 60_000
         }
         finish("Đã từ chối")
     }
@@ -240,7 +290,24 @@ object CallManager {
         when (type) {
             "offer" -> {
                 val sdp = text(json, "sdp") ?: return
-                if (ui == null) {
+                val current = ui
+                if (from == ignorePeerId && System.currentTimeMillis() < ignoreUntilMs) {
+                    // I already rejected this call from its notification.
+                    main.launch { attempt { CallSignaling.send(from, signal("reject", id)) } }
+                } else if (current != null && callId == null && !iAmCaller && from == peerId &&
+                    (current.phase == CallPhase.INCOMING || current.phase == CallPhase.CONNECTING)
+                ) {
+                    // The call announced by the notification: its data is here now.
+                    callId = id
+                    offerFromPeer = sdp
+                    pendingTimeoutJob?.cancel()
+                    main.launch { attempt { CallSignaling.send(from, signal("ringing", id)) } }
+                    if (acceptWhenOfferArrives) {
+                        acceptWhenOfferArrives = false
+                        ui = current.copy(phase = CallPhase.INCOMING)
+                        accept()
+                    }
+                } else if (ui == null) {
                     // A new incoming call.
                     callId = id
                     peerId = from
@@ -295,7 +362,14 @@ object CallManager {
 
             "reject" -> if (id == callId) finish("Người nhận đã từ chối")
 
-            "end" -> if (id == callId) finish("Cuộc gọi đã kết thúc")
+            "end" -> {
+                if (id == callId) {
+                    finish("Cuộc gọi đã kết thúc")
+                } else if (callId == null && !iAmCaller && from == peerId && ui != null) {
+                    // The caller hung up before the call data reached me.
+                    finish("Cuộc gọi nhỡ")
+                }
+            }
         }
     }
 
@@ -440,6 +514,9 @@ object CallManager {
 
         stopRingtone()
         stopRingback()
+        pendingTimeoutJob?.cancel()
+        pendingTimeoutJob = null
+        acceptWhenOfferArrives = false
         callJob?.cancel()
         callJob = null
         watchdogJob?.cancel()

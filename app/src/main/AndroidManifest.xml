@@ -20,6 +20,10 @@
     <!-- Lets an incoming call open over the lock screen, like a phone call. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!-- "Display over other apps". When the user grants it in Settings, an
+         incoming call can open its screen while another app is in use. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".MayChatApplication"
         android:allowBackup="false"

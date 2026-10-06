@@ -124,16 +124,36 @@ object Push {
     // the lock screen (or as a banner at the top if the phone is in use).
     // Opening it leads to the chat with the caller, where the real incoming
     // call screen appears as soon as the app has reconnected.
-    fun showIncomingCall(context: Context, conversationId: String, senderId: String, senderName: String) {
-        val open = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("conversation_id", conversationId)
-            putExtra("sender_id", senderId)
-            putExtra("sender_name", senderName)
-            putExtra("incoming_call", true)
+    private fun callIntent(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        senderName: String,
+    ): Intent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+            Intent.FLAG_ACTIVITY_CLEAR_TOP
+        putExtra("conversation_id", conversationId)
+        putExtra("sender_id", senderId)
+        putExtra("sender_name", senderName)
+        putExtra("incoming_call", true)
+    }
+
+    // Tries to open the call screen directly, also while another app is in
+    // use. Android only allows this when the user has granted MayChat
+    // "display over other apps" (on Xiaomi also "open new windows while
+    // running in the background"). Without that permission nothing happens
+    // here and the ringing notification below is what the user sees.
+    fun tryOpenCallScreen(context: Context, conversationId: String, senderId: String, senderName: String) {
+        try {
+            context.startActivity(callIntent(context, conversationId, senderId, senderName))
+        } catch (e: Exception) {
+            // Not allowed on this phone: the notification remains.
         }
+    }
+
+    fun showIncomingCall(context: Context, conversationId: String, senderId: String, senderName: String) {
+        val open = callIntent(context, conversationId, senderId, senderName)
         val pending = PendingIntent.getActivity(
             context,
             CALL_NOTIFICATION_ID,

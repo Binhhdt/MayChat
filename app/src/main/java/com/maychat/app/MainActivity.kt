@@ -65,7 +65,11 @@ class MainActivity : ComponentActivity() {
         // Do not open the same chat again after a screen rotation.
         intent?.removeExtra("conversation_id")
         intent?.removeExtra("incoming_call")
-        if (incomingCall) showOverLockScreenForCall()
+        if (incomingCall) {
+            // Ring and show the incoming call screen right away.
+            CallManager.prepareIncoming(applicationContext, senderId, senderName)
+            showOverLockScreenForCall()
+        }
     }
 
     // An incoming call opened the app: allow it to appear over the lock screen

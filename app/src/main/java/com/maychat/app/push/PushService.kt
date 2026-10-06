@@ -49,5 +49,6 @@ class PushService : FirebaseMessagingService() {
         val senderId = data["sender_id"] ?: return
         val senderName = data["sender_name"] ?: "MayChat"
         Push.showIncomingCall(applicationContext, conversationId, senderId, senderName)
+        Push.tryOpenCallScreen(applicationContext, conversationId, senderId, senderName)
     }
 }
