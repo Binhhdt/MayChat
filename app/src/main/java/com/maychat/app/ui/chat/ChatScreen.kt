@@ -226,6 +226,20 @@ fun ChatScreen(
         }
     }
 
+    // Which received messages show the sender's picture next to them: the
+    // first message of each run of messages from the other person (like
+    // Zalo). The list is newest-first, so "the one before" is at index + 1.
+    val avatarKeys = remember(state.messages) {
+        val list = state.messages
+        val keys = HashSet<String>()
+        for (i in list.indices) {
+            val current = list[i]
+            val older = list.getOrNull(i + 1)
+            if (!current.mine && (older == null || older.mine)) keys.add(current.key)
+        }
+        keys
+    }
+
     // True when a message from the other person arrived while I was reading
     // older messages further up. Shows the "Tin nhắn mới" button.
     var newBelow by remember(conversationId) { mutableStateOf(false) }
@@ -422,6 +436,8 @@ fun ChatScreen(
                     ) {
                         items(state.messages, key = { it.key }) { message ->
                             MessageBubble(
+                                showAvatar = message.key in avatarKeys,
+                                otherAvatarPath = other.avatarPath,
                                 message = message,
                                 onRetry = { state.retry(message.key) },
                                 onOpenImage = { viewerPath = it },
@@ -682,6 +698,8 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    showAvatar: Boolean,
+    otherAvatarPath: String?,
     message: UiMessage,
     onRetry: () -> Unit,
     onOpenImage: (String) -> Unit,
@@ -716,8 +734,19 @@ private fun MessageBubble(
     val saved = message.state == SendState.SENT || message.state == SendState.READ
     val openMenu: () -> Unit = { if (saved) menuOpen = true }
 
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    // Received messages: the sender's picture on the left of the first
+    // message of a run; the following ones are indented by the same width.
+    if (!message.mine) {
+        if (showAvatar) {
+            Avatar(name = otherName, online = false, size = 32.dp, avatarPath = otherAvatarPath)
+        } else {
+            Spacer(Modifier.width(32.dp))
+        }
+        Spacer(Modifier.width(8.dp))
+    }
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.weight(1f),
         horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
     ) {
         Box {
@@ -891,6 +920,7 @@ private fun MessageBubble(
             },
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
         )
+    }
     }
 }
 
