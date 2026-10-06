@@ -79,3 +79,10 @@ data class NewMediaMessage(
     @SerialName("media_path") val mediaPath: String,
     @SerialName("duration_ms") val durationMs: Int?,
 )
+
+// One row returned by the database function unread_counts().
+@Serializable
+data class UnreadCount(
+    @SerialName("conversation_id") val conversationId: String,
+    val unread: Int,
+)

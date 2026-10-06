@@ -270,6 +270,13 @@ object ChatRepository {
             .sortedByDescending { toEpochMillis(it.conversation.lastMessageAt ?: it.conversation.createdAt) }
     }
 
+    // How many unread messages I have in each conversation
+    // (see supabase_migration_07_unread.sql). Conversations with none are absent.
+    suspend fun loadUnreadCounts(): Map<String, Int> =
+        supabase.postgrest.rpc("unread_counts")
+            .decodeList<UnreadCount>()
+            .associate { it.conversationId to it.unread }
+
     // ------------------------------------------------------------------
     // Messages
     // ------------------------------------------------------------------

@@ -1,10 +1,12 @@
 package com.maychat.app.ui.main
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +73,9 @@ fun ConversationsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
 
+    // Unread messages per conversation id (shown as a red number in the list).
+    var unreadCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+
     suspend fun reload() {
         attempt { ChatRepository.loadConversations(myId) }
             .onSuccess {
@@ -77,6 +83,9 @@ fun ConversationsScreen(
                 error = null
             }
             .onFailure { error = it.toUserMessage() }
+        // If this fails (for example migration 07 was not run), the list
+        // simply shows no numbers, exactly as before.
+        attempt { ChatRepository.loadUnreadCounts() }.onSuccess { unreadCounts = it }
         loading = false
     }
 
@@ -173,6 +182,7 @@ fun ConversationsScreen(
                             item = item,
                             myId = myId,
                             online = item.other.id in online,
+                            unread = unreadCounts[item.conversation.id] ?: 0,
                             onClick = { onOpenChat(item.conversation.id, item.other) },
                         )
                         HorizontalDivider()
@@ -208,6 +218,7 @@ private fun ConversationRow(
     item: ConversationItem,
     myId: String,
     online: Boolean,
+    unread: Int,
     onClick: () -> Unit,
 ) {
     val c = item.conversation
@@ -229,22 +240,45 @@ private fun ConversationRow(
             Text(
                 item.other.displayName,
                 style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (unread > 0) FontWeight.Bold else null,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 preview,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (unread > 0) FontWeight.SemiBold else null,
+                color = if (unread > 0) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            formatTime(c.lastMessageAt),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                formatTime(c.lastMessageAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Red number: unread messages in this conversation.
+            if (unread > 0) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (unread > 99) "99+" else unread.toString(),
+                    color = MaterialTheme.colorScheme.onError,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 22.dp)
+                        .background(MaterialTheme.colorScheme.error, CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
+        }
     }
 }
