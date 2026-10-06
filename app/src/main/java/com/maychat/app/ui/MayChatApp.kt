@@ -41,7 +41,7 @@ import com.maychat.app.data.toUserMessage
 import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
-import com.maychat.app.ui.common.LoadingScreen
+import com.maychat.app.ui.common.SplashScreen
 import com.maychat.app.ui.main.ConversationsScreen
 import com.maychat.app.ui.main.FriendsScreen
 import com.maychat.app.ui.main.FriendsState
@@ -76,7 +76,7 @@ fun MayChatApp() {
         when (status) {
             is SessionStatus.Authenticated -> {
                 val myId = ChatRepository.currentUserId()
-                if (myId == null) LoadingScreen("Đang tải tài khoản…") else SessionGate(myId)
+                if (myId == null) SplashScreen() else SessionGate(myId)
             }
             is SessionStatus.NotAuthenticated -> {
                 // Nobody is logged in, so a call announced by a notification
@@ -84,13 +84,21 @@ fun MayChatApp() {
                 LaunchedEffect(Unit) { CallManager.dismissAny() }
                 AuthScreen()
             }
-            else -> LoadingScreen("Đang kết nối…")
+            else -> SplashScreen()
         }
+
+        // The call screen is drawn above everything else, including the
+        // start-up screen, so an incoming call is visible at once.
+        CallManager.ui?.let { call -> CallScreen(call) }
     }
 }
 
 // Runs right after login and every time the app starts while logged in.
-// Lets the user in only if no other device is using this account right now.
+// NOTHING of the account (no conversation, no message) is shown until the
+// server has confirmed that no other device is using it. While waiting, the
+// user sees the start-up screen with the logo instead of a "checking" text.
+// An incoming call is not delayed by this: the call screen is drawn above
+// everything (see MayChatApp).
 @Composable
 private fun SessionGate(myId: String) {
     var allowed by remember(myId) { mutableStateOf(false) }
@@ -111,11 +119,11 @@ private fun SessionGate(myId: String) {
         }
     }
 
-    if (allowed) MainScreens(myId) else LoadingScreen("Đang kiểm tra tài khoản…")
+    if (allowed) MainScreens(myId, sessionChecked = true) else SplashScreen()
 }
 
 @Composable
-private fun MainScreens(myId: String) {
+private fun MainScreens(myId: String, sessionChecked: Boolean) {
     val scope = rememberCoroutineScope()
     val friends = remember(myId) { FriendsState(myId, scope) }
     val connectionCount by ChatRepository.connectionCount.collectAsState()
@@ -143,7 +151,10 @@ private fun MainScreens(myId: String) {
     // While the app is on screen, tell the server every 30 seconds that this
     // device is still using the account. If the answer is "another device
     // has it now" (possible after this phone was idle), sign out here.
-    LaunchedEffect(myId, lifecycleOwner) {
+    LaunchedEffect(myId, lifecycleOwner, sessionChecked) {
+        // Wait for the first check in SessionGate, so that only one of the
+        // two ever reports "account in use".
+        if (!sessionChecked) return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 val mine = attempt { ChatRepository.claimSession() }.getOrNull()
@@ -280,9 +291,6 @@ private fun MainScreens(myId: String) {
             onBack = { overlay = null },
         )
     }
-
-    // The call screen covers everything else while a call is going on.
-    CallManager.ui?.let { call -> CallScreen(call) }
 }
 
 // Shown when the APK was built without the two GitHub Secrets.

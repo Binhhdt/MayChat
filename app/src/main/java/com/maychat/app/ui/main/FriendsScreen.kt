@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -33,9 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.ui.common.Avatar
@@ -50,13 +54,25 @@ fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) 
         NavigationBarItem(
             selected = selected == MainTab.CHATS,
             onClick = { onSelect(MainTab.CHATS) },
-            icon = { Text("💬") },
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.ic_notification),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+            },
             label = { Text("Trò chuyện") },
         )
         NavigationBarItem(
             selected = selected == MainTab.FRIENDS,
             onClick = { onSelect(MainTab.FRIENDS) },
-            icon = { Text("👥") },
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.ic_group),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+            },
             label = { Text(if (incomingRequests > 0) "Bạn bè ($incomingRequests)" else "Bạn bè") },
         )
     }
