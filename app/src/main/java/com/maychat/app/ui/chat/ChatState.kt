@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
+import com.maychat.app.data.PinnedMessage
 import com.maychat.app.data.Reaction
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -66,6 +67,10 @@ class ChatState(
 
     // Messages I chose to hide on my side only ("delete for me").
     private val hidden = HashSet<String>()
+
+    // The message pinned at the top of this conversation (null = none).
+    var pinned by mutableStateOf<PinnedMessage?>(null)
+        private set
 
     // Reactions by message id.
     private var reactions: Map<String, List<Reaction>> = emptyMap()
@@ -145,6 +150,29 @@ class ChatState(
         }
     }
 
+    // Reads the pinned message. If this fails (for example migration 11 was
+    // not run) nothing is pinned, exactly as before.
+    suspend fun reloadPin() {
+        attempt { ChatRepository.loadPinnedMessage(conversationId) }.onSuccess { pinned = it }
+    }
+
+    fun pin(messageId: String) {
+        scope.launch {
+            attempt { ChatRepository.pinMessage(messageId) }
+                .onFailure { error = it.toUserMessage() }
+            reloadPin()
+        }
+    }
+
+    fun unpin() {
+        pinned = null
+        scope.launch {
+            attempt { ChatRepository.unpinMessage(conversationId) }
+                .onFailure { error = it.toUserMessage() }
+            reloadPin()
+        }
+    }
+
     // Tap an emoji: sets it as my reaction; tapping my current one removes it.
     fun react(messageId: String, emoji: String) {
         val current = reactions[messageId]?.firstOrNull { it.userId == myId }?.emoji
@@ -193,6 +221,7 @@ class ChatState(
             .onFailure { error = it.toUserMessage() }
         loading = false
         reloadReactions()
+        reloadPin()
     }
 
     // Safety net for when the live connection silently stops: quietly fetch
@@ -201,7 +230,10 @@ class ChatState(
         if (loading) return
         // Every third time (about every 12 seconds) also re-read reactions.
         pollCount++
-        if (pollCount % 3 == 0) reloadReactions()
+        if (pollCount % 3 == 0) {
+            reloadReactions()
+            reloadPin()
+        }
         val page = attempt { ChatRepository.loadMessages(conversationId, limit = 15) }.getOrNull() ?: return
         var changed = false
         page.forEach {
@@ -334,11 +366,24 @@ class ChatState(
         }
     }
 
-    fun sendImage(jpegBytes: ByteArray) {
-        enqueue(PendingMessage(UUID.randomUUID().toString(), "📷 Ảnh", kind = "image", bytes = jpegBytes))
+    // replyToKey: the message being answered, or null for a normal picture.
+    fun sendImage(jpegBytes: ByteArray, replyToKey: String? = null) {
+        val original = replyToKey?.let { confirmed[it] }
+        enqueue(
+            PendingMessage(
+                UUID.randomUUID().toString(),
+                "📷 Ảnh",
+                kind = "image",
+                bytes = jpegBytes,
+                replyToId = original?.id,
+                replyPreview = original?.content?.take(120),
+                replySenderId = original?.senderId,
+            ),
+        )
     }
 
-    fun sendVoice(audioBytes: ByteArray, durationMs: Int) {
+    fun sendVoice(audioBytes: ByteArray, durationMs: Int, replyToKey: String? = null) {
+        val original = replyToKey?.let { confirmed[it] }
         enqueue(
             PendingMessage(
                 UUID.randomUUID().toString(),
@@ -346,6 +391,9 @@ class ChatState(
                 kind = "voice",
                 bytes = audioBytes,
                 durationMs = durationMs,
+                replyToId = original?.id,
+                replyPreview = original?.content?.take(120),
+                replySenderId = original?.senderId,
             ),
         )
     }
@@ -385,7 +433,14 @@ class ChatState(
                         newPath
                     }
                     // Step 2: create the message that points to the file.
-                    ChatRepository.sendMediaMessage(conversationId, item.kind, path, item.text, item.durationMs)
+                    if (replyToId != null && replyPreview != null && replySenderId != null) {
+                        ChatRepository.sendMediaReply(
+                            conversationId, item.kind, path, item.text, item.durationMs,
+                            replyToId, replyPreview, replySenderId,
+                        )
+                    } else {
+                        ChatRepository.sendMediaMessage(conversationId, item.kind, path, item.text, item.durationMs)
+                    }
                 }
             }
                 .onSuccess { saved ->

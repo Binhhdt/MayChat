@@ -403,6 +403,44 @@ object ChatRepository {
             .insert(NewReplyMessage(conversationId, text, replyToId, replyPreview, replySenderId)) { select() }
             .decodeSingle<Message>()
 
+    // A picture or voice message that answers another message.
+    suspend fun sendMediaReply(
+        conversationId: String,
+        kind: String,
+        mediaPath: String,
+        label: String,
+        durationMs: Int?,
+        replyToId: String,
+        replyPreview: String,
+        replySenderId: String,
+    ): Message =
+        supabase.postgrest.from("messages")
+            .insert(
+                NewMediaReplyMessage(
+                    conversationId, label, kind, mediaPath, durationMs,
+                    replyToId, replyPreview, replySenderId,
+                ),
+            ) { select() }
+            .decodeSingle<Message>()
+
+    // ------------------------------------------------------------------
+    // Pinned message (see supabase_migration_11_pin.sql)
+    // ------------------------------------------------------------------
+
+    suspend fun loadPinnedMessage(conversationId: String): PinnedMessage? =
+        supabase.postgrest.rpc(
+            "pinned_message",
+            buildJsonObject { put("p_conversation", conversationId) },
+        ).decodeList<PinnedMessage>().firstOrNull()
+
+    suspend fun pinMessage(messageId: String) {
+        supabase.postgrest.rpc("pin_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun unpinMessage(conversationId: String) {
+        supabase.postgrest.rpc("unpin_message", buildJsonObject { put("p_conversation", conversationId) })
+    }
+
     // emoji = null removes my reaction.
     suspend fun setReaction(messageId: String, emoji: String?) {
         supabase.postgrest.rpc(

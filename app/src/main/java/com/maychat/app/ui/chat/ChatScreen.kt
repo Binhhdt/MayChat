@@ -64,6 +64,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -273,6 +275,17 @@ fun ChatScreen(
         if (!cameraSending) state.poll()
     }
 
+    // Brings one message into view, about a third up from the bottom,
+    // loading older messages first when it is not on screen yet.
+    suspend fun jumpTo(messageId: String, createdAt: String) {
+        state.loadUntil(createdAt)
+        val index = state.messages.indexOfFirst { it.key == messageId }
+        if (index >= 0) {
+            val third = listState.layoutInfo.viewportSize.height / 3
+            listState.scrollToItem(index, -third)
+        }
+    }
+
     // ----- Search inside this conversation -----------------------------
     var searchMode by remember(conversationId) { mutableStateOf(false) }
     var searchQuery by remember(conversationId) { mutableStateOf("") }
@@ -303,9 +316,26 @@ fun ChatScreen(
     // Jump to the current match: load older messages if needed, then scroll.
     LaunchedEffect(currentResult?.id) {
         val target = currentResult ?: return@LaunchedEffect
-        state.loadUntil(target.createdAt)
-        val index = state.messages.indexOfFirst { it.key == target.id }
-        if (index >= 0) listState.scrollToItem(index)
+        jumpTo(target.id, target.createdAt)
+    }
+
+    // The search box gets the cursor (and the keyboard) as soon as it appears.
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(searchMode) {
+        if (searchMode) {
+            delay(150)
+            runCatching { searchFocus.requestFocus() }
+        }
+    }
+
+    // The message the pin banner jumped to; it gets the same short flash
+    // as a search result.
+    var flashKey by remember(conversationId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(flashKey) {
+        if (flashKey != null) {
+            delay(1_500)
+            flashKey = null
+        }
     }
 
     // Back closes the search first, not the whole chat.
@@ -355,14 +385,23 @@ fun ChatScreen(
 
     // ----- Sending an image -------------------------------------------------
     // The system photo picker needs no storage permission.
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
+    // Up to 10 pictures can be ticked in one go; each is sent as its own message.
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(10),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            // If I am answering a message, the first picture carries the quote.
+            var replyKey = replyingTo?.key
+            replyingTo = null
             scope.launch {
-                val bytes = compressImage(context, uri)
-                if (bytes == null) {
-                    state.showError("Không đọc được ảnh này. Hãy chọn ảnh khác.")
-                } else {
-                    state.sendImage(bytes)
+                for (uri in uris) {
+                    val bytes = compressImage(context, uri)
+                    if (bytes == null) {
+                        state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
+                    } else {
+                        state.sendImage(bytes, replyToKey = replyKey)
+                        replyKey = null
+                    }
                 }
             }
         }
@@ -389,7 +428,8 @@ fun ChatScreen(
         if (result == null) {
             state.showError("Bản ghi quá ngắn. Hãy ghi ít nhất 1 giây.")
         } else {
-            state.sendVoice(result.bytes, result.durationMs)
+            state.sendVoice(result.bytes, result.durationMs, replyToKey = replyingTo?.key)
+            replyingTo = null
         }
     }
 
@@ -431,7 +471,10 @@ fun ChatScreen(
                             singleLine = true,
                             shape = RoundedCornerShape(24.dp),
                             textStyle = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 12.dp)
+                                .focusRequester(searchFocus),
                         )
                     },
                     navigationIcon = {
@@ -542,6 +585,39 @@ fun ChatScreen(
                 .consumeWindowInsets(innerPadding)
                 .imePadding(),
         ) {
+            // Pinned message: tap to jump to it, ✕ to remove the pin.
+            state.pinned?.let { pin ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            scope.launch {
+                                jumpTo(pin.messageId, pin.createdAt)
+                                flashKey = pin.messageId
+                            }
+                        }
+                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Tin nhắn đã ghim",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            pin.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    TextButton(onClick = { state.unpin() }) { Text("✕") }
+                }
+            }
+
             if (state.loading) {
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) { LoadingScreen() }
             } else {
@@ -555,7 +631,15 @@ fun ChatScreen(
                     ) {
                         items(state.messages, key = { it.key }) { message ->
                             MessageBubble(
-                                highlightQuery = if (message.key == currentResult?.id) searchQuery.trim() else null,
+                                highlightQuery = when {
+                                    message.key == currentResult?.id -> searchQuery.trim()
+                                    message.key == flashKey -> ""
+                                    else -> null
+                                },
+                                isPinned = message.key == state.pinned?.messageId,
+                                onTogglePin = {
+                                    if (message.key == state.pinned?.messageId) state.unpin() else state.pin(message.key)
+                                },
                                 dateLabel = dateLabels[message.key],
                                 onForward = { forwarding = message },
                                 showAvatar = message.key in avatarKeys,
@@ -672,6 +756,7 @@ fun ChatScreen(
                         .padding(horizontal = 12.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Spacer(Modifier.weight(1f))
                     Text(
                         when {
                             searchQuery.trim().length < 2 -> "Nhập ít nhất 2 ký tự"
@@ -680,16 +765,18 @@ fun ChatScreen(
                             else -> "Kết quả thứ ${searchIndex + 1}/${searchResults.size}"
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(Modifier.width(8.dp))
+                    // Down = towards newer messages, up = towards older ones.
                     TextButton(
                         onClick = { searchIndex++ },
                         enabled = searchIndex < searchResults.size - 1,
-                    ) { Text("▼") }
+                    ) { Text("∨", style = MaterialTheme.typography.titleLarge) }
                     TextButton(
                         onClick = { searchIndex-- },
                         enabled = searchIndex > 0,
-                    ) { Text("▲") }
+                    ) { Text("∧", style = MaterialTheme.typography.titleLarge) }
                 }
             } else if (recording) {
                 // Shown instead of the text box while the microphone is on.
@@ -910,6 +997,8 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    isPinned: Boolean,
+    onTogglePin: () -> Unit,
     highlightQuery: String?,
     dateLabel: String?,
     onForward: () -> Unit,
@@ -924,6 +1013,21 @@ private fun MessageBubble(
     onReply: () -> Unit,
     onReact: (String) -> Unit,
 ) {
+    // Short flash when this message becomes the highlighted one.
+    var flashing by remember(message.key) { mutableStateOf(false) }
+    LaunchedEffect(highlightQuery != null) {
+        if (highlightQuery != null) {
+            flashing = true
+            delay(1_200)
+            flashing = false
+        }
+    }
+    val outline = if (highlightQuery != null) {
+        BorderStroke(2.dp, MaterialTheme.colorScheme.secondary)
+    } else {
+        null
+    }
+
     val clipboard = LocalClipboardManager.current
     var menuOpen by remember(message.key) { mutableStateOf(false) }
 
@@ -970,10 +1074,12 @@ private fun MessageBubble(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // The current search result gets a coloured band across the screen.
+            // The message a search (or the pin banner) jumped to flashes
+            // with a coloured band for a moment; after that only the
+            // outline around its bubble remains.
             .background(
-                if (highlightQuery != null) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                if (flashing) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 } else {
                     Color.Transparent
                 },
@@ -1019,7 +1125,10 @@ private fun MessageBubble(
                         onClick = { if (failed) onRetry() else onOpenImage(path) },
                     ),
                 ) {
-                    ChatImage(path)
+                    Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start) {
+                        MediaQuote(message, otherName)
+                        ChatImage(path)
+                    }
                 }
 
                 // A voice message that is already on the server.
@@ -1027,12 +1136,19 @@ private fun MessageBubble(
                     color = bubbleColor,
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    VoiceBubbleContent(
-                        path = path,
-                        durationMs = message.durationMs,
-                        textColor = textColor,
-                        onLongPress = openMenu,
-                    )
+                    Column {
+                        if (message.replyPreview != null) {
+                            Box(modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
+                                MediaQuote(message, otherName)
+                            }
+                        }
+                        VoiceBubbleContent(
+                            path = path,
+                            durationMs = message.durationMs,
+                            textColor = textColor,
+                            onLongPress = openMenu,
+                        )
+                    }
                 }
 
                 // A message of only one to three emojis: shown large, without
@@ -1050,6 +1166,7 @@ private fun MessageBubble(
                 else -> Surface(
                     color = bubbleColor,
                     shape = RoundedCornerShape(16.dp),
+                    border = outline,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .combinedClickable(
@@ -1118,6 +1235,13 @@ private fun MessageBubble(
                         onClick = {
                             menuOpen = false
                             onForward()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (isPinned) "Bỏ ghim" else "Ghim") },
+                        onClick = {
+                            menuOpen = false
+                            onTogglePin()
                         },
                     )
                 }
@@ -1268,6 +1392,32 @@ private fun highlighted(text: String, query: String?): AnnotatedString {
                 from + lowerQuery.length,
             )
             from = lowerText.indexOf(lowerQuery, from + lowerQuery.length)
+        }
+    }
+}
+
+// The quoted message shown above a picture or voice message that is a reply.
+@Composable
+private fun MediaQuote(message: UiMessage, otherName: String) {
+    val quote = message.replyPreview ?: return
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.padding(bottom = 4.dp).widthIn(max = 240.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(
+                if (message.replyToMine) "Bạn" else otherName,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                quote,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

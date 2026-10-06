@@ -113,3 +113,25 @@ data class Reaction(
     @SerialName("user_id") val userId: String,
     val emoji: String,
 )
+
+// What the app sends for a picture or voice message that answers another one.
+@Serializable
+data class NewMediaReplyMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    val kind: String,
+    @SerialName("media_path") val mediaPath: String,
+    @SerialName("duration_ms") val durationMs: Int?,
+    @SerialName("reply_to_id") val replyToId: String,
+    @SerialName("reply_preview") val replyPreview: String,
+    @SerialName("reply_sender_id") val replySenderId: String,
+)
+
+// The message pinned at the top of a conversation.
+@Serializable
+data class PinnedMessage(
+    @SerialName("message_id") val messageId: String,
+    val content: String,
+    @SerialName("created_at") val createdAt: String,
+    val kind: String = "text",
+)
