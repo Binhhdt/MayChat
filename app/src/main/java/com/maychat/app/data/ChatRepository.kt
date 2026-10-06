@@ -403,6 +403,18 @@ object ChatRepository {
             .insert(NewReplyMessage(conversationId, text, replyToId, replyPreview, replySenderId)) { select() }
             .decodeSingle<Message>()
 
+    // A message carrying any file (see supabase_migration_12_files.sql).
+    suspend fun sendFileMessage(
+        conversationId: String,
+        mediaPath: String,
+        label: String,
+        fileName: String,
+        fileSize: Int,
+    ): Message =
+        supabase.postgrest.from("messages")
+            .insert(NewFileMessage(conversationId, label, "file", mediaPath, fileName, fileSize)) { select() }
+            .decodeSingle<Message>()
+
     // A picture or voice message that answers another message.
     suspend fun sendMediaReply(
         conversationId: String,

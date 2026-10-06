@@ -1,6 +1,7 @@
 package com.maychat.app.ui.chat
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -9,12 +10,15 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
@@ -23,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +44,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.maychat.app.R
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.attempt
 import kotlinx.coroutines.Dispatchers
@@ -331,5 +340,140 @@ fun VoiceBubbleContent(
             "Tin nhắn thoại" + (durationMs?.let { " · " + formatDuration(it.toLong()) } ?: ""),
             color = textColor,
         )
+    }
+}
+
+// ---------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------
+
+const val MAX_FILE_BYTES = 5 * 1024 * 1024
+
+class PickedFile(val name: String, val bytes: ByteArray)
+
+// Reads the file the user picked. Returns null when it cannot be read.
+// Throws IllegalArgumentException when it is larger than 5 MB.
+suspend fun readPickedFile(context: Context, uri: Uri): PickedFile? = withContext(Dispatchers.IO) {
+    var name = "file"
+    var size = -1L
+    try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameColumn >= 0) cursor.getString(nameColumn)?.let { name = it }
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
+            }
+        }
+    } catch (e: Exception) {
+        // Name and size stay unknown; the size is checked again below.
+    }
+    if (size > MAX_FILE_BYTES) throw IllegalArgumentException("too large")
+
+    val bytes = try {
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    } catch (e: Exception) {
+        null
+    } ?: return@withContext null
+    if (bytes.size > MAX_FILE_BYTES) throw IllegalArgumentException("too large")
+    if (bytes.isEmpty()) return@withContext null
+    PickedFile(name.take(200), bytes)
+}
+
+fun formatFileSize(bytes: Int?): String {
+    if (bytes == null) return ""
+    return when {
+        bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+        bytes >= 1024 -> "${bytes / 1024} KB"
+        else -> "$bytes B"
+    }
+}
+
+// Downloads a received file (once) and opens it with a suitable app of the
+// phone. Returns false when no app can open this kind of file.
+private suspend fun openChatFile(context: Context, path: String, fileName: String): Boolean {
+    val bytes = MediaCache.bytes(path)
+    val file = withContext(Dispatchers.IO) {
+        val folder = File(context.cacheDir, "shared")
+        folder.mkdirs()
+        // Keep only harmless characters of the name for the local copy.
+        val safeName = fileName.replace(Regex("[^A-Za-z0-9._ -]"), "_").ifBlank { "file" }
+        File(folder, safeName).also { it.writeBytes(bytes) }
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val extension = fileName.substringAfterLast('.', "").lowercase()
+    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mime)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    return try {
+        context.startActivity(intent)
+        true
+    } catch (e: Exception) {
+        false
+    }
+}
+
+// Shows one file message: a paper-clip, the file name and its size.
+// Tap to download and open, press and hold for the menu.
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FileBubbleContent(
+    path: String,
+    fileName: String,
+    fileSize: Int?,
+    textColor: Color,
+    onLongPress: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember(path) { mutableStateOf(false) }
+    var note by remember(path) { mutableStateOf<String?>(null) }
+
+    Row(
+        modifier = Modifier
+            .widthIn(max = 280.dp)
+            .combinedClickable(
+                enabled = !busy,
+                onLongClick = onLongPress,
+                onClick = {
+                    busy = true
+                    note = null
+                    scope.launch {
+                        val opened = attempt { openChatFile(context, path, fileName) }
+                        note = when {
+                            opened.isFailure -> "Không tải được file."
+                            opened.getOrDefault(false) -> null
+                            else -> "Điện thoại không có ứng dụng mở loại file này."
+                        }
+                        busy = false
+                    }
+                },
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_attach),
+            contentDescription = null,
+            tint = textColor,
+            modifier = Modifier.size(28.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                fileName,
+                color = textColor,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                note ?: if (busy) "Đang mở…" else formatFileSize(fileSize),
+                color = textColor,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }

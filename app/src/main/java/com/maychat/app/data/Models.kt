@@ -47,6 +47,9 @@ data class Message(
     @SerialName("reply_to_id") val replyToId: String? = null,
     @SerialName("reply_preview") val replyPreview: String? = null,
     @SerialName("reply_sender_id") val replySenderId: String? = null,
+    // For a sent file: its original name and its size in bytes.
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("file_size") val fileSize: Int? = null,
 )
 
 // What the app sends when creating a message. The database fills in the
@@ -134,4 +137,15 @@ data class PinnedMessage(
     val content: String,
     @SerialName("created_at") val createdAt: String,
     val kind: String = "text",
+)
+
+// What the app sends when creating a file message.
+@Serializable
+data class NewFileMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    val kind: String,
+    @SerialName("media_path") val mediaPath: String,
+    @SerialName("file_name") val fileName: String,
+    @SerialName("file_size") val fileSize: Int,
 )

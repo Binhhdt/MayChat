@@ -423,6 +423,25 @@ fun ChatScreen(
         }
     }
 
+    // ----- Sending a file --------------------------------------------------
+    // The system file browser needs no storage permission.
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val picked = readPickedFile(context, uri)
+                    if (picked == null) {
+                        state.showError("Không đọc được file này.")
+                    } else {
+                        state.sendFile(picked.bytes, picked.name)
+                    }
+                } catch (e: IllegalArgumentException) {
+                    state.showError("File quá lớn. Chỉ gửi được file tối đa 5 MB.")
+                }
+            }
+        }
+    }
+
     // ----- Recording a voice message ---------------------------------------
     fun startRecording() {
         VoicePlayer.stop()
@@ -913,17 +932,36 @@ fun ChatScreen(
                     if (draft.isBlank()) {
                         IconButton(
                             onClick = {
+                                try {
+                                    pickFile.launch(arrayOf("*/*"))
+                                } catch (e: Exception) {
+                                    state.showError("Không mở được trình chọn file trên điện thoại này.")
+                                }
+                            },
+                            enabled = !blockedByMe,
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_attach),
+                                contentDescription = "Gửi file",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
                                 if (!CameraCapture.start(context, conversationId)) {
                                     state.showError("Không mở được máy ảnh trên điện thoại này.")
                                 }
                             },
                             enabled = !blockedByMe,
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_camera),
                                 contentDescription = "Chụp ảnh",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(26.dp),
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                         IconButton(
@@ -935,12 +973,13 @@ fun ChatScreen(
                                 if (granted) startRecording() else askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
                             },
                             enabled = !blockedByMe,
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_mic),
                                 contentDescription = "Ghi tin nhắn thoại",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(26.dp),
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                         IconButton(
@@ -950,12 +989,13 @@ fun ChatScreen(
                                 )
                             },
                             enabled = !blockedByMe,
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_image),
                                 contentDescription = "Gửi ảnh",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(26.dp),
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                     } else {
@@ -1177,6 +1217,21 @@ private fun MessageBubble(
                         MediaQuote(message, otherName)
                         ChatImage(path)
                     }
+                }
+
+                // A file that is already on the server.
+                message.kind == "file" && path != null && !failed -> Surface(
+                    color = bubbleColor,
+                    shape = RoundedCornerShape(16.dp),
+                    border = outline,
+                ) {
+                    FileBubbleContent(
+                        path = path,
+                        fileName = message.fileName ?: "file",
+                        fileSize = message.fileSize,
+                        textColor = textColor,
+                        onLongPress = openMenu,
+                    )
                 }
 
                 // A voice message that is already on the server.

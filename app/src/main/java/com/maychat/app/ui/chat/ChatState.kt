@@ -30,6 +30,8 @@ data class UiMessage(
     val replyPreview: String? = null,   // quoted text, when this message is a reply
     val replyToMine: Boolean = false,   // the quoted message was written by me
     val reactions: List<ReactionChip> = emptyList(),
+    val fileName: String? = null,       // for a file message
+    val fileSize: Int? = null,
 )
 
 // One emoji under a message: how many people chose it, and whether I did.
@@ -46,6 +48,7 @@ private class PendingMessage(
     val replyToId: String? = null,
     val replyPreview: String? = null,
     val replySenderId: String? = null,
+    val fileName: String? = null,
 ) {
     var failed: Boolean = false
 
@@ -114,6 +117,8 @@ class ChatState(
                     replyPreview = m.replyPreview,
                     replyToMine = m.replySenderId == myId,
                     reactions = chipsFor(m.id),
+                    fileName = m.fileName,
+                    fileSize = m.fileSize,
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -306,10 +311,24 @@ class ChatState(
             ChatRepository.sendMessage(targetConversationId, original.content)
         } else {
             val bytes = MediaCache.bytes(path)
-            val extension = if (original.kind == "image") "jpg" else "m4a"
+            val extension = when (original.kind) {
+                "image" -> "jpg"
+                "voice" -> "m4a"
+                else -> safeExtension(original.fileName)
+            }
             val newPath = "$targetConversationId/${UUID.randomUUID()}.$extension"
             ChatRepository.uploadMedia(newPath, bytes)
             MediaCache.put(newPath, bytes)
+            if (original.kind == "file") {
+                ChatRepository.sendFileMessage(
+                    targetConversationId,
+                    newPath,
+                    original.content,
+                    original.fileName ?: "file",
+                    bytes.size,
+                )
+                return
+            }
             ChatRepository.sendMediaMessage(
                 targetConversationId,
                 original.kind,
@@ -382,6 +401,19 @@ class ChatState(
         )
     }
 
+    // Any file, at most 5 MB (checked before this is called).
+    fun sendFile(bytes: ByteArray, fileName: String) {
+        enqueue(
+            PendingMessage(
+                UUID.randomUUID().toString(),
+                "📎 $fileName",
+                kind = "file",
+                bytes = bytes,
+                fileName = fileName,
+            ),
+        )
+    }
+
     fun sendVoice(audioBytes: ByteArray, durationMs: Int, replyToKey: String? = null) {
         val original = replyToKey?.let { confirmed[it] }
         enqueue(
@@ -425,7 +457,11 @@ class ChatState(
                 } else {
                     // Step 1: upload the file (skipped on retry if already done).
                     val path = item.uploadedPath ?: run {
-                        val extension = if (item.kind == "image") "jpg" else "m4a"
+                        val extension = when (item.kind) {
+                            "image" -> "jpg"
+                            "voice" -> "m4a"
+                            else -> safeExtension(item.fileName)
+                        }
                         val newPath = "$conversationId/${UUID.randomUUID()}.$extension"
                         ChatRepository.uploadMedia(newPath, data)
                         MediaCache.put(newPath, data)
@@ -433,7 +469,11 @@ class ChatState(
                         newPath
                     }
                     // Step 2: create the message that points to the file.
-                    if (replyToId != null && replyPreview != null && replySenderId != null) {
+                    if (item.kind == "file") {
+                        ChatRepository.sendFileMessage(
+                            conversationId, path, item.text, item.fileName ?: "file", data.size,
+                        )
+                    } else if (replyToId != null && replyPreview != null && replySenderId != null) {
                         ChatRepository.sendMediaReply(
                             conversationId, item.kind, path, item.text, item.durationMs,
                             replyToId, replyPreview, replySenderId,
@@ -456,4 +496,14 @@ class ChatState(
             publish()
         }
     }
+}
+
+// The ending of a file name ("pdf", "docx"...), cleaned so it is safe to
+// use in a storage path. "bin" when the name has no usable ending.
+private fun safeExtension(fileName: String?): String {
+    val ending = (fileName ?: "").substringAfterLast('.', "")
+        .lowercase()
+        .filter { it in 'a'..'z' || it in '0'..'9' }
+        .take(8)
+    return ending.ifEmpty { "bin" }
 }

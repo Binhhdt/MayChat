@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Folder the camera app is allowed to write a new photo into. -->
 <paths>
+    <!-- Folder the camera app is allowed to write a new photo into. -->
     <cache-path name="camera" path="camera/" />
+    <!-- Received files, handed to another app to open them. -->
+    <cache-path name="shared" path="shared/" />
 </paths>
