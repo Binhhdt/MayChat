@@ -17,11 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.DeviceId
 import com.maychat.app.data.Profile
 import com.maychat.app.data.SupabaseProvider
 import com.maychat.app.data.attempt
@@ -54,16 +56,46 @@ fun MayChatApp() {
             return@Surface
         }
 
+        // Give the repository this installation's id (used for the
+        // "one device at a time" rule).
+        val context = LocalContext.current
+        remember { ChatRepository.deviceId = DeviceId.get(context.applicationContext) }
+
         val status by ChatRepository.sessionStatus.collectAsState()
         when (status) {
             is SessionStatus.Authenticated -> {
                 val myId = ChatRepository.currentUserId()
-                if (myId == null) LoadingScreen("Đang tải tài khoản…") else MainScreens(myId)
+                if (myId == null) LoadingScreen("Đang tải tài khoản…") else SessionGate(myId)
             }
             is SessionStatus.NotAuthenticated -> AuthScreen()
             else -> LoadingScreen("Đang kết nối…")
         }
     }
+}
+
+// Runs right after login and every time the app starts while logged in.
+// Lets the user in only if no other device is using this account right now.
+@Composable
+private fun SessionGate(myId: String) {
+    var allowed by remember(myId) { mutableStateOf(false) }
+
+    LaunchedEffect(myId) {
+        // null = the check itself failed (offline, or migration 05 not run).
+        // In that case the user is let in, so a network problem never locks
+        // anyone out of their own account.
+        val mine = attempt { ChatRepository.claimSession() }.getOrNull()
+        if (mine == false) {
+            ChatRepository.signOutWithNotice(
+                "Tài khoản này hiện đang có người sử dụng trên một thiết bị khác. " +
+                    "Hãy đăng xuất ở thiết bị kia trước. " +
+                    "Nếu bạn vừa cài lại ứng dụng, hãy chờ 2 phút rồi đăng nhập lại.",
+            )
+        } else {
+            allowed = true
+        }
+    }
+
+    if (allowed) MainScreens(myId) else LoadingScreen("Đang kiểm tra tài khoản…")
 }
 
 @Composable
@@ -90,9 +122,29 @@ private fun MainScreens(myId: String) {
         ChatRepository.friendEvents.collect { friends.reload() }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // While the app is on screen, tell the server every 30 seconds that this
+    // device is still using the account. If the answer is "another device
+    // has it now" (possible after this phone was idle), sign out here.
+    LaunchedEffect(myId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                val mine = attempt { ChatRepository.claimSession() }.getOrNull()
+                if (mine == false) {
+                    ChatRepository.signOutWithNotice(
+                        "Tài khoản của bạn vừa được đăng nhập trên một thiết bị khác, " +
+                            "nên thiết bị này đã đăng xuất.",
+                    )
+                    break
+                }
+                delay(30_000)
+            }
+        }
+    }
+
     // Safety net: refresh friend requests every 20 seconds while the app is
     // on screen, in case the live connection has silently stopped.
-    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(myId, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {

@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +59,12 @@ fun AuthScreen() {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // A message left by the app, for example "this account is in use on
+    // another device".
+    val notice by ChatRepository.authNotice.collectAsState()
+
     fun submit() {
+        ChatRepository.clearAuthNotice()
         val cleanEmail = email.trim()
         val cleanUsername = username.trim().lowercase()
         val cleanName = displayName.trim()
@@ -177,6 +183,16 @@ fun AuthScreen() {
                 label = { Text("Tên hiển thị") },
                 singleLine = true,
                 enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        if (notice != null && error == null) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                notice ?: "",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

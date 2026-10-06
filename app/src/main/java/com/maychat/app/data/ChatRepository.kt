@@ -98,8 +98,45 @@ object ChatRepository {
     }
 
     suspend fun signOut() {
+        // Free the account for other devices (does nothing if this device
+        // is not the one holding it).
+        attempt {
+            supabase.postgrest.rpc("release_session", buildJsonObject { put("p_device", deviceId) })
+        }
         stopRealtime()
         supabase.auth.signOut()
+    }
+
+    // ------------------------------------------------------------------
+    // One device at a time (see supabase_migration_05_single_device.sql)
+    // ------------------------------------------------------------------
+
+    // Set once when the app starts (see MayChatApp).
+    var deviceId: String = ""
+
+    private val _authNotice = MutableStateFlow<String?>(null)
+
+    // A message for the login screen, for example why the user was signed out.
+    val authNotice: StateFlow<String?> = _authNotice.asStateFlow()
+
+    fun clearAuthNotice() {
+        _authNotice.value = null
+    }
+
+    // True if this device now holds the account. False if another device
+    // is using the account right now.
+    suspend fun claimSession(): Boolean {
+        val result = supabase.postgrest.rpc(
+            "claim_session",
+            buildJsonObject { put("p_device", deviceId) },
+        )
+        return result.data.trim() == "true"
+    }
+
+    // Signs out and tells the login screen why.
+    suspend fun signOutWithNotice(message: String) {
+        _authNotice.value = message
+        attempt { signOut() }
     }
 
     // ------------------------------------------------------------------
