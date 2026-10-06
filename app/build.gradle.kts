@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.net.URI
 import java.util.Base64
 
 plugins {
@@ -37,7 +38,7 @@ listOf("Regular", "Medium", "SemiBold", "Bold").forEach { weight ->
     if (!target.exists()) {
         try {
             fontFolder.mkdirs()
-            val connection = java.net.URI(
+            val connection = URI(
                 "https://raw.githubusercontent.com/google/fonts/main/ofl/bevietnampro/BeVietnamPro-$weight.ttf",
             ).toURL().openConnection()
             connection.connectTimeout = 15000
@@ -125,8 +126,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 30
-        versionName = "0.14.0"
+        versionCode = 31
+        versionName = "0.14.1"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
