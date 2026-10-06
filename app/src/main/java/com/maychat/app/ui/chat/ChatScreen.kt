@@ -82,6 +82,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -643,6 +644,65 @@ fun ChatScreen(
                 .consumeWindowInsets(innerPadding)
                 .imePadding(),
         ) {
+            // Friendship strip: shows a friend request right here in the chat,
+            // so it is not only visible on the Friends tab.
+            // (Nothing is shown until the friend list has been read once, so
+            // the strip never flashes "not friends" at an actual friend.)
+            when (if (friends.loaded) relation else Relation.FRIEND) {
+                Relation.REQUEST_RECEIVED -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${other.displayName} đã gửi lời mời kết bạn",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { friends.accept(other.id) }) { Text("Chấp nhận") }
+                    Spacer(Modifier.width(6.dp))
+                    OutlinedButton(onClick = { friends.reject(other.id) }) { Text("Từ chối") }
+                }
+
+                Relation.REQUEST_SENT -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Bạn đã gửi lời mời kết bạn, đang chờ trả lời",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { friends.remove(other.id) }) { Text("Hủy lời mời") }
+                }
+
+                Relation.NONE -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Hai bạn chưa là bạn bè",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = { friends.sendRequest(other.id) }) { Text("Kết bạn") }
+                }
+
+                else -> {}
+            }
+
             // Pinned message: tap to jump to it, ✕ to remove the pin.
             state.pinned?.let { pin ->
                 Row(
@@ -1143,6 +1203,38 @@ private fun MessageBubble(
     onReply: () -> Unit,
     onReact: (String) -> Unit,
 ) {
+    // A notice written by the server, for example "đã thay đổi hình nền".
+    // Shown as a centered line saying who did it; it is not a bubble and
+    // has no menu.
+    if (message.kind == "system") {
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (dateLabel != null) {
+                Text(
+                    dateLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(top = 8.dp, bottom = 10.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+            Text(
+                "${if (message.mine) "Bạn" else otherName} ${message.text}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+        return
+    }
+
     // Short flash when this message becomes the highlighted one.
     var flashing by remember(message.key) { mutableStateOf(false) }
     LaunchedEffect(highlightQuery != null) {

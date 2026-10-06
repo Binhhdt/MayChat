@@ -336,6 +336,9 @@ class ChatState(
         confirmed[message.id] = message
         publish()
         markReadIfNeeded()
+        // A notice from the server (for example "changed the background"):
+        // fetch the new background immediately instead of waiting.
+        if (message.kind == "system") scope.launch { reloadWallpaper() }
     }
 
     // Sends a COPY of a message into another conversation. A picture or
