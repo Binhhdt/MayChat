@@ -1,20 +1,27 @@
 package com.maychat.app.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,157 +32,179 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
-import com.maychat.app.data.ConversationItem
-import com.maychat.app.data.Message
+import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
-import com.maychat.app.ui.common.formatTime
-import kotlinx.coroutines.delay
 
-// "Forward to...": pick one of my conversations to send a copy of a message to.
+// One person a message can be forwarded to. conversationId is null when
+// there is no conversation with them yet (it is created when sending).
+data class ForwardTarget(val profile: Profile, val conversationId: String?)
+
+// Full-screen "Chia sẻ" screen: tick one or more people, optionally add a
+// message, then send. People I already chat with come first, then friends.
 @Composable
-fun ForwardDialog(
+fun ForwardScreen(
     myId: String,
-    onPick: (ConversationItem) -> Unit,
+    friends: List<Profile>,
+    previewText: String,
+    onSend: (targets: List<ForwardTarget>, note: String) -> Unit,
     onClose: () -> Unit,
 ) {
-    var conversations by remember { mutableStateOf<List<ConversationItem>?>(null) }
+    var people by remember { mutableStateOf<List<ForwardTarget>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf("") }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var note by remember { mutableStateOf("") }
 
     LaunchedEffect(myId) {
         attempt { ChatRepository.loadConversations(myId) }
-            .onSuccess { conversations = it }
+            .onSuccess { conversations ->
+                val fromChats = conversations.map { ForwardTarget(it.other, it.conversation.id) }
+                val known = fromChats.map { it.profile.id }.toSet()
+                val fromFriends = friends.filter { it.id !in known }.map { ForwardTarget(it, null) }
+                people = fromChats + fromFriends
+            }
             .onFailure { error = it.toUserMessage() }
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onClose,
-        title = { Text("Chuyển tiếp tới") },
-        text = {
-            val list = conversations
-            when {
-                error != null -> Text(error ?: "", color = MaterialTheme.colorScheme.error)
-                list == null -> Text("Đang tải…")
-                list.isEmpty() -> Text("Bạn chưa có cuộc trò chuyện nào.")
-                else -> LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-                    items(list, key = { it.conversation.id }) { item ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(item) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Avatar(
-                                name = item.other.displayName,
-                                online = false,
-                                size = 40.dp,
-                                avatarPath = item.other.avatarPath,
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                item.other.displayName,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
+                // Header: back, title, how many are ticked.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onClose) { Text("‹", style = MaterialTheme.typography.headlineSmall) }
+                    Column {
+                        Text("Chia sẻ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Đã chọn: ${selectedIds.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
-            }
-        },
-        confirmButton = { TextButton(onClick = onClose) { Text("Đóng") } },
-    )
-}
 
-// "Search in this conversation": looks for text messages containing the words.
-// The search runs on the server, so it also finds messages that are not
-// loaded on screen. onPick gets the id of the chosen message.
-@Composable
-fun SearchMessagesDialog(
-    conversationId: String,
-    myId: String,
-    otherName: String,
-    onPick: (String) -> Unit,
-    onClose: () -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<Message>>(emptyList()) }
-    var searched by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    // Search a short moment after typing stops.
-    LaunchedEffect(query) {
-        if (query.trim().length < 2) {
-            results = emptyList()
-            searched = false
-            return@LaunchedEffect
-        }
-        delay(400)
-        attempt { ChatRepository.searchMessages(conversationId, query) }
-            .onSuccess {
-                results = it
-                searched = true
-                error = null
-            }
-            .onFailure { error = it.toUserMessage() }
-    }
-
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text("Tìm trong cuộc trò chuyện") },
-        text = {
-            Column {
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Nhập ít nhất 2 ký tự") },
+                    value = filter,
+                    onValueChange = { filter = it },
+                    placeholder = { Text("Tìm kiếm") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                Spacer(Modifier.height(8.dp))
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (searched && results.isEmpty() && error == null) {
-                    Text("Không tìm thấy tin nhắn nào.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                val all = people
+                val shown = (all ?: emptyList()).filter {
+                    val q = filter.trim()
+                    q.isEmpty() ||
+                        it.profile.displayName.contains(q, ignoreCase = true) ||
+                        it.profile.username.contains(q, ignoreCase = true)
                 }
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                    items(results, key = { it.id }) { message ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(message.id) }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Row {
+
+                when {
+                    error != null -> Text(
+                        error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f).padding(16.dp),
+                    )
+                    all == null -> Text("Đang tải…", modifier = Modifier.weight(1f).padding(16.dp))
+                    shown.isEmpty() -> Text(
+                        "Không có ai phù hợp.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f).padding(16.dp),
+                    )
+                    else -> LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        items(shown, key = { it.profile.id }) { target ->
+                            val id = target.profile.id
+                            val ticked = id in selectedIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedIds = if (ticked) selectedIds - id else selectedIds + id
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Avatar(
+                                    name = target.profile.displayName,
+                                    online = false,
+                                    size = 44.dp,
+                                    avatarPath = target.profile.avatarPath,
+                                )
+                                Spacer(Modifier.width(12.dp))
                                 Text(
-                                    if (message.senderId == myId) "Bạn" else otherName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
+                                    target.profile.displayName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
-                                Text(
-                                    formatTime(message.createdAt),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                // Round tick mark, like in the share screen of Zalo.
+                                RadioButton(selected = ticked, onClick = null)
                             }
-                            Text(
-                                message.content,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         }
-                        HorizontalDivider()
+                    }
+                }
+
+                HorizontalDivider()
+
+                // What is being forwarded.
+                Text(
+                    previewText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+
+                // Optional extra message and the send button.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        placeholder = { Text("Nhập tin nhắn") },
+                        maxLines = 3,
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilledIconButton(
+                        enabled = selectedIds.isNotEmpty(),
+                        onClick = {
+                            val chosen = (people ?: emptyList()).filter { it.profile.id in selectedIds }
+                            onSend(chosen, note.trim())
+                        },
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_send),
+                            contentDescription = "Gửi",
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onClose) { Text("Đóng") } },
-    )
+        }
+    }
 }

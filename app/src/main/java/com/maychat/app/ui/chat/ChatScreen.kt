@@ -2,7 +2,7 @@ package com.maychat.app.ui.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,13 +69,14 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,6 +84,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.R
 import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.Message
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -96,7 +98,6 @@ import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.Relation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 
 // Longest voice message: 2 minutes (about 480 KB).
 private const val MAX_VOICE_MS = 120_000L
@@ -250,8 +251,6 @@ fun ChatScreen(
 
     // Forwarding: the message being forwarded (null = none).
     var forwarding by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
-    // Whether the "search in this conversation" window is open.
-    var searchOpen by remember(conversationId) { mutableStateOf(false) }
     // Short confirmation line, for example after forwarding.
     var notice by remember(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
@@ -261,21 +260,58 @@ fun ChatScreen(
         }
     }
 
-    // Taking a photo with the phone's camera app. The photo is written to a
-    // private file of MayChat; no camera permission is needed.
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
-        val uri = cameraUri
-        if (saved && uri != null) {
-            scope.launch {
-                val bytes = compressImage(context, uri)
-                if (bytes == null) {
-                    state.showError("Không đọc được ảnh vừa chụp.")
-                } else {
-                    state.sendImage(bytes)
-                }
-            }
+    // Taking a photo: handled by CameraCapture (and MainActivity), so the
+    // photo is still sent when Android closes this screen while the camera
+    // app is open. Here we only show its progress and errors.
+    val cameraSending by CameraCapture.sending.collectAsState()
+    LaunchedEffect(conversationId) {
+        CameraCapture.errors.collect { state.showError(it) }
+    }
+    // A photo that was just sent arrives like any other message; make sure
+    // it shows up promptly.
+    LaunchedEffect(cameraSending) {
+        if (!cameraSending) state.poll()
+    }
+
+    // ----- Search inside this conversation -----------------------------
+    var searchMode by remember(conversationId) { mutableStateOf(false) }
+    var searchQuery by remember(conversationId) { mutableStateOf("") }
+    // Matching messages, oldest first. searchIndex points at the one shown.
+    var searchResults by remember(conversationId) { mutableStateOf<List<Message>>(emptyList()) }
+    var searchIndex by remember(conversationId) { mutableStateOf(-1) }
+    var searchBusy by remember(conversationId) { mutableStateOf(false) }
+    val currentResult = searchResults.getOrNull(searchIndex)
+
+    // Run the search a short moment after typing stops; start at the newest match.
+    LaunchedEffect(searchMode, searchQuery) {
+        if (!searchMode || searchQuery.trim().length < 2) {
+            searchResults = emptyList()
+            searchIndex = -1
+            return@LaunchedEffect
         }
+        delay(400)
+        searchBusy = true
+        attempt { ChatRepository.searchMessages(conversationId, searchQuery) }
+            .onSuccess { found ->
+                searchResults = found.reversed()
+                searchIndex = found.size - 1
+            }
+            .onFailure { state.showError(it.toUserMessage()) }
+        searchBusy = false
+    }
+
+    // Jump to the current match: load older messages if needed, then scroll.
+    LaunchedEffect(currentResult?.id) {
+        val target = currentResult ?: return@LaunchedEffect
+        state.loadUntil(target.createdAt)
+        val index = state.messages.indexOfFirst { it.key == target.id }
+        if (index >= 0) listState.scrollToItem(index)
+    }
+
+    // Back closes the search first, not the whole chat.
+    BackHandler(enabled = searchMode) {
+        searchMode = false
+        searchQuery = ""
     }
 
     // Which received messages show the sender's picture next to them: the
@@ -384,6 +420,30 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
+            if (searchMode) {
+                // Search bar instead of the normal title bar.
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Tìm tin nhắn văn bản") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(24.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
+                        )
+                    },
+                    navigationIcon = {
+                        TextButton(
+                            onClick = {
+                                searchMode = false
+                                searchQuery = ""
+                            },
+                        ) { Text("‹") }
+                    },
+                )
+            } else
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,7 +488,7 @@ fun ChatScreen(
                                 text = { Text("Tìm trong cuộc trò chuyện") },
                                 onClick = {
                                     menuOpen = false
-                                    searchOpen = true
+                                    searchMode = true
                                 },
                             )
                             when (relation) {
@@ -495,6 +555,7 @@ fun ChatScreen(
                     ) {
                         items(state.messages, key = { it.key }) { message ->
                             MessageBubble(
+                                highlightQuery = if (message.key == currentResult?.id) searchQuery.trim() else null,
                                 dateLabel = dateLabels[message.key],
                                 onForward = { forwarding = message },
                                 showAvatar = message.key in avatarKeys,
@@ -593,7 +654,44 @@ fun ChatScreen(
                 )
             }
 
-            if (recording) {
+            if (cameraSending) {
+                Text(
+                    "Đang gửi ảnh vừa chụp…",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            if (searchMode) {
+                // "Result 3/5" with buttons to the older and the newer match.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        when {
+                            searchQuery.trim().length < 2 -> "Nhập ít nhất 2 ký tự"
+                            searchBusy -> "Đang tìm…"
+                            searchResults.isEmpty() -> "Không tìm thấy"
+                            else -> "Kết quả thứ ${searchIndex + 1}/${searchResults.size}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { searchIndex++ },
+                        enabled = searchIndex < searchResults.size - 1,
+                    ) { Text("▼") }
+                    TextButton(
+                        onClick = { searchIndex-- },
+                        enabled = searchIndex > 0,
+                    ) { Text("▲") }
+                }
+            } else if (recording) {
                 // Shown instead of the text box while the microphone is on.
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -681,18 +779,7 @@ fun ChatScreen(
                     if (draft.isBlank()) {
                         IconButton(
                             onClick = {
-                                try {
-                                    val folder = File(context.cacheDir, "camera")
-                                    folder.mkdirs()
-                                    val photo = File(folder, "photo-${System.currentTimeMillis()}.jpg")
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        photo,
-                                    )
-                                    cameraUri = uri
-                                    takePhoto.launch(uri)
-                                } catch (e: Exception) {
+                                if (!CameraCapture.start(context, conversationId)) {
                                     state.showError("Không mở được máy ảnh trên điện thoại này.")
                                 }
                             },
@@ -770,34 +857,29 @@ fun ChatScreen(
     }
 
     forwarding?.let { target ->
-        ForwardDialog(
+        ForwardScreen(
             myId = myId,
+            friends = friends.friends,
+            previewText = target.text,
             onClose = { forwarding = null },
-            onPick = { destination ->
+            onSend = { targets, note ->
                 forwarding = null
                 scope.launch {
-                    attempt { state.forwardTo(destination.conversation.id, target.key) }
-                        .onSuccess { notice = "Đã chuyển tiếp tới ${destination.other.displayName}." }
-                        .onFailure { state.showError(it.toUserMessage()) }
-                }
-            },
-        )
-    }
-
-    if (searchOpen) {
-        SearchMessagesDialog(
-            conversationId = conversationId,
-            myId = myId,
-            otherName = other.displayName,
-            onClose = { searchOpen = false },
-            onPick = { messageId ->
-                searchOpen = false
-                // Jump to the message if it is among the loaded ones.
-                val index = state.messages.indexOfFirst { it.key == messageId }
-                if (index >= 0) {
-                    scope.launch { listState.animateScrollToItem(index) }
-                } else {
-                    notice = "Tin nhắn này cũ hơn phần đang hiển thị. Bấm \"Tải tin nhắn cũ hơn\" để tới đó."
+                    var sent = 0
+                    var failure: String? = null
+                    for (destination in targets) {
+                        attempt {
+                            // Create the conversation first if there is none yet.
+                            val id = destination.conversationId
+                                ?: ChatRepository.openConversation(destination.profile.id)
+                            state.forwardTo(id, target.key)
+                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                        }
+                            .onSuccess { sent++ }
+                            .onFailure { failure = it.toUserMessage() }
+                    }
+                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent người."
+                    failure?.let { state.showError(it) }
                 }
             },
         )
@@ -828,6 +910,7 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    highlightQuery: String?,
     dateLabel: String?,
     onForward: () -> Unit,
     showAvatar: Boolean,
@@ -884,7 +967,19 @@ private fun MessageBubble(
             )
         }
     }
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The current search result gets a coloured band across the screen.
+            .background(
+                if (highlightQuery != null) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                } else {
+                    Color.Transparent
+                },
+            ),
+        verticalAlignment = Alignment.Top,
+    ) {
     // Received messages: the sender's picture on the left of the first
     // message of a run; the following ones are indented by the same width.
     if (!message.mine) {
@@ -987,7 +1082,7 @@ private fun MessageBubble(
                             }
                             Spacer(Modifier.height(6.dp))
                         }
-                        Text(message.text, color = textColor)
+                        Text(highlighted(message.text, highlightQuery), color = textColor)
                     }
                 }
             }
@@ -1152,4 +1247,27 @@ private fun isEmojiOnly(text: String): Boolean {
         }
     }
     return emojiCount in 1..3
+}
+
+// The message text with every occurrence of the searched words marked in
+// yellow (upper and lower case do not matter). Without a query: plain text.
+private fun highlighted(text: String, query: String?): AnnotatedString {
+    if (query.isNullOrEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        append(text)
+        val lowerText = text.lowercase()
+        val lowerQuery = query.lowercase()
+        // Only mark when lower-casing did not change the length, so the
+        // positions still match the original text.
+        if (lowerText.length != text.length || lowerQuery.isEmpty()) return@buildAnnotatedString
+        var from = lowerText.indexOf(lowerQuery)
+        while (from >= 0) {
+            addStyle(
+                SpanStyle(background = Color(0xFFFFE066), color = Color(0xFF1B1B1B)),
+                from,
+                from + lowerQuery.length,
+            )
+            from = lowerText.indexOf(lowerQuery, from + lowerQuery.length)
+        }
+    }
 }

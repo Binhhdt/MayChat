@@ -421,7 +421,7 @@ object ChatRepository {
         ).decodeList<Reaction>()
 
     // Text messages of one conversation that contain the given words
-    // (newest first, at most 30). Upper and lower case do not matter.
+    // (newest first, at most 50). Upper and lower case do not matter.
     suspend fun searchMessages(conversationId: String, query: String): List<Message> {
         // "%" and "_" have a special meaning in the search pattern.
         val clean = query.trim().replace("\\", "").replace("%", "").replace("_", " ")
@@ -434,7 +434,7 @@ object ChatRepository {
                     ilike("content", "%$clean%")
                 }
                 order("created_at", Order.DESCENDING)
-                limit(30L)
+                limit(50L)
             }
             .decodeList<Message>()
             .filter { it.recalledAt == null }

@@ -7,12 +7,14 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.lifecycleScope
 import com.maychat.app.call.CallManager
 import com.maychat.app.push.ChatToOpen
 import com.maychat.app.push.Push
 import com.maychat.app.ui.MayChatApp
+import com.maychat.app.ui.chat.CameraCapture
 import com.maychat.app.ui.theme.MayChatTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -24,9 +26,17 @@ class MainActivity : ComponentActivity() {
 
     private var lockScreenJob: Job? = null
 
+    // Opening the camera app and getting its answer is registered HERE, on
+    // the Activity, so the answer still arrives when Android has closed and
+    // re-created the screen while the camera was open.
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        CameraCapture.onResult(applicationContext, saved)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        CameraCapture.launcher = { uri -> takePhoto.launch(uri) }
         handleNotificationTap(intent)
         setContent {
             MayChatTheme {
@@ -52,6 +62,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Push.appVisible = false
+    }
+
+    override fun onDestroy() {
+        CameraCapture.launcher = null
+        super.onDestroy()
     }
 
     // A tapped notification carries the conversation to open.

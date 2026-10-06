@@ -216,6 +216,28 @@ class ChatState(
         }
     }
 
+    // Loads older pages until the message with this time is on screen
+    // (used to jump to a search result). Stops after 20 pages (600 messages).
+    suspend fun loadUntil(targetCreatedAt: String) {
+        val targetMs = ChatRepository.toEpochMillis(targetCreatedAt)
+        var pages = 0
+        while (pages < 20) {
+            pages++
+            val oldest = confirmed.values.minByOrNull { ChatRepository.toEpochMillis(it.createdAt) } ?: break
+            if (ChatRepository.toEpochMillis(oldest.createdAt) <= targetMs) break
+            val page = attempt {
+                ChatRepository.loadMessages(conversationId, before = oldest.createdAt)
+            }.getOrNull() ?: break
+            if (page.isEmpty()) {
+                hasOlder = false
+                break
+            }
+            page.forEach { confirmed[it.id] = it }
+            hasOlder = page.size == ChatRepository.PAGE_SIZE
+        }
+        publish()
+    }
+
     // Loads the page before the oldest message currently shown.
     fun loadOlder() {
         if (loadingOlder) return

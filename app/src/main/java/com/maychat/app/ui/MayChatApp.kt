@@ -21,6 +21,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +61,45 @@ private sealed interface Overlay {
     data object EditProfile : Overlay
     data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
+
+// Writes the open screen into a short list of texts and reads it back.
+private val OverlaySaver = listSaver<Overlay?, String>(
+    save = { value ->
+        when (value) {
+            null -> emptyList()
+            Overlay.Search -> listOf("search")
+            Overlay.EditProfile -> listOf("profile")
+            is Overlay.Chat -> listOf(
+                "chat",
+                value.conversationId,
+                value.other.id,
+                value.other.username,
+                value.other.displayName,
+                value.other.avatarPath ?: "",
+            )
+        }
+    },
+    restore = { saved ->
+        when (saved.firstOrNull()) {
+            "search" -> Overlay.Search
+            "profile" -> Overlay.EditProfile
+            "chat" -> if (saved.size >= 6) {
+                Overlay.Chat(
+                    conversationId = saved[1],
+                    other = Profile(
+                        id = saved[2],
+                        username = saved[3],
+                        displayName = saved[4],
+                        avatarPath = saved[5].ifEmpty { null },
+                    ),
+                )
+            } else {
+                null
+            }
+            else -> null
+        }
+    },
+)
 
 // Top of the app: decides between "not configured", login, and the main screens.
 @Composable
@@ -130,8 +171,11 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     val friends = remember(myId) { FriendsState(myId, scope) }
     val connectionCount by ChatRepository.connectionCount.collectAsState()
 
-    var tab by remember(myId) { mutableStateOf(MainTab.CHATS) }
-    var overlay by remember(myId) { mutableStateOf<Overlay?>(null) }
+    // Saved by Android, so the same tab and the same open chat come back
+    // when the system closes and re-creates the screen (for example while
+    // the camera app is open).
+    var tab by rememberSaveable(myId) { mutableStateOf(MainTab.CHATS) }
+    var overlay by rememberSaveable(myId, stateSaver = OverlaySaver) { mutableStateOf<Overlay?>(null) }
 
     // Open the live connection once per logged-in user.
     LaunchedEffect(myId) {
