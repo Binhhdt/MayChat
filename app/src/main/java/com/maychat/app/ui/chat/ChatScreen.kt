@@ -2,6 +2,7 @@ package com.maychat.app.ui.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,14 +85,18 @@ import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
+import com.maychat.app.ui.common.dayLabel
+import com.maychat.app.ui.common.localDay
 import com.maychat.app.ui.common.offlineLabel
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.Relation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 
 // Longest voice message: 2 minutes (about 480 KB).
 private const val MAX_VOICE_MS = 120_000L
@@ -223,6 +229,52 @@ fun ChatScreen(
         onDispose {
             VoicePlayer.stop()
             recorder.cancel()
+        }
+    }
+
+    // Line with the date ("Hôm nay", "Hôm qua", 05/10/2026) above the first
+    // message of each day. The list is newest-first, so the message before
+    // this one in time is at index + 1.
+    val dateLabels = remember(state.messages) {
+        val list = state.messages
+        val labels = HashMap<String, String>()
+        for (i in list.indices) {
+            val day = localDay(list[i].createdAt)
+            val older = list.getOrNull(i + 1)
+            if (older == null || localDay(older.createdAt) != day) {
+                labels[list[i].key] = dayLabel(day)
+            }
+        }
+        labels
+    }
+
+    // Forwarding: the message being forwarded (null = none).
+    var forwarding by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
+    // Whether the "search in this conversation" window is open.
+    var searchOpen by remember(conversationId) { mutableStateOf(false) }
+    // Short confirmation line, for example after forwarding.
+    var notice by remember(conversationId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            delay(3_000)
+            notice = null
+        }
+    }
+
+    // Taking a photo with the phone's camera app. The photo is written to a
+    // private file of MayChat; no camera permission is needed.
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        val uri = cameraUri
+        if (saved && uri != null) {
+            scope.launch {
+                val bytes = compressImage(context, uri)
+                if (bytes == null) {
+                    state.showError("Không đọc được ảnh vừa chụp.")
+                } else {
+                    state.sendImage(bytes)
+                }
+            }
         }
     }
 
@@ -372,6 +424,13 @@ fun ChatScreen(
                     Box {
                         TextButton(onClick = { menuOpen = true }) { Text("⋮") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Tìm trong cuộc trò chuyện") },
+                                onClick = {
+                                    menuOpen = false
+                                    searchOpen = true
+                                },
+                            )
                             when (relation) {
                                 Relation.NONE -> DropdownMenuItem(
                                     text = { Text("Gửi lời mời kết bạn") },
@@ -436,6 +495,8 @@ fun ChatScreen(
                     ) {
                         items(state.messages, key = { it.key }) { message ->
                             MessageBubble(
+                                dateLabel = dateLabels[message.key],
+                                onForward = { forwarding = message },
                                 showAvatar = message.key in avatarKeys,
                                 otherAvatarPath = other.avatarPath,
                                 message = message,
@@ -509,6 +570,15 @@ fun ChatScreen(
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            notice?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -611,6 +681,32 @@ fun ChatScreen(
                     if (draft.isBlank()) {
                         IconButton(
                             onClick = {
+                                try {
+                                    val folder = File(context.cacheDir, "camera")
+                                    folder.mkdirs()
+                                    val photo = File(folder, "photo-${System.currentTimeMillis()}.jpg")
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        photo,
+                                    )
+                                    cameraUri = uri
+                                    takePhoto.launch(uri)
+                                } catch (e: Exception) {
+                                    state.showError("Không mở được máy ảnh trên điện thoại này.")
+                                }
+                            },
+                            enabled = !blockedByMe,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_camera),
+                                contentDescription = "Chụp ảnh",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
                                 val granted = ContextCompat.checkSelfPermission(
                                     context,
                                     Manifest.permission.RECORD_AUDIO,
@@ -673,6 +769,40 @@ fun ChatScreen(
         ImageViewer(path = path, onClose = { viewerPath = null })
     }
 
+    forwarding?.let { target ->
+        ForwardDialog(
+            myId = myId,
+            onClose = { forwarding = null },
+            onPick = { destination ->
+                forwarding = null
+                scope.launch {
+                    attempt { state.forwardTo(destination.conversation.id, target.key) }
+                        .onSuccess { notice = "Đã chuyển tiếp tới ${destination.other.displayName}." }
+                        .onFailure { state.showError(it.toUserMessage()) }
+                }
+            },
+        )
+    }
+
+    if (searchOpen) {
+        SearchMessagesDialog(
+            conversationId = conversationId,
+            myId = myId,
+            otherName = other.displayName,
+            onClose = { searchOpen = false },
+            onPick = { messageId ->
+                searchOpen = false
+                // Jump to the message if it is among the loaded ones.
+                val index = state.messages.indexOfFirst { it.key == messageId }
+                if (index >= 0) {
+                    scope.launch { listState.animateScrollToItem(index) }
+                } else {
+                    notice = "Tin nhắn này cũ hơn phần đang hiển thị. Bấm \"Tải tin nhắn cũ hơn\" để tới đó."
+                }
+            },
+        )
+    }
+
     if (confirmBlock) {
         AlertDialog(
             onDismissRequest = { confirmBlock = false },
@@ -698,6 +828,8 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    dateLabel: String?,
+    onForward: () -> Unit,
     showAvatar: Boolean,
     otherAvatarPath: String?,
     message: UiMessage,
@@ -734,6 +866,24 @@ private fun MessageBubble(
     val saved = message.state == SendState.SENT || message.state == SendState.READ
     val openMenu: () -> Unit = { if (saved) menuOpen = true }
 
+    Column(modifier = Modifier.fillMaxWidth()) {
+    // Date line above the first message of a day.
+    if (dateLabel != null) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                dateLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+    }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
     // Received messages: the sender's picture on the left of the first
     // message of a run; the following ones are indented by the same width.
@@ -788,6 +938,17 @@ private fun MessageBubble(
                         textColor = textColor,
                         onLongPress = openMenu,
                     )
+                }
+
+                // A message of only one to three emojis: shown large, without
+                // a bubble, like a sticker.
+                message.kind == "text" && message.replyPreview == null && isEmojiOnly(message.text) -> Box(
+                    modifier = Modifier.combinedClickable(
+                        onLongClick = openMenu,
+                        onClick = { if (failed) onRetry() },
+                    ),
+                ) {
+                    Text(message.text, fontSize = 46.sp, modifier = Modifier.padding(vertical = 2.dp))
                 }
 
                 // Text, or a picture / voice message that is still uploading or failed.
@@ -857,6 +1018,13 @@ private fun MessageBubble(
                             onReply()
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Chuyển tiếp") },
+                        onClick = {
+                            menuOpen = false
+                            onForward()
+                        },
+                    )
                 }
                 if (message.kind == "text" && !message.recalled) {
                     DropdownMenuItem(
@@ -922,6 +1090,7 @@ private fun MessageBubble(
         )
     }
     }
+    }
 }
 
 // The six reactions offered in the press-and-hold menu.
@@ -961,4 +1130,26 @@ private fun EmojiPanel(onPick: (String) -> Unit) {
             }
         }
     }
+}
+
+// True for a short text made only of emojis (at most three), which is then
+// shown large like a sticker.
+private fun isEmojiOnly(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty() || trimmed.length > 24) return false
+    var emojiCount = 0
+    var i = 0
+    while (i < trimmed.length) {
+        val cp = trimmed.codePointAt(i)
+        i += Character.charCount(cp)
+        when {
+            cp == 0x200D || cp == 0xFE0F || cp == 0x20E3 -> {}          // joiners, variation marks
+            cp in 0x1F3FB..0x1F3FF -> {}                                 // skin tones
+            Character.isWhitespace(cp) -> {}
+            cp >= 0x1F000 || cp in 0x2600..0x27BF || cp in 0x2B00..0x2BFF ||
+                cp in 0x2190..0x21FF || cp in 0x2300..0x23FF -> emojiCount++
+            else -> return false
+        }
+    }
+    return emojiCount in 1..3
 }

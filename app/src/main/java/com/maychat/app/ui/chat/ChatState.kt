@@ -242,6 +242,30 @@ class ChatState(
         markReadIfNeeded()
     }
 
+    // Sends a COPY of a message into another conversation. A picture or
+    // voice file is copied too, because each conversation has its own
+    // private folder in the storage.
+    suspend fun forwardTo(targetConversationId: String, messageKey: String) {
+        val original = confirmed[messageKey] ?: throw IllegalStateException("message not found")
+        val path = original.mediaPath
+        if (original.kind == "text" || path == null) {
+            ChatRepository.sendMessage(targetConversationId, original.content)
+        } else {
+            val bytes = MediaCache.bytes(path)
+            val extension = if (original.kind == "image") "jpg" else "m4a"
+            val newPath = "$targetConversationId/${UUID.randomUUID()}.$extension"
+            ChatRepository.uploadMedia(newPath, bytes)
+            MediaCache.put(newPath, bytes)
+            ChatRepository.sendMediaMessage(
+                targetConversationId,
+                original.kind,
+                newPath,
+                original.content,
+                original.durationMs,
+            )
+        }
+    }
+
     // Take back one of my own messages, for both people.
     fun recall(messageId: String) {
         scope.launch {

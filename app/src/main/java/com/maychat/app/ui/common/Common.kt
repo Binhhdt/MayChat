@@ -132,3 +132,25 @@ fun offlineLabel(lastSeenAt: String?, nowMs: Long): String {
         else -> "Không hoạt động ${minutes / (60 * 24)} ngày"
     }
 }
+
+// The calendar day (in the phone's time zone) a message belongs to.
+// A message without a time yet (still sending) counts as today.
+fun localDay(timestamp: String?): java.time.LocalDate {
+    val zone = ZoneId.systemDefault()
+    if (timestamp == null) return java.time.LocalDate.now(zone)
+    return runCatching {
+        OffsetDateTime.parse(timestamp).atZoneSameInstant(zone).toLocalDate()
+    }.getOrDefault(java.time.LocalDate.now(zone))
+}
+
+private val dayFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+// Label of the line shown between messages of different days.
+fun dayLabel(day: java.time.LocalDate): String {
+    val today = java.time.LocalDate.now(ZoneId.systemDefault())
+    return when (day) {
+        today -> "Hôm nay"
+        today.minusDays(1) -> "Hôm qua"
+        else -> day.format(dayFormat)
+    }
+}

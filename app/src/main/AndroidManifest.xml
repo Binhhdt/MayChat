@@ -24,6 +24,13 @@
          incoming call can open its screen while another app is in use. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Lets the app hand a photo request to the phone's camera app. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".MayChatApplication"
         android:allowBackup="false"
@@ -46,6 +53,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Gives the camera app a private place to save a new photo.
+             No camera or storage permission is needed for this. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.maychat.app.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Receives events from Firebase Cloud Messaging. -->
         <service
