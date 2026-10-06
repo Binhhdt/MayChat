@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,8 +27,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.maychat.app.call.CallManager
+import com.maychat.app.call.CallScreen
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.DeviceId
 import com.maychat.app.data.Profile
@@ -195,6 +199,31 @@ private fun MainScreens(myId: String) {
         overlay = Overlay.Chat(target.conversationId, person)
     }
 
+    // ----- "Offline for how long" --------------------------------------
+    // While the app is on screen, tell the server once a minute that I am
+    // active, and once more at the moment the app leaves the screen.
+    LaunchedEffect(myId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                attempt { ChatRepository.touchLastSeen() }
+                delay(60_000)
+            }
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        ChatRepository.touchLastSeenInBackground()
+    }
+
+    // ----- Voice calls ---------------------------------------------------
+    // Listen for incoming calls while logged in.
+    DisposableEffect(myId) {
+        onDispose { CallManager.detach() }
+    }
+    LaunchedEffect(myId) {
+        val me = attempt { ChatRepository.loadProfile(myId) }.getOrNull()
+        CallManager.attach(context, myId, me?.displayName ?: "MayChat")
+    }
+
     // The phone's Back button closes the chat or search screen.
     BackHandler(enabled = overlay != null) {
         overlay = null
@@ -246,6 +275,9 @@ private fun MainScreens(myId: String) {
             onBack = { overlay = null },
         )
     }
+
+    // The call screen covers everything else while a call is going on.
+    CallManager.ui?.let { call -> CallScreen(call) }
 }
 
 // Shown when the APK was built without the two GitHub Secrets.

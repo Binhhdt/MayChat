@@ -56,11 +56,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
+import com.maychat.app.data.attempt
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
+import com.maychat.app.ui.common.offlineLabel
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.Relation
 import kotlinx.coroutines.delay
@@ -100,6 +103,33 @@ fun ChatScreen(
 
     val relation = friends.relation(other.id)
     val blockedByMe = relation == Relation.BLOCKED
+
+    // "Offline for how long": the other person's last active time, re-read
+    // every 30 seconds while they are offline.
+    val otherOnline = other.id in online
+    var otherLastSeen by remember(conversationId) { mutableStateOf(other.lastSeenAt) }
+    var statusNowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(conversationId, otherOnline) {
+        if (!otherOnline) {
+            delay(1_500)
+            while (true) {
+                attempt { ChatRepository.loadProfile(other.id) }.getOrNull()?.let { otherLastSeen = it.lastSeenAt }
+                statusNowMs = System.currentTimeMillis()
+                delay(30_000)
+            }
+        }
+    }
+
+    // Voice call: needs the microphone permission before calling.
+    val askMicrophoneForCall = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            CallManager.startCall(other, conversationId)
+        } else {
+            state.showError("Cần quyền micro để gọi thoại. Bạn có thể bật trong Cài đặt của điện thoại.")
+        }
+    }
 
     // Load at start, and again whenever the live connection comes (back) up.
     LaunchedEffect(conversationId, connectionCount) { state.refresh() }
@@ -260,7 +290,7 @@ fun ChatScreen(
                         Column {
                             Text(other.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                             Text(
-                                if (other.id in online) "Đang hoạt động" else "Ngoại tuyến",
+                                if (otherOnline) "Đang hoạt động" else offlineLabel(otherLastSeen, statusNowMs),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -269,6 +299,21 @@ fun ChatScreen(
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("‹") } },
                 actions = {
+                    // Voice call button.
+                    TextButton(
+                        onClick = {
+                            val granted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (granted) {
+                                CallManager.startCall(other, conversationId)
+                            } else {
+                                askMicrophoneForCall.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        enabled = !blockedByMe,
+                    ) { Text("📞", style = MaterialTheme.typography.titleLarge) }
                     Box {
                         TextButton(onClick = { menuOpen = true }) { Text("⋮") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

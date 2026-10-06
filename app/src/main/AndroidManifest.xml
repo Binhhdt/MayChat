@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Voice calls: switch between earpiece and loudspeaker. No popup. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Needed on Android 13 and newer to show notifications. The app asks
          the user once after login. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

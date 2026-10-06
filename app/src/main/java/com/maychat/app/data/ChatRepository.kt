@@ -193,6 +193,17 @@ object ChatRepository {
             .decodeList<Profile>()
     }
 
+    // Records "I was active just now" with the server's clock
+    // (see supabase_migration_08_last_seen.sql).
+    suspend fun touchLastSeen() {
+        supabase.postgrest.rpc("touch_last_seen")
+    }
+
+    // Same, for moments when the screen is going away and nothing can wait.
+    fun touchLastSeenInBackground() {
+        scope.launch { attempt { touchLastSeen() } }
+    }
+
     // ------------------------------------------------------------------
     // Friends and blocking
     // The security rules only return rows that involve me. All changes go

@@ -70,8 +70,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.6.1"
+        versionCode = 15
+        versionName = "0.7.1"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -79,6 +79,12 @@ android {
         buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
         buildConfigField("String", "FIREBASE_SENDER_ID", "\"$firebaseSenderId\"")
+
+        // The call library contains native code for four processor types.
+        // Keeping only the two used by real phones makes the APK much smaller.
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+        }
     }
 
     buildTypes {
@@ -145,6 +151,9 @@ dependencies {
     // Firebase Cloud Messaging (push notifications). Free, no billing needed.
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
     implementation("com.google.firebase:firebase-messaging")
+
+    // WebRTC (voice calls): Google's WebRTC library, pre-built by Stream.
+    implementation("io.getstream:stream-webrtc-android:1.3.9")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

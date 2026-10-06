@@ -88,3 +88,18 @@ fun formatTime(timestamp: String?): String {
         if (local.toLocalDate() == today) local.format(timeFormat) else local.format(dateTimeFormat)
     }.getOrDefault("")
 }
+
+// Text shown under a name when the person is not online: how long ago they
+// were last active. Falls back to plain "Không hoạt động" when that is unknown.
+fun offlineLabel(lastSeenAt: String?, nowMs: Long): String {
+    if (lastSeenAt == null) return "Không hoạt động"
+    val seenMs = runCatching { OffsetDateTime.parse(lastSeenAt).toInstant().toEpochMilli() }.getOrNull()
+        ?: return "Không hoạt động"
+    val minutes = ((nowMs - seenMs) / 60_000).coerceAtLeast(0)
+    return when {
+        minutes < 1 -> "Không hoạt động dưới 1 phút"
+        minutes < 60 -> "Không hoạt động $minutes phút"
+        minutes < 60 * 24 -> "Không hoạt động ${minutes / 60} giờ"
+        else -> "Không hoạt động ${minutes / (60 * 24)} ngày"
+    }
+}
