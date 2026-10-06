@@ -66,9 +66,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -273,6 +279,16 @@ fun ChatScreen(
     // it shows up promptly.
     LaunchedEffect(cameraSending) {
         if (!cameraSending) state.poll()
+    }
+
+    // Tapping the message area puts the keyboard (and the emoji panel) away,
+    // like in Zalo. Scrolling does not.
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val dismissKeyboard: () -> Unit = {
+        focusManager.clearFocus()
+        keyboard?.hide()
+        emojiOpen = false
     }
 
     // Brings one message into view, about a third up from the bottom,
@@ -621,7 +637,35 @@ fun ChatScreen(
             if (state.loading) {
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) { LoadingScreen() }
             } else {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        // Watches touches BEFORE the messages get them and does
+                        // not use them up, so tapping, press-and-hold and
+                        // scrolling on messages keep working as before.
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                var pressedAt: Offset? = null
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull() ?: continue
+                                    if (event.type == PointerEventType.Press) {
+                                        pressedAt = change.position
+                                    } else if (event.type == PointerEventType.Release) {
+                                        val start = pressedAt
+                                        pressedAt = null
+                                        // A tap = finger lifted close to where it went down.
+                                        if (start != null &&
+                                            (change.position - start).getDistance() < viewConfiguration.touchSlop
+                                        ) {
+                                            dismissKeyboard()
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
@@ -636,6 +680,7 @@ fun ChatScreen(
                                     message.key == flashKey -> ""
                                     else -> null
                                 },
+                                markQuery = if (searchMode && searchQuery.trim().length >= 2) searchQuery.trim() else null,
                                 isPinned = message.key == state.pinned?.messageId,
                                 onTogglePin = {
                                     if (message.key == state.pinned?.messageId) state.unpin() else state.pin(message.key)
@@ -762,6 +807,8 @@ fun ChatScreen(
                             searchQuery.trim().length < 2 -> "Nhập ít nhất 2 ký tự"
                             searchBusy -> "Đang tìm…"
                             searchResults.isEmpty() -> "Không tìm thấy"
+                            searchResults.size >= ChatRepository.SEARCH_LIMIT ->
+                                "Kết quả thứ ${searchIndex + 1}/${searchResults.size}+"
                             else -> "Kết quả thứ ${searchIndex + 1}/${searchResults.size}"
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -997,6 +1044,7 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    markQuery: String?,
     isPinned: Boolean,
     onTogglePin: () -> Unit,
     highlightQuery: String?,
@@ -1199,7 +1247,9 @@ private fun MessageBubble(
                             }
                             Spacer(Modifier.height(6.dp))
                         }
-                        Text(highlighted(message.text, highlightQuery), color = textColor)
+                        // While searching, the words are marked in every message
+                        // that contains them, not only in the current result.
+                        Text(highlighted(message.text, markQuery), color = textColor)
                     }
                 }
             }

@@ -458,8 +458,12 @@ object ChatRepository {
             buildJsonObject { put("p_conversation", conversationId) },
         ).decodeList<Reaction>()
 
+    // The most results one search returns. The screen shows "300+" when
+    // this many were found, because there may be more.
+    const val SEARCH_LIMIT = 300
+
     // Text messages of one conversation that contain the given words
-    // (newest first, at most 50). Upper and lower case do not matter.
+    // (newest first, at most SEARCH_LIMIT). Upper and lower case do not matter.
     suspend fun searchMessages(conversationId: String, query: String): List<Message> {
         // "%" and "_" have a special meaning in the search pattern.
         val clean = query.trim().replace("\\", "").replace("%", "").replace("_", " ")
@@ -472,7 +476,7 @@ object ChatRepository {
                     ilike("content", "%$clean%")
                 }
                 order("created_at", Order.DESCENDING)
-                limit(50L)
+                limit(SEARCH_LIMIT.toLong())
             }
             .decodeList<Message>()
             .filter { it.recalledAt == null }
