@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,11 @@ fun ChatScreen(
     var recording by remember { mutableStateOf(false) }
     var recordedMs by remember { mutableLongStateOf(0L) }
 
+    // "Is typing" indicator.
+    var otherTypingAt by remember(conversationId) { mutableLongStateOf(0L) }   // last signal received
+    var otherTyping by remember(conversationId) { mutableStateOf(false) }
+    var myTypingSentAt by remember(conversationId) { mutableLongStateOf(0L) }  // last signal sent
+
     val relation = friends.relation(other.id)
     val blockedByMe = relation == Relation.BLOCKED
 
@@ -100,7 +106,27 @@ fun ChatScreen(
 
     // Live messages and read receipts.
     LaunchedEffect(conversationId) {
-        ChatRepository.messageEvents.collect { state.onEvent(it) }
+        ChatRepository.messageEvents.collect {
+            state.onEvent(it)
+            // Their message has arrived, so they are no longer "typing".
+            if (it.conversationId == conversationId && it.senderId != myId) otherTyping = false
+        }
+    }
+
+    // Receive "the other person is typing" signals.
+    LaunchedEffect(conversationId) {
+        ChatRepository.listenTyping(conversationId, myId) {
+            otherTypingAt = System.currentTimeMillis()
+        }
+    }
+
+    // Show the indicator, and hide it 4 seconds after the last signal.
+    LaunchedEffect(otherTypingAt) {
+        if (otherTypingAt > 0L) {
+            otherTyping = true
+            delay(4_000)
+            otherTyping = false
+        }
     }
 
     // Safety net: while this chat is on screen, also ask the server for new
@@ -134,12 +160,29 @@ fun ChatScreen(
         }
     }
 
-    // When a new message arrives and the user is near the bottom, stay at the bottom.
-    val newestKey = state.messages.firstOrNull()?.key
+    // True when a message from the other person arrived while I was reading
+    // older messages further up. Shows the "Tin nhắn mới" button.
+    var newBelow by remember(conversationId) { mutableStateOf(false) }
+
+    // A new newest message appeared:
+    // - I am at (or near) the bottom, or I sent it myself -> stay at the bottom.
+    // - I have scrolled up to read old messages -> do NOT jump; show the button.
+    val newest = state.messages.firstOrNull()
+    val newestKey = newest?.key
     LaunchedEffect(newestKey) {
-        if (newestKey != null && listState.firstVisibleItemIndex <= 2) {
+        if (newest == null) return@LaunchedEffect
+        if (newest.mine || listState.firstVisibleItemIndex <= 2) {
             listState.scrollToItem(0)
+            newBelow = false
+        } else {
+            newBelow = true
         }
+    }
+
+    // Hide the button as soon as I am back at the bottom by scrolling myself.
+    val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    LaunchedEffect(atBottom) {
+        if (atBottom) newBelow = false
     }
 
     // ----- Sending an image -------------------------------------------------
@@ -283,34 +326,59 @@ fun ChatScreen(
             if (state.loading) {
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) { LoadingScreen() }
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    state = listState,
-                    reverseLayout = true,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(state.messages, key = { it.key }) { message ->
-                        MessageBubble(message = message, onRetry = { state.retry(message.key) })
-                    }
-                    if (state.hasOlder) {
-                        item(key = "load-older") {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                TextButton(onClick = { state.loadOlder() }, enabled = !state.loadingOlder) {
-                                    Text(if (state.loadingOlder) "Đang tải…" else "Tải tin nhắn cũ hơn")
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        reverseLayout = true,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(state.messages, key = { it.key }) { message ->
+                            MessageBubble(message = message, onRetry = { state.retry(message.key) })
+                        }
+                        if (state.hasOlder) {
+                            item(key = "load-older") {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    TextButton(onClick = { state.loadOlder() }, enabled = !state.loadingOlder) {
+                                        Text(if (state.loadingOlder) "Đang tải…" else "Tải tin nhắn cũ hơn")
+                                    }
                                 }
                             }
                         }
+                        if (state.messages.isEmpty()) {
+                            item(key = "empty") {
+                                Text(
+                                    "Hãy gửi lời chào tới ${other.displayName}.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                )
+                            }
+                        }
                     }
-                    if (state.messages.isEmpty()) {
-                        item(key = "empty") {
+
+                    // Floating button: jump down to the newest message.
+                    if (newBelow) {
+                        Surface(
+                            onClick = {
+                                newBelow = false
+                                scope.launch { listState.animateScrollToItem(0) }
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 6.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 12.dp),
+                        ) {
                             Text(
-                                "Hãy gửi lời chào tới ${other.displayName}.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                "↓ Tin nhắn mới",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                             )
                         }
                     }
@@ -330,6 +398,15 @@ fun ChatScreen(
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            if (otherTyping && !blockedByMe) {
+                Text(
+                    "••• ${other.displayName} đang soạn tin…",
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -377,7 +454,15 @@ fun ChatScreen(
                     ) { Text("🎤", style = MaterialTheme.typography.titleLarge) }
                     OutlinedTextField(
                         value = draft,
-                        onValueChange = { draft = it },
+                        onValueChange = {
+                            draft = it
+                            // Tell the other phone "typing", at most once every 2.5 seconds.
+                            val now = System.currentTimeMillis()
+                            if (it.isNotBlank() && now - myTypingSentAt > 2_500) {
+                                myTypingSentAt = now
+                                scope.launch { ChatRepository.sendTyping(conversationId, myId) }
+                            }
+                        },
                         placeholder = { Text("Nhập tin nhắn") },
                         enabled = !blockedByMe,
                         maxLines = 4,

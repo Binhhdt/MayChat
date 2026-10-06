@@ -8,6 +8,7 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
@@ -16,7 +17,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +32,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -485,6 +489,54 @@ object ChatRepository {
         presenceChannel = null
         synchronized(onlineCounts) { onlineCounts.clear() }
         _onlineUsers.value = emptySet()
+    }
+
+    // ------------------------------------------------------------------
+    // "Is typing" indicator
+    // Uses Realtime Broadcast: small messages that go straight from one
+    // phone to the other and are never stored in the database.
+    // ------------------------------------------------------------------
+
+    private val typingChannels = HashMap<String, RealtimeChannel>()
+
+    // Listens for "the other person is typing" in one conversation and calls
+    // onTyping each time. Runs until the caller is cancelled (chat closed).
+    suspend fun listenTyping(conversationId: String, myId: String, onTyping: () -> Unit) {
+        val channel = supabase.channel("typing-$conversationId")
+        synchronized(typingChannels) { typingChannels[conversationId] = channel }
+        try {
+            coroutineScope {
+                val events = channel.broadcastFlow<JsonObject>(event = "typing")
+                launch {
+                    events.collect { payload ->
+                        val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
+                        if (from != null && from != myId) onTyping()
+                    }
+                }
+                delay(300)
+                joinWithRetry(channel)
+            }
+        } finally {
+            synchronized(typingChannels) {
+                if (typingChannels[conversationId] === channel) typingChannels.remove(conversationId)
+            }
+            withContext(NonCancellable) {
+                runCatching { supabase.realtime.removeChannel(channel) }
+            }
+        }
+    }
+
+    // Tells the other person "I am typing". Does nothing when offline.
+    suspend fun sendTyping(conversationId: String, myId: String) {
+        val channel = synchronized(typingChannels) { typingChannels[conversationId] } ?: return
+        if (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) return
+        try {
+            channel.broadcast(event = "typing", message = buildJsonObject { put("user_id", myId) })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Not important enough to show an error.
+        }
     }
 
     // ------------------------------------------------------------------
