@@ -126,11 +126,12 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
+      # ALL_SECRETS hands every repository secret to the Gradle build as one
+      # JSON text, so adding a new secret later needs no change in this file.
       - name: Build debug APK
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: gradle assembleDebug --stacktrace
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
