@@ -107,6 +107,10 @@ object ChatRepository {
         attempt {
             supabase.postgrest.rpc("release_session", buildJsonObject { put("p_device", deviceId) })
         }
+        // This phone must stop receiving notifications for this account.
+        attempt {
+            supabase.postgrest.rpc("unregister_push_token", buildJsonObject { put("p_device", deviceId) })
+        }
         stopRealtime()
         supabase.auth.signOut()
     }
@@ -135,6 +139,18 @@ object ChatRepository {
             buildJsonObject { put("p_device", deviceId) },
         )
         return result.data.trim() == "true"
+    }
+
+    // Tells the server where to send this account's notifications
+    // (see supabase_migration_06_push.sql).
+    suspend fun registerPushToken(token: String) {
+        supabase.postgrest.rpc(
+            "register_push_token",
+            buildJsonObject {
+                put("p_device", deviceId)
+                put("p_token", token)
+            },
+        )
     }
 
     // Signs out and tells the login screen why.

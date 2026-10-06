@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     // Compose compiler plugin. Kotlin itself is built into AGP 9.
@@ -6,11 +8,58 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// Supabase connection settings. They are NOT written in the source code.
-// GitHub Actions passes them in from GitHub Secrets as environment variables.
-// For a local build, set the same two environment variables on your computer.
-val supabaseUrl: String = (System.getenv("SUPABASE_URL") ?: "").trim()
-val supabaseKey: String = (System.getenv("SUPABASE_KEY") ?: "").trim()
+// ---------------------------------------------------------------------
+// Settings that are NOT written in the source code.
+// GitHub Actions passes all repository secrets in as one JSON text in the
+// environment variable ALL_SECRETS. For a local build you can instead set
+// environment variables with the same names as the secrets.
+// ---------------------------------------------------------------------
+val allSecrets: Map<*, *> = try {
+    (JsonSlurper().parseText(System.getenv("ALL_SECRETS") ?: "{}") as? Map<*, *>) ?: emptyMap<Any, Any>()
+} catch (e: Exception) {
+    emptyMap<Any, Any>()
+}
+
+fun secret(name: String): String =
+    (System.getenv(name) ?: (allSecrets[name] as? String) ?: "").trim()
+
+val supabaseUrl: String = secret("SUPABASE_URL")
+val supabaseKey: String = secret("SUPABASE_KEY")
+
+// Firebase (push notifications). The secret GOOGLE_SERVICES_JSON holds the
+// whole content of google-services.json; the four values the app needs are
+// picked out of it here. Without the secret the app builds without push.
+val googleServicesText: String = secret("GOOGLE_SERVICES_JSON")
+val googleServices: Map<*, *>? =
+    if (googleServicesText.isBlank()) null
+    else try {
+        JsonSlurper().parseText(googleServicesText) as? Map<*, *>
+    } catch (e: Exception) {
+        throw GradleException("Secret GOOGLE_SERVICES_JSON is not valid JSON. Paste the whole content of google-services.json again.")
+    }
+
+val firebaseProjectInfo = googleServices?.get("project_info") as? Map<*, *>
+val firebaseClient: Map<*, *>? = (googleServices?.get("client") as? List<*>)
+    ?.mapNotNull { it as? Map<*, *> }
+    ?.firstOrNull { client ->
+        val info = client["client_info"] as? Map<*, *>
+        val androidInfo = info?.get("android_client_info") as? Map<*, *>
+        androidInfo?.get("package_name") == "com.maychat.app"
+    }
+
+if (googleServices != null && firebaseClient == null) {
+    throw GradleException(
+        "GOOGLE_SERVICES_JSON does not contain an Android app with package name com.maychat.app. " +
+            "In Firebase, add an Android app with exactly that package name and download google-services.json again."
+    )
+}
+
+val firebaseAppId: String =
+    ((firebaseClient?.get("client_info") as? Map<*, *>)?.get("mobilesdk_app_id") as? String) ?: ""
+val firebaseApiKey: String =
+    (((firebaseClient?.get("api_key") as? List<*>)?.firstOrNull() as? Map<*, *>)?.get("current_key") as? String) ?: ""
+val firebaseProjectId: String = (firebaseProjectInfo?.get("project_id") as? String) ?: ""
+val firebaseSenderId: String = (firebaseProjectInfo?.get("project_number") as? String) ?: ""
 
 android {
     // IMPORTANT: this is the app's package name.
@@ -21,11 +70,15 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.5.1"
+        versionCode = 12
+        versionName = "0.6.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"$firebaseSenderId\"")
     }
 
     buildTypes {
@@ -88,6 +141,10 @@ dependencies {
     // Ktor engine (supports WebSockets, which Realtime needs).
     // The version written here is only a minimum, see KtorAlignmentRule above.
     implementation("io.ktor:ktor-client-okhttp:3.0.3")
+
+    // Firebase Cloud Messaging (push notifications). Free, no billing needed.
+    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

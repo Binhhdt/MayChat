@@ -1,6 +1,11 @@
 package com.maychat.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -28,6 +34,7 @@ import com.maychat.app.data.Profile
 import com.maychat.app.data.SupabaseProvider
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
+import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.LoadingScreen
@@ -152,6 +159,40 @@ private fun MainScreens(myId: String) {
                 friends.reload()
             }
         }
+    }
+
+    // ----- Push notifications -------------------------------------------
+    val context = LocalContext.current
+
+    // Android 13+: notifications need the user's permission. Asked once per
+    // app start if not granted yet; the app works either way.
+    val askNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    LaunchedEffect(myId) {
+        if (Push.isConfigured && Build.VERSION.SDK_INT >= 33) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // Tell the server this phone's address, so it can be notified.
+    LaunchedEffect(myId) {
+        val token = Push.currentToken()
+        if (token != null) attempt { ChatRepository.registerPushToken(token) }
+    }
+
+    // A notification was tapped: open that conversation.
+    val chatToOpen by Push.chatToOpen.collectAsState()
+    LaunchedEffect(chatToOpen) {
+        val target = chatToOpen ?: return@LaunchedEffect
+        Push.clearOpenChat()
+        val person = attempt { ChatRepository.loadProfile(target.senderId) }.getOrNull()
+            ?: Profile(id = target.senderId, username = "", displayName = target.senderName)
+        overlay = Overlay.Chat(target.conversationId, person)
     }
 
     // The phone's Back button closes the chat or search screen.
