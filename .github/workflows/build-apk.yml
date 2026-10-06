@@ -126,11 +126,12 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
-      # ALL_SECRETS hands every repository secret to the Gradle build as one
-      # JSON text, so adding a new secret later needs no change in this file.
+      # Each secret the build needs is passed by name.
       - name: Build debug APK
         env:
-          ALL_SECRETS: ${{ toJSON(secrets) }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: gradle assembleDebug
 
       - name: Upload APK
