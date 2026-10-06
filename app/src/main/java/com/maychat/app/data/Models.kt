@@ -37,6 +37,8 @@ data class Message(
     val content: String,
     @SerialName("created_at") val createdAt: String,
     @SerialName("read_at") val readAt: String? = null,
+    // When the receiver's app got the message (null = not yet).
+    @SerialName("delivered_at") val deliveredAt: String? = null,
     // "text", "image" or "voice"
     val kind: String = "text",
     // Where the image/voice file is in Supabase Storage (null for text).

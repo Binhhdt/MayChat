@@ -517,6 +517,27 @@ object ChatRepository {
             .filter { it.recalledAt == null }
     }
 
+    // Tells the server "my app has received everything sent to me so far",
+    // which turns "Đã gửi" into "Đã nhận" on the senders' phones.
+    // (see supabase_migration_15_delivered.sql)
+    suspend fun markDelivered() {
+        supabase.postgrest.rpc("mark_delivered")
+    }
+
+    // Newest pictures or files of one conversation, for the Options screen.
+    // kind is "image" or "file".
+    suspend fun loadSharedMedia(conversationId: String, kind: String, limit: Int): List<Message> =
+        supabase.postgrest.from("messages")
+            .select {
+                filter {
+                    eq("conversation_id", conversationId)
+                    eq("kind", kind)
+                }
+                order("created_at", Order.DESCENDING)
+                limit(limit.toLong())
+            }
+            .decodeList<Message>()
+
     suspend fun markConversationRead(conversationId: String) {
         supabase.postgrest.rpc(
             "mark_conversation_read",

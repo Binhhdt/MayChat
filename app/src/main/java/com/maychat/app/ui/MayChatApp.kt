@@ -171,6 +171,19 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     val friends = remember(myId) { FriendsState(myId, scope) }
     val connectionCount by ChatRepository.connectionCount.collectAsState()
 
+    // "Đã nhận": while the app is running, tell the server that messages
+    // sent to me have arrived, once at start and again whenever a new
+    // message from someone else comes in. If migration 15 was not run the
+    // calls simply fail and nothing changes.
+    LaunchedEffect(myId) {
+        attempt { ChatRepository.markDelivered() }
+        ChatRepository.messageEvents.collect { message ->
+            if (message.senderId != myId && message.deliveredAt == null) {
+                attempt { ChatRepository.markDelivered() }
+            }
+        }
+    }
+
     // Saved by Android, so the same tab and the same open chat come back
     // when the system closes and re-creates the screen (for example while
     // the camera app is open).

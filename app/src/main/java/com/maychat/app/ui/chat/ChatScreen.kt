@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -141,6 +142,9 @@ fun ChatScreen(
     var otherTypingAt by remember(conversationId) { mutableLongStateOf(0L) }   // last signal received
     var otherTyping by remember(conversationId) { mutableStateOf(false) }
     var myTypingSentAt by remember(conversationId) { mutableLongStateOf(0L) }  // last signal sent
+
+    // Whether the "Tùy chọn" (options) screen of this conversation is open.
+    var optionsOpen by remember(conversationId) { mutableStateOf(false) }
 
     // Whether the "chat background" window is open.
     var wallpaperOpen by remember { mutableStateOf(false) }
@@ -530,7 +534,13 @@ fun ChatScreen(
             } else
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Tapping the picture or the name opens the options screen.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { optionsOpen = true },
+                    ) {
                         Avatar(
                             name = other.displayName,
                             online = other.id in online,
@@ -579,6 +589,13 @@ fun ChatScreen(
                             )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Tùy chọn") },
+                                onClick = {
+                                    menuOpen = false
+                                    optionsOpen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Tìm trong cuộc trò chuyện") },
                                 onClick = {
@@ -1152,6 +1169,24 @@ fun ChatScreen(
         )
     }
 
+    if (optionsOpen) {
+        ChatOptionsScreen(
+            conversationId = conversationId,
+            other = other,
+            statusText = if (other.id in online) "Đang hoạt động" else "",
+            onClose = { optionsOpen = false },
+            onSearch = {
+                optionsOpen = false
+                searchMode = true
+            },
+            onWallpaper = {
+                optionsOpen = false
+                wallpaperOpen = true
+            },
+            onOpenImage = { viewerPath = it },
+        )
+    }
+
     if (wallpaperOpen) {
         WallpaperDialog(
             current = state.wallpaper,
@@ -1273,13 +1308,16 @@ private fun MessageBubble(
         message.state == SendState.SENDING -> "Đang gửi…"
         message.state == SendState.FAILED -> "Gửi lỗi. Chạm vào tin nhắn để gửi lại"
         message.state == SendState.READ -> "$time · Đã xem"
+        message.state == SendState.DELIVERED -> "$time · Đã nhận"
         else -> "$time · Đã gửi"
     }
 
     val path = message.mediaPath
     val failed = message.state == SendState.FAILED
     // A message that is saved on the server (not still sending or failed).
-    val saved = message.state == SendState.SENT || message.state == SendState.READ
+    val saved = message.state == SendState.SENT ||
+        message.state == SendState.DELIVERED ||
+        message.state == SendState.READ
     val openMenu: () -> Unit = { if (saved) menuOpen = true }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1450,72 +1488,83 @@ private fun MessageBubble(
                 }
             }
 
-            // Press-and-hold menu.
+            // Press-and-hold menu: quick reactions on top, then a grid of
+            // actions with icons, like in Zalo.
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (!message.recalled) {
-                    // Quick reactions.
-                    Row(modifier = Modifier.padding(horizontal = 8.dp)) {
-                        QUICK_REACTIONS.forEach { emoji ->
-                            Text(
-                                emoji,
-                                fontSize = 24.sp,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        menuOpen = false
-                                        onReact(emoji)
-                                    }
-                                    .padding(8.dp),
+                val actions = buildList {
+                    if (!message.recalled) {
+                        add(MenuAction("Trả lời", R.drawable.ic_reply, onReply))
+                        add(MenuAction("Chuyển tiếp", R.drawable.ic_forward, onForward))
+                        if (message.kind == "text") {
+                            add(
+                                MenuAction("Sao chép", R.drawable.ic_copy, {
+                                    clipboard.setText(AnnotatedString(message.text))
+                                }),
                             )
                         }
+                        add(MenuAction(if (isPinned) "Bỏ ghim" else "Ghim", R.drawable.ic_pin, onTogglePin))
+                        if (message.mine) add(MenuAction("Thu hồi", R.drawable.ic_undo, onRecall))
                     }
-                    DropdownMenuItem(
-                        text = { Text("Trả lời") },
-                        onClick = {
-                            menuOpen = false
-                            onReply()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Chuyển tiếp") },
-                        onClick = {
-                            menuOpen = false
-                            onForward()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (isPinned) "Bỏ ghim" else "Ghim") },
-                        onClick = {
-                            menuOpen = false
-                            onTogglePin()
-                        },
-                    )
+                    add(MenuAction("Xóa phía tôi", R.drawable.ic_delete, onHide, danger = true))
                 }
-                if (message.kind == "text" && !message.recalled) {
-                    DropdownMenuItem(
-                        text = { Text("Sao chép") },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(AnnotatedString(message.text))
-                        },
-                    )
+
+                Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                    if (!message.recalled) {
+                        // Quick reactions.
+                        Row {
+                            QUICK_REACTIONS.forEach { emoji ->
+                                Text(
+                                    emoji,
+                                    fontSize = 24.sp,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            menuOpen = false
+                                            onReact(emoji)
+                                        }
+                                        .padding(7.dp),
+                                )
+                            }
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                    }
+                    // Four actions per row.
+                    actions.chunked(4).forEach { rowActions ->
+                        Row {
+                            rowActions.forEach { action ->
+                                Column(
+                                    modifier = Modifier
+                                        .width(64.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            menuOpen = false
+                                            action.onClick()
+                                        }
+                                        .padding(vertical = 10.dp, horizontal = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Icon(
+                                        painter = painterResource(action.icon),
+                                        contentDescription = null,
+                                        tint = if (action.danger) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.primary
+                                        },
+                                        modifier = Modifier.size(26.dp),
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        action.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 2,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-                if (message.mine && !message.recalled) {
-                    DropdownMenuItem(
-                        text = { Text("Thu hồi (cả hai bên)") },
-                        onClick = {
-                            menuOpen = false
-                            onRecall()
-                        },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("Xóa ở phía tôi") },
-                    onClick = {
-                        menuOpen = false
-                        onHide()
-                    },
-                )
             }
         }
         // Reactions under the bubble. Tapping mine removes it.
@@ -1667,3 +1716,11 @@ private fun MediaQuote(message: UiMessage, otherName: String) {
         }
     }
 }
+
+// One entry of the press-and-hold menu.
+private class MenuAction(
+    val label: String,
+    val icon: Int,
+    val onClick: () -> Unit,
+    val danger: Boolean = false,
+)

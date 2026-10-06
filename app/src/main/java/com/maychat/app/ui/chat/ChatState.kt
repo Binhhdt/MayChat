@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-enum class SendState { SENDING, SENT, READ, FAILED }
+// SENT = saved on the server, DELIVERED = the other phone's app has it,
+// READ = the other person opened the conversation.
+enum class SendState { SENDING, SENT, DELIVERED, READ, FAILED }
 
 // One bubble on the chat screen.
 data class UiMessage(
@@ -109,7 +111,11 @@ class ChatState(
                     text = m.content,
                     mine = mine,
                     createdAt = m.createdAt,
-                    state = if (mine && m.readAt != null) SendState.READ else SendState.SENT,
+                    state = when {
+                        mine && m.readAt != null -> SendState.READ
+                        mine && m.deliveredAt != null -> SendState.DELIVERED
+                        else -> SendState.SENT
+                    },
                     kind = m.kind,
                     mediaPath = m.mediaPath,
                     durationMs = m.durationMs,
