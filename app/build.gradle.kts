@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -61,6 +62,23 @@ val firebaseApiKey: String =
 val firebaseProjectId: String = (firebaseProjectInfo?.get("project_id") as? String) ?: ""
 val firebaseSenderId: String = (firebaseProjectInfo?.get("project_number") as? String) ?: ""
 
+// Fixed signing key, so a new APK installs OVER the old one without
+// uninstalling. The key file comes from the secret KEYSTORE_BASE64 and its
+// password from KEYSTORE_PASSWORD. Without these two secrets the build
+// signs with a throw-away key exactly as before.
+val keystoreBase64: String = secret("KEYSTORE_BASE64")
+val keystorePassword: String = secret("KEYSTORE_PASSWORD")
+val hasFixedKey: Boolean = keystoreBase64.isNotBlank() && keystorePassword.isNotBlank()
+val fixedKeystoreFile = layout.buildDirectory.file("signing/maychat.p12").get().asFile
+if (hasFixedKey) {
+    try {
+        fixedKeystoreFile.parentFile.mkdirs()
+        fixedKeystoreFile.writeBytes(Base64.getMimeDecoder().decode(keystoreBase64))
+    } catch (e: Exception) {
+        throw GradleException("Secret KEYSTORE_BASE64 is not valid. Paste the whole content of KEYSTORE_BASE64.txt again.")
+    }
+}
+
 android {
     // IMPORTANT: this is the app's package name.
     namespace = "com.maychat.app"
@@ -70,8 +88,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.7.1"
+        versionCode = 16
+        versionName = "0.7.2"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -87,7 +105,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasFixedKey) {
+            create("fixed") {
+                storeFile = fixedKeystoreFile
+                storePassword = keystorePassword
+                keyAlias = "maychat"
+                keyPassword = keystorePassword
+                storeType = "pkcs12"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
         }
