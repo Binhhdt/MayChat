@@ -32,3 +32,4 @@ keystore.properties
 .env
 *.pem
 *.p12
+app/src/main/assets/fonts/

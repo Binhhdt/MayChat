@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +50,7 @@ import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.compressImage
 import com.maychat.app.ui.common.Avatar
+import com.maychat.app.ui.common.BackButton
 import com.maychat.app.ui.common.LoadingScreen
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -124,7 +126,7 @@ fun EditProfileScreen(myId: String, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Hồ sơ của tôi") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("‹ Quay lại") } },
+                navigationIcon = { BackButton(onClick = onBack) },
             )
         },
     ) { innerPadding ->
@@ -200,6 +202,7 @@ fun EditProfileScreen(myId: String, onBack: () -> Unit) {
                 onValueChange = { displayName = it },
                 label = { Text("Tên hiển thị") },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -210,6 +213,7 @@ fun EditProfileScreen(myId: String, onBack: () -> Unit) {
                 label = { Text("Tên người dùng") },
                 supportingText = { Text("Không đổi được, vì bạn bè tìm bạn bằng tên này.") },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 enabled = false,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -225,7 +229,12 @@ fun EditProfileScreen(myId: String, onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { save() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { save() },
+                enabled = !busy,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
                 Text(if (busy) "Đang lưu…" else "Lưu thay đổi")
             }
         }

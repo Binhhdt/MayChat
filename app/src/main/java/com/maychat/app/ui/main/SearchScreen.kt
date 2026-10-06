@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +32,7 @@ import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
+import com.maychat.app.ui.common.BackButton
 import kotlinx.coroutines.delay
 
 // Find another user by the start of their username. From the result you can
@@ -71,7 +73,7 @@ fun SearchScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Tìm bạn") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("‹ Quay lại") } },
+                navigationIcon = { BackButton(onClick = onBack) },
             )
         },
     ) { innerPadding ->
@@ -88,6 +90,7 @@ fun SearchScreen(
                 label = { Text("Tên người dùng") },
                 placeholder = { Text("Nhập ít nhất 2 ký tự") },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             )
 

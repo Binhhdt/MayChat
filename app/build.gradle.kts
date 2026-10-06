@@ -24,6 +24,43 @@ val allSecrets: Map<*, *> = try {
 fun secret(name: String): String =
     (System.getenv(name) ?: (allSecrets[name] as? String) ?: "").trim()
 
+// ---------------------------------------------------------------------
+// Font "Be Vietnam Pro" (free, Open Font License, made for Vietnamese).
+// The four font files are fetched from Google's public font repository
+// while the APK is being built and packed into the app, so nothing has to
+// be uploaded by hand. If the download fails for any reason the build still
+// succeeds and the app simply uses the phone's own font.
+// ---------------------------------------------------------------------
+val fontFolder = file("src/main/assets/fonts")
+listOf("Regular", "Medium", "SemiBold", "Bold").forEach { weight ->
+    val target = File(fontFolder, "BeVietnamPro-$weight.ttf")
+    if (!target.exists()) {
+        try {
+            fontFolder.mkdirs()
+            val connection = java.net.URI(
+                "https://raw.githubusercontent.com/google/fonts/main/ofl/bevietnampro/BeVietnamPro-$weight.ttf",
+            ).toURL().openConnection()
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            connection.getInputStream().use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            // Keep the file only if it really is a font: big enough, and
+            // starting with the TrueType signature (00 01 00 00).
+            val head = target.inputStream().use { it.readNBytes(4) }
+            val isFont = target.length() > 20000 && head.size == 4 &&
+                head[0].toInt() == 0 && head[1].toInt() == 1 && head[2].toInt() == 0 && head[3].toInt() == 0
+            if (!isFont) {
+                target.delete()
+                println("MayChat: downloaded font $weight is not valid, using the system font.")
+            }
+        } catch (e: Exception) {
+            target.delete()
+            println("MayChat: could not download font $weight (${e.message}), using the system font.")
+        }
+    }
+}
+
 val supabaseUrl: String = secret("SUPABASE_URL")
 val supabaseKey: String = secret("SUPABASE_KEY")
 
@@ -88,8 +125,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.13.0"
+        versionCode = 30
+        versionName = "0.14.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")

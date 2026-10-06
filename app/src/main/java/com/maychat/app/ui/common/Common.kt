@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,10 +25,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.maychat.app.R
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.attempt
 import java.time.OffsetDateTime
@@ -152,5 +156,16 @@ fun dayLabel(day: java.time.LocalDate): String {
         today -> "Hôm nay"
         today.minusDays(1) -> "Hôm qua"
         else -> day.format(dayFormat)
+    }
+}
+
+// The "back" arrow used at the top of screens.
+@Composable
+fun BackButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            painter = painterResource(R.drawable.ic_back),
+            contentDescription = "Quay lại",
+        )
     }
 }

@@ -45,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -97,6 +98,7 @@ import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
+import com.maychat.app.ui.common.BackButton
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
 import com.maychat.app.ui.common.dayLabel
@@ -138,6 +140,9 @@ fun ChatScreen(
     var otherTypingAt by remember(conversationId) { mutableLongStateOf(0L) }   // last signal received
     var otherTyping by remember(conversationId) { mutableStateOf(false) }
     var myTypingSentAt by remember(conversationId) { mutableLongStateOf(0L) }  // last signal sent
+
+    // Whether the "chat background" window is open.
+    var wallpaperOpen by remember { mutableStateOf(false) }
 
     // The picture currently open on the whole screen (null = none).
     var viewerPath by remember(conversationId) { mutableStateOf<String?>(null) }
@@ -513,12 +518,12 @@ fun ChatScreen(
                         )
                     },
                     navigationIcon = {
-                        TextButton(
+                        BackButton(
                             onClick = {
                                 searchMode = false
                                 searchQuery = ""
                             },
-                        ) { Text("‹") }
+                        )
                     },
                 )
             } else
@@ -542,10 +547,10 @@ fun ChatScreen(
                         }
                     }
                 },
-                navigationIcon = { TextButton(onClick = onBack) { Text("‹") } },
+                navigationIcon = { BackButton(onClick = onBack) },
                 actions = {
                     // Voice call button.
-                    TextButton(
+                    IconButton(
                         onClick = {
                             val granted = ContextCompat.checkSelfPermission(
                                 context,
@@ -558,15 +563,33 @@ fun ChatScreen(
                             }
                         },
                         enabled = !blockedByMe,
-                    ) { Text("📞", style = MaterialTheme.typography.titleLarge) }
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_call),
+                            contentDescription = "Gọi thoại",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     Box {
-                        TextButton(onClick = { menuOpen = true }) { Text("⋮") }
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_more),
+                                contentDescription = "Tùy chọn",
+                            )
+                        }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text("Tìm trong cuộc trò chuyện") },
                                 onClick = {
                                     menuOpen = false
                                     searchMode = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Hình nền") },
+                                onClick = {
+                                    menuOpen = false
+                                    wallpaperOpen = true
                                 },
                             )
                             when (relation) {
@@ -685,6 +708,8 @@ fun ChatScreen(
                             }
                         },
                 ) {
+                    // Chat background chosen by the user (nothing by default).
+                    ChatWallpaperLayer()
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
@@ -927,6 +952,14 @@ fun ChatScreen(
                         enabled = !blockedByMe,
                         maxLines = 4,
                         shape = RoundedCornerShape(24.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                            disabledBorderColor = Color.Transparent,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
                         modifier = Modifier.weight(1f),
                     )
                     if (draft.isBlank()) {
@@ -1059,6 +1092,10 @@ fun ChatScreen(
         )
     }
 
+    if (wallpaperOpen) {
+        WallpaperDialog(onClose = { wallpaperOpen = false })
+    }
+
     if (confirmBlock) {
         AlertDialog(
             onDismissRequest = { confirmBlock = false },
@@ -1120,9 +1157,16 @@ private fun MessageBubble(
     var menuOpen by remember(message.key) { mutableStateOf(false) }
 
     val bubbleColor =
-        if (message.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+        if (message.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
     val textColor =
-        if (message.mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+        if (message.mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    // Rounded on three corners; the fourth, nearest to the sender's side,
+    // is almost square, like the tail of a speech bubble.
+    val bubbleShape = if (message.mine) {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 4.dp, bottomStart = 18.dp)
+    } else {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 4.dp)
+    }
 
     // Small line under the bubble: time, plus delivery state for my own messages.
     val time = formatTime(message.createdAt)
@@ -1193,7 +1237,7 @@ private fun MessageBubble(
                 // Taken back by the sender: a quiet grey note for both people.
                 message.recalled -> Surface(
                     color = Color.Transparent,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = bubbleShape,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.combinedClickable(onLongClick = openMenu, onClick = {}),
                 ) {
@@ -1222,7 +1266,7 @@ private fun MessageBubble(
                 // A file that is already on the server.
                 message.kind == "file" && path != null && !failed -> Surface(
                     color = bubbleColor,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = bubbleShape,
                     border = outline,
                 ) {
                     FileBubbleContent(
@@ -1237,7 +1281,7 @@ private fun MessageBubble(
                 // A voice message that is already on the server.
                 message.kind == "voice" && path != null && !failed -> Surface(
                     color = bubbleColor,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = bubbleShape,
                 ) {
                     Column {
                         if (message.replyPreview != null) {
@@ -1268,7 +1312,7 @@ private fun MessageBubble(
                 // Text, or a picture / voice message that is still uploading or failed.
                 else -> Surface(
                     color = bubbleColor,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = bubbleShape,
                     border = outline,
                     modifier = Modifier
                         .widthIn(max = 300.dp)

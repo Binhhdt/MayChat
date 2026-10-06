@@ -2,6 +2,8 @@ package com.maychat.app.ui.auth
 
 import android.content.Context
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,10 +14,12 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,13 +33,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.R
 import com.maychat.app.data.UserFacingException
 import com.maychat.app.data.attempt
 import com.maychat.app.data.isInvalidCredentials
@@ -139,6 +146,22 @@ fun AuthScreen() {
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Logo: white chat bubble on a teal rounded tile.
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_notification),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(52.dp),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
         Text("MayChat", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -153,6 +176,7 @@ fun AuthScreen() {
             label = { Text("Email") },
             singleLine = true,
             enabled = !busy,
+            shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -163,6 +187,7 @@ fun AuthScreen() {
             label = { Text("Mật khẩu") },
             singleLine = true,
             enabled = !busy,
+            shape = RoundedCornerShape(16.dp),
             visualTransformation =
                 if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
@@ -183,6 +208,7 @@ fun AuthScreen() {
                 supportingText = { Text("Ví dụ: binh_01. Không đổi được sau khi tạo.") },
                 singleLine = true,
                 enabled = !busy,
+                shape = RoundedCornerShape(16.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -193,6 +219,7 @@ fun AuthScreen() {
                 label = { Text("Tên hiển thị") },
                 singleLine = true,
                 enabled = !busy,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -218,7 +245,12 @@ fun AuthScreen() {
         }
 
         Spacer(Modifier.height(20.dp))
-        Button(onClick = { submit() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { submit() },
+            enabled = !busy,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
             if (busy) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
