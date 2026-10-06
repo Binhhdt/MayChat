@@ -17,6 +17,9 @@
          the user once after login. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Lets an incoming call open over the lock screen, like a phone call. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <application
         android:name=".MayChatApplication"
         android:allowBackup="false"

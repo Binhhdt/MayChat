@@ -35,7 +35,19 @@ class PushService : FirebaseMessagingService() {
     // already appears live inside the app, so no notification is shown.
     // When the app is in the background or closed, Android shows the
     // notification by itself and this function is not called.
+    //
+    // Incoming CALLS are different: the server sends them as a "data" message,
+    // which reaches this function even when the app is closed, so the app
+    // can ring and show the incoming call over the lock screen.
     override fun onMessageReceived(message: RemoteMessage) {
-        // Nothing to do.
+        val data = message.data
+        if (data["type"] != "call") return
+        // App already on screen: the live connection shows the call itself.
+        if (Push.appVisible) return
+
+        val conversationId = data["conversation_id"] ?: return
+        val senderId = data["sender_id"] ?: return
+        val senderName = data["sender_name"] ?: "MayChat"
+        Push.showIncomingCall(applicationContext, conversationId, senderId, senderName)
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +91,7 @@ object CallManager {
     private var callJob: Job? = null
     private var watchdogJob: Job? = null
     private var ringtone: Ringtone? = null
+    private var ringback: ToneGenerator? = null   // the "tuu... tuu..." the caller hears
 
     // ------------------------------------------------------------------
     // Start / stop listening for calls (after login / on logout)
@@ -133,6 +135,9 @@ object CallManager {
                 launch { attempt { ChatRepository.sendMessage(conversationId, "📞 Cuộc gọi thoại") } }
 
                 val pc = createPeer()
+                // Let the caller hear the usual waiting tone until the other
+                // side answers.
+                startRingback()
                 val offer = pc.createOfferSuspend()
                 pc.setLocalSuspend(offer)
                 // Wait until the phone has found its addresses, so the offer
@@ -271,6 +276,7 @@ object CallManager {
                 val sdp = text(json, "sdp") ?: return
                 val current = ui
                 if (id == callId && iAmCaller && current?.phase == CallPhase.OUTGOING) {
+                    stopRingback()
                     ui = current.copy(phase = CallPhase.CONNECTING, message = "Đang kết nối…")
                     main.launch {
                         try {
@@ -433,6 +439,7 @@ object CallManager {
         val endedId = callId
 
         stopRingtone()
+        stopRingback()
         callJob?.cancel()
         callJob = null
         watchdogJob?.cancel()
@@ -510,6 +517,27 @@ object CallManager {
     private fun stopRingtone() {
         runCatching { ringtone?.stop() }
         ringtone = null
+    }
+
+    // The waiting tone on the CALLER's phone. It is made by the phone itself
+    // (the standard telephone ring-back tone) and plays through the earpiece,
+    // or the loudspeaker if that is switched on.
+    private fun startRingback() {
+        stopRingback()
+        runCatching {
+            val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80)
+            tone.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+            ringback = tone
+        }
+    }
+
+    private fun stopRingback() {
+        val tone = ringback
+        ringback = null
+        runCatching {
+            tone?.stopTone()
+            tone?.release()
+        }
     }
 
     // ------------------------------------------------------------------

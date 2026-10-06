@@ -98,6 +98,54 @@ async function googleAccessToken(account: { client_email: string; private_key: s
   return cachedToken.value;
 }
 
+// Builds what is sent to Firebase for one phone.
+//
+// - A normal message: a notification that Android shows by itself, even when
+//   the app is closed (unchanged from before).
+// - A call (the chat line starts with the telephone emoji): a "data" message
+//   instead. It wakes the app, which then rings and shows the incoming call
+//   over the lock screen. It expires after 30 seconds so a late delivery does
+//   not ring for a call that is long over.
+function fcmMessage(token: string, payload: any): Record<string, unknown> {
+  const isCall = typeof payload.body === "string" && payload.body.startsWith("\u{1F4DE}");
+
+  if (isCall) {
+    return {
+      token,
+      data: {
+        type: "call",
+        conversation_id: String(payload.conversation_id),
+        sender_id: String(payload.sender_id),
+        sender_name: String(payload.title),
+      },
+      android: { priority: "HIGH", ttl: "30s" },
+    };
+  }
+
+  return {
+    token,
+    // Shown by Android itself, even when the app is closed.
+    notification: { title: payload.title, body: payload.body },
+    // Read by the app when the notification is tapped.
+    data: {
+      conversation_id: String(payload.conversation_id),
+      sender_id: String(payload.sender_id),
+      sender_name: String(payload.title),
+    },
+    android: {
+      priority: "HIGH",
+      notification: {
+        channel_id: "messages",
+        // Same tag = one notification per conversation, updated in place.
+        tag: String(payload.conversation_id),
+        // The number shown on the app icon.
+        notification_count: Number(payload.unread) || 1,
+        sound: "default",
+      },
+    },
+  };
+}
+
 // ---- The function itself ----
 
 Deno.serve(async (req: Request) => {
@@ -129,30 +177,7 @@ Deno.serve(async (req: Request) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({
-            message: {
-              token,
-              // Shown by Android itself, even when the app is closed.
-              notification: { title: payload.title, body: payload.body },
-              // Read by the app when the notification is tapped.
-              data: {
-                conversation_id: String(payload.conversation_id),
-                sender_id: String(payload.sender_id),
-                sender_name: String(payload.title),
-              },
-              android: {
-                priority: "HIGH",
-                notification: {
-                  channel_id: "messages",
-                  // Same tag = one notification per conversation, updated in place.
-                  tag: String(payload.conversation_id),
-                  // The number shown on the app icon.
-                  notification_count: Number(payload.unread) || 1,
-                  sound: "default",
-                },
-              },
-            },
-          }),
+          body: JSON.stringify({ message: fcmMessage(token, payload) }),
         },
       );
       if (res.ok) {
