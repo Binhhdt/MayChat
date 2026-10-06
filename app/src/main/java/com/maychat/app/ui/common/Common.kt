@@ -1,5 +1,6 @@
 package com.maychat.app.ui.common
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,14 +15,20 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.maychat.app.data.MediaCache
+import com.maychat.app.data.attempt
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -42,9 +49,22 @@ fun LoadingScreen(text: String? = null) {
     }
 }
 
-// Round avatar showing the first letter of the name, with a green dot when online.
+// Round avatar. Shows the person's picture when they have one, otherwise
+// the first letter of the name. A green dot means "online".
 @Composable
-fun Avatar(name: String, online: Boolean, size: Dp = 48.dp) {
+fun Avatar(name: String, online: Boolean, size: Dp = 48.dp, avatarPath: String? = null) {
+    val picture by produceState(
+        initialValue = avatarPath?.let { MediaCache.cachedAvatar(it) },
+        avatarPath,
+    ) {
+        value = if (avatarPath == null) {
+            null
+        } else {
+            MediaCache.cachedAvatar(avatarPath) ?: attempt { MediaCache.avatarBitmap(avatarPath) }.getOrNull()
+        }
+    }
+    val loaded = picture
+
     Box(modifier = Modifier.size(size)) {
         Box(
             modifier = Modifier
@@ -53,12 +73,21 @@ fun Avatar(name: String, online: Boolean, size: Dp = 48.dp) {
                 .background(MaterialTheme.colorScheme.primary),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = name.trim().take(1).uppercase().ifEmpty { "?" },
-                color = MaterialTheme.colorScheme.onPrimary,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
-            )
+            if (loaded != null) {
+                Image(
+                    bitmap = loaded.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text = name.trim().take(1).uppercase().ifEmpty { "?" },
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
         }
         if (online) {
             Box(

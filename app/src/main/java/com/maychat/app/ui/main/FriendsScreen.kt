@@ -93,7 +93,7 @@ fun PersonRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(name = profile.displayName, online = online)
+        Avatar(name = profile.displayName, online = online, avatarPath = profile.avatarPath)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

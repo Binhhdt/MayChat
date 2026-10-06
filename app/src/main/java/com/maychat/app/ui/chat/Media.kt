@@ -9,9 +9,11 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,9 +57,13 @@ private const val MAX_IMAGE_SIDE = 1280
 // Reads the picked photo, shrinks it so the longest side is at most 1280
 // pixels and saves it as JPEG. A 5 MB camera photo becomes roughly 200 KB.
 // Returns null if the photo cannot be read.
-suspend fun compressImage(context: Context, uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+suspend fun compressImage(
+    context: Context,
+    uri: Uri,
+    maxSide: Int = MAX_IMAGE_SIDE,
+): ByteArray? = withContext(Dispatchers.IO) {
     try {
-        val bitmap = loadScaledBitmap(context, uri) ?: return@withContext null
+        val bitmap = loadScaledBitmap(context, uri, maxSide) ?: return@withContext null
         val out = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
         out.toByteArray()
@@ -68,7 +74,7 @@ suspend fun compressImage(context: Context, uri: Uri): ByteArray? = withContext(
     }
 }
 
-private fun loadScaledBitmap(context: Context, uri: Uri): Bitmap? {
+private fun loadScaledBitmap(context: Context, uri: Uri, maxSide: Int): Bitmap? {
     if (Build.VERSION.SDK_INT >= 28) {
         // ImageDecoder also turns the photo the right way up.
         val source = ImageDecoder.createSource(context.contentResolver, uri)
@@ -77,8 +83,8 @@ private fun loadScaledBitmap(context: Context, uri: Uri): Bitmap? {
             val w = info.size.width
             val h = info.size.height
             val largest = maxOf(w, h)
-            if (largest > MAX_IMAGE_SIDE) {
-                val scale = MAX_IMAGE_SIDE.toFloat() / largest
+            if (largest > maxSide) {
+                val scale = maxSide.toFloat() / largest
                 decoder.setTargetSize(
                     (w * scale).toInt().coerceAtLeast(1),
                     (h * scale).toInt().coerceAtLeast(1),
@@ -93,14 +99,14 @@ private fun loadScaledBitmap(context: Context, uri: Uri): Bitmap? {
     val largest = maxOf(bounds.outWidth, bounds.outHeight)
     if (largest <= 0) return null
     var sample = 1
-    while (largest / (sample * 2) >= MAX_IMAGE_SIDE) sample *= 2
+    while (largest / (sample * 2) >= maxSide) sample *= 2
     val options = BitmapFactory.Options().apply { inSampleSize = sample }
     val decoded = context.contentResolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, options)
     } ?: return null
     val decodedLargest = maxOf(decoded.width, decoded.height)
-    if (decodedLargest <= MAX_IMAGE_SIDE) return decoded
-    val scale = MAX_IMAGE_SIDE.toFloat() / decodedLargest
+    if (decodedLargest <= maxSide) return decoded
+    val scale = maxSide.toFloat() / decodedLargest
     return Bitmap.createScaledBitmap(
         decoded,
         (decoded.width * scale).toInt().coerceAtLeast(1),
@@ -281,8 +287,14 @@ fun formatDuration(ms: Long): String {
 }
 
 // Shows one voice message: a play/stop button and the length.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun VoiceBubbleContent(path: String, durationMs: Int?, textColor: Color) {
+fun VoiceBubbleContent(
+    path: String,
+    durationMs: Int?,
+    textColor: Color,
+    onLongPress: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var loading by remember(path) { mutableStateOf(false) }
@@ -290,14 +302,18 @@ fun VoiceBubbleContent(path: String, durationMs: Int?, textColor: Color) {
 
     Row(
         modifier = Modifier
-            .clickable(enabled = !loading) {
-                loading = true
-                scope.launch {
-                    attempt { MediaCache.file(context, path) }
-                        .onSuccess { VoicePlayer.toggle(it, path) }
-                    loading = false
-                }
-            }
+            .combinedClickable(
+                enabled = !loading,
+                onLongClick = onLongPress,
+                onClick = {
+                    loading = true
+                    scope.launch {
+                        attempt { MediaCache.file(context, path) }
+                            .onSuccess { VoicePlayer.toggle(it, path) }
+                        loading = false
+                    }
+                },
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

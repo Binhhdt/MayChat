@@ -12,6 +12,8 @@ data class Profile(
     val username: String,
     @SerialName("display_name") val displayName: String,
     @SerialName("last_seen_at") val lastSeenAt: String? = null,
+    // Where the avatar picture is in Storage (null = no avatar).
+    @SerialName("avatar_path") val avatarPath: String? = null,
 )
 
 @Serializable
@@ -38,6 +40,8 @@ data class Message(
     // Where the image/voice file is in Supabase Storage (null for text).
     @SerialName("media_path") val mediaPath: String? = null,
     @SerialName("duration_ms") val durationMs: Int? = null,
+    // Set when the sender took the message back.
+    @SerialName("recalled_at") val recalledAt: String? = null,
 )
 
 // What the app sends when creating a message. The database fills in the

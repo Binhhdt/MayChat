@@ -70,6 +70,7 @@ fun ConversationsScreen(
     myId: String,
     onOpenSearch: () -> Unit,
     onOpenChat: (conversationId: String, other: Profile) -> Unit,
+    onOpenProfile: () -> Unit,
     bottomBar: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -160,13 +161,13 @@ fun ConversationsScreen(
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(44.dp),
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    (me?.displayName ?: "").trim().take(1).uppercase().ifEmpty { "?" },
-                                    fontWeight = FontWeight.SemiBold,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
+                            // My picture if I have one, else my initial.
+                            Avatar(
+                                name = me?.displayName ?: "",
+                                online = false,
+                                size = 44.dp,
+                                avatarPath = me?.avatarPath,
+                            )
                         }
                         DropdownMenu(expanded = accountMenuOpen, onDismissRequest = { accountMenuOpen = false }) {
                             me?.let { profile ->
@@ -175,6 +176,13 @@ fun ConversationsScreen(
                                     onClick = { accountMenuOpen = false },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Sửa hồ sơ") },
+                                onClick = {
+                                    accountMenuOpen = false
+                                    onOpenProfile()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Đăng xuất") },
                                 onClick = {
@@ -316,7 +324,12 @@ private fun ConversationRow(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(name = item.other.displayName, online = online, size = 54.dp)
+            Avatar(
+                name = item.other.displayName,
+                online = online,
+                size = 54.dp,
+                avatarPath = item.other.avatarPath,
+            )
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

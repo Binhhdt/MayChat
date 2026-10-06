@@ -24,6 +24,7 @@ data class UiMessage(
     val kind: String = "text",          // "text", "image" or "voice"
     val mediaPath: String? = null,      // null while my own file is still uploading
     val durationMs: Int? = null,
+    val recalled: Boolean = false,      // the sender took it back
 )
 
 // A message I created that the server has not confirmed yet.
@@ -52,6 +53,9 @@ class ChatState(
     private val pending = ArrayList<PendingMessage>()
     private var firstLoadDone = false
 
+    // Messages I chose to hide on my side only ("delete for me").
+    private val hidden = HashSet<String>()
+
     // True while the chat is on screen. Messages are only marked as read then.
     var visible = false
 
@@ -73,6 +77,7 @@ class ChatState(
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
         val sent = confirmed.values
+            .filter { it.id !in hidden }
             .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
             .map { m ->
                 val mine = m.senderId == myId
@@ -85,6 +90,7 @@ class ChatState(
                     kind = m.kind,
                     mediaPath = m.mediaPath,
                     durationMs = m.durationMs,
+                    recalled = m.recalledAt != null,
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -112,6 +118,12 @@ class ChatState(
 
     // Loads the newest page. Also used to catch up after being offline.
     suspend fun refresh() {
+        // Which messages I have hidden. If this fails (for example migration
+        // 09 was not run) nothing is hidden, exactly as before.
+        attempt { ChatRepository.loadHiddenMessageIds(conversationId) }.onSuccess {
+            hidden.clear()
+            hidden.addAll(it)
+        }
         attempt { ChatRepository.loadMessages(conversationId) }
             .onSuccess { page ->
                 page.forEach { confirmed[it.id] = it }
@@ -169,6 +181,32 @@ class ChatState(
         confirmed[message.id] = message
         publish()
         markReadIfNeeded()
+    }
+
+    // Take back one of my own messages, for both people.
+    fun recall(messageId: String) {
+        scope.launch {
+            attempt { ChatRepository.recallMessage(messageId) }
+                .onSuccess {
+                    error = null
+                    poll()
+                }
+                .onFailure { error = it.toUserMessage() }
+        }
+    }
+
+    // Remove a message from MY screen only. The other person still has it.
+    fun hide(messageId: String) {
+        hidden.add(messageId)
+        publish()
+        scope.launch {
+            attempt { ChatRepository.hideMessage(messageId) }
+                .onFailure {
+                    hidden.remove(messageId)
+                    error = it.toUserMessage()
+                    publish()
+                }
+        }
     }
 
     fun send(text: String) {

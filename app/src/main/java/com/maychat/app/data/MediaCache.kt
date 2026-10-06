@@ -44,6 +44,21 @@ object MediaCache {
         return decoded
     }
 
+    // Avatars live in a different bucket, so they have their own cache.
+    private val avatarCache = LruCache<String, Bitmap>(80)
+
+    fun cachedAvatar(path: String): Bitmap? = avatarCache.get(path)
+
+    suspend fun avatarBitmap(path: String): Bitmap? {
+        avatarCache.get(path)?.let { return it }
+        val data = ChatRepository.downloadAvatar(path)
+        val decoded = withContext(Dispatchers.Default) {
+            BitmapFactory.decodeByteArray(data, 0, data.size)
+        }
+        if (decoded != null) avatarCache.put(path, decoded)
+        return decoded
+    }
+
     // The audio player needs a real file, so voice messages are also written
     // to the app's cache folder (Android may clear it when space is low).
     suspend fun file(context: Context, path: String): File {

@@ -5,7 +5,10 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +52,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -100,6 +107,9 @@ fun ChatScreen(
     var otherTypingAt by remember(conversationId) { mutableLongStateOf(0L) }   // last signal received
     var otherTyping by remember(conversationId) { mutableStateOf(false) }
     var myTypingSentAt by remember(conversationId) { mutableLongStateOf(0L) }  // last signal sent
+
+    // The picture currently open on the whole screen (null = none).
+    var viewerPath by remember(conversationId) { mutableStateOf<String?>(null) }
 
     val relation = friends.relation(other.id)
     val blockedByMe = relation == Relation.BLOCKED
@@ -285,7 +295,12 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(name = other.displayName, online = other.id in online, size = 36.dp)
+                        Avatar(
+                            name = other.displayName,
+                            online = other.id in online,
+                            size = 36.dp,
+                            avatarPath = other.avatarPath,
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(other.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
@@ -380,7 +395,13 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(state.messages, key = { it.key }) { message ->
-                            MessageBubble(message = message, onRetry = { state.retry(message.key) })
+                            MessageBubble(
+                                message = message,
+                                onRetry = { state.retry(message.key) },
+                                onOpenImage = { viewerPath = it },
+                                onRecall = { state.recall(message.key) },
+                                onHide = { state.hide(message.key) },
+                            )
                         }
                         if (state.hasOlder) {
                             item(key = "load-older") {
@@ -529,6 +550,10 @@ fun ChatScreen(
         }
     }
 
+    viewerPath?.let { path ->
+        ImageViewer(path = path, onClose = { viewerPath = null })
+    }
+
     if (confirmBlock) {
         AlertDialog(
             onDismissRequest = { confirmBlock = false },
@@ -551,8 +576,18 @@ fun ChatScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: UiMessage, onRetry: () -> Unit) {
+private fun MessageBubble(
+    message: UiMessage,
+    onRetry: () -> Unit,
+    onOpenImage: (String) -> Unit,
+    onRecall: () -> Unit,
+    onHide: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    var menuOpen by remember(message.key) { mutableStateOf(false) }
+
     val bubbleColor =
         if (message.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val textColor =
@@ -561,6 +596,7 @@ private fun MessageBubble(message: UiMessage, onRetry: () -> Unit) {
     // Small line under the bubble: time, plus delivery state for my own messages.
     val time = formatTime(message.createdAt)
     val meta = when {
+        message.recalled -> time
         !message.mine -> time
         message.state == SendState.SENDING -> "Đang gửi…"
         message.state == SendState.FAILED -> "Gửi lỗi. Chạm vào tin nhắn để gửi lại"
@@ -569,43 +605,108 @@ private fun MessageBubble(message: UiMessage, onRetry: () -> Unit) {
     }
 
     val path = message.mediaPath
-    val retryModifier = Modifier.clickable(enabled = message.state == SendState.FAILED, onClick = onRetry)
+    val failed = message.state == SendState.FAILED
+    // A message that is saved on the server (not still sending or failed).
+    val saved = message.state == SendState.SENT || message.state == SendState.READ
+    val openMenu: () -> Unit = { if (saved) menuOpen = true }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
     ) {
-        when {
-            // A picture that is already on the server: show it without a bubble.
-            message.kind == "image" && path != null -> Box(modifier = retryModifier) {
-                ChatImage(path)
+        Box {
+            when {
+                // Taken back by the sender: a quiet grey note for both people.
+                message.recalled -> Surface(
+                    color = Color.Transparent,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.combinedClickable(onLongClick = openMenu, onClick = {}),
+                ) {
+                    Text(
+                        "Tin nhắn đã được thu hồi",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+
+                // A picture that is already on the server: tap to view it
+                // on the whole screen, press and hold for the menu.
+                message.kind == "image" && path != null -> Box(
+                    modifier = Modifier.combinedClickable(
+                        onLongClick = openMenu,
+                        onClick = { if (failed) onRetry() else onOpenImage(path) },
+                    ),
+                ) {
+                    ChatImage(path)
+                }
+
+                // A voice message that is already on the server.
+                message.kind == "voice" && path != null && !failed -> Surface(
+                    color = bubbleColor,
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    VoiceBubbleContent(
+                        path = path,
+                        durationMs = message.durationMs,
+                        textColor = textColor,
+                        onLongPress = openMenu,
+                    )
+                }
+
+                // Text, or a picture / voice message that is still uploading or failed.
+                else -> Surface(
+                    color = bubbleColor,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .widthIn(max = 300.dp)
+                        .combinedClickable(
+                            onLongClick = openMenu,
+                            onClick = { if (failed) onRetry() },
+                        ),
+                ) {
+                    Text(
+                        message.text,
+                        color = textColor,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
             }
 
-            // A voice message that is already on the server.
-            message.kind == "voice" && path != null && message.state != SendState.FAILED -> Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                VoiceBubbleContent(path = path, durationMs = message.durationMs, textColor = textColor)
-            }
-
-            // Text, or a picture / voice message that is still uploading or failed.
-            else -> Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.widthIn(max = 300.dp).then(retryModifier),
-            ) {
-                Text(
-                    message.text,
-                    color = textColor,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            // Press-and-hold menu.
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (message.kind == "text" && !message.recalled) {
+                    DropdownMenuItem(
+                        text = { Text("Sao chép") },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(message.text))
+                        },
+                    )
+                }
+                if (message.mine && !message.recalled) {
+                    DropdownMenuItem(
+                        text = { Text("Thu hồi (cả hai bên)") },
+                        onClick = {
+                            menuOpen = false
+                            onRecall()
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Xóa ở phía tôi") },
+                    onClick = {
+                        menuOpen = false
+                        onHide()
+                    },
                 )
             }
         }
         Text(
             meta,
             style = MaterialTheme.typography.labelSmall,
-            color = if (message.state == SendState.FAILED) {
+            color = if (failed) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant

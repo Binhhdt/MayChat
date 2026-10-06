@@ -345,6 +345,49 @@ object ChatRepository {
             .insert(NewMediaMessage(conversationId, label, kind, mediaPath, durationMs)) { select() }
             .decodeSingle<Message>()
 
+    // ------------------------------------------------------------------
+    // Avatar and profile (see supabase_migration_09_profile_recall.sql)
+    // ------------------------------------------------------------------
+
+    const val AVATAR_BUCKET = "avatars"
+
+    // path looks like "<my user id>/<random name>.jpg"
+    suspend fun uploadAvatar(path: String, bytes: ByteArray) {
+        supabase.storage.from(AVATAR_BUCKET).upload(path, bytes)
+    }
+
+    suspend fun downloadAvatar(path: String): ByteArray =
+        supabase.storage.from(AVATAR_BUCKET).downloadAuthenticated(path)
+
+    // avatarPath: null keeps the current avatar, "" removes it.
+    suspend fun updateMyProfile(displayName: String, avatarPath: String?) {
+        supabase.postgrest.rpc(
+            "update_my_profile",
+            buildJsonObject {
+                put("p_display_name", displayName)
+                put("p_avatar_path", avatarPath)
+            },
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Recall (for both people) and hide (on my side only)
+    // ------------------------------------------------------------------
+
+    suspend fun recallMessage(messageId: String) {
+        supabase.postgrest.rpc("recall_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun hideMessage(messageId: String) {
+        supabase.postgrest.rpc("hide_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun loadHiddenMessageIds(conversationId: String): Set<String> =
+        supabase.postgrest.rpc(
+            "hidden_message_ids",
+            buildJsonObject { put("p_conversation", conversationId) },
+        ).decodeList<String>().toSet()
+
     suspend fun markConversationRead(conversationId: String) {
         supabase.postgrest.rpc(
             "mark_conversation_read",

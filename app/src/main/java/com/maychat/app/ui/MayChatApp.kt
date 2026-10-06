@@ -43,6 +43,7 @@ import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.SplashScreen
 import com.maychat.app.ui.main.ConversationsScreen
+import com.maychat.app.ui.main.EditProfileScreen
 import com.maychat.app.ui.main.FriendsScreen
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.MainBottomBar
@@ -55,6 +56,7 @@ import kotlinx.coroutines.launch
 // A screen shown on top of the two main tabs.
 private sealed interface Overlay {
     data object Search : Overlay
+    data object EditProfile : Overlay
     data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
 
@@ -268,6 +270,7 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
                 myId = myId,
                 onOpenSearch = { overlay = Overlay.Search },
                 onOpenChat = { id, other -> overlay = Overlay.Chat(id, other) },
+                onOpenProfile = { overlay = Overlay.EditProfile },
                 bottomBar = bottomBar,
             )
             MainTab.FRIENDS -> FriendsScreen(
@@ -282,6 +285,10 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             friends = friends,
             onBack = { overlay = null },
             onOpenChat = { openChat(it) },
+        )
+        Overlay.EditProfile -> EditProfileScreen(
+            myId = myId,
+            onBack = { overlay = null },
         )
         is Overlay.Chat -> ChatScreen(
             myId = myId,
