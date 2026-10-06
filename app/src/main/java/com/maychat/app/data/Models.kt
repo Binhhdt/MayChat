@@ -25,6 +25,8 @@ data class Conversation(
     @SerialName("last_message_at") val lastMessageAt: String? = null,
     @SerialName("last_sender_id") val lastSenderId: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    // Chat background shared by both members (null = none).
+    val wallpaper: String? = null,
 )
 
 @Serializable

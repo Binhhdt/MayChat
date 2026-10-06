@@ -16,6 +16,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.maychat.app.BuildConfig
 import com.maychat.app.MainActivity
 import com.maychat.app.R
+import com.maychat.app.call.CallActionReceiver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -160,6 +161,24 @@ object Push {
             open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // "Nghe máy": opens the app (the microphone may only be used while
+        // the app is on screen) and answers at once.
+        val acceptIntent = PendingIntent.getActivity(
+            context,
+            CALL_NOTIFICATION_ID + 1,
+            callIntent(context, conversationId, senderId, senderName).putExtra("call_action", "accept"),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        // "Từ chối": handled without opening the app.
+        val declineIntent = PendingIntent.getBroadcast(
+            context,
+            CALL_NOTIFICATION_ID + 2,
+            Intent(context, CallActionReceiver::class.java)
+                .putExtra("sender_id", senderId)
+                .putExtra("notification_id", CALL_NOTIFICATION_ID),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(senderName)
@@ -169,6 +188,9 @@ object Push {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(pending, true)
             .setContentIntent(pending)
+            // Buttons right on the notification.
+            .addAction(0, "Từ chối", declineIntent)
+            .addAction(0, "Nghe máy", acceptIntent)
             .setAutoCancel(true)
             .setOngoing(true)
             // The caller stops trying after 45 seconds.

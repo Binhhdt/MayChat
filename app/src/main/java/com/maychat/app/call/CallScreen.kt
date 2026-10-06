@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.maychat.app.R
+import com.maychat.app.ui.common.Avatar
 import kotlinx.coroutines.delay
 
 // Colors of the call screen (the same in light and dark mode).
@@ -129,7 +130,8 @@ fun CallScreen(call: CallUi) {
 
             Spacer(Modifier.height(36.dp))
 
-            // Avatar with a soft ring around it.
+            // Avatar with a soft ring around it: the person's picture when
+            // they have one, otherwise their initial on an amber disc.
             Box(
                 modifier = Modifier
                     .size(176.dp)
@@ -137,19 +139,28 @@ fun CallScreen(call: CallUi) {
                     .background(Color.White.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(136.dp)
-                        .clip(CircleShape)
-                        .background(CallAmber),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        call.peer.displayName.trim().take(1).uppercase().ifEmpty { "?" },
-                        color = CallAmberText,
-                        fontSize = 56.sp,
-                        fontWeight = FontWeight.Bold,
+                if (call.peer.avatarPath != null) {
+                    Avatar(
+                        name = call.peer.displayName,
+                        online = false,
+                        size = 136.dp,
+                        avatarPath = call.peer.avatarPath,
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(136.dp)
+                            .clip(CircleShape)
+                            .background(CallAmber),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            call.peer.displayName.trim().take(1).uppercase().ifEmpty { "?" },
+                            color = CallAmberText,
+                            fontSize = 56.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
 

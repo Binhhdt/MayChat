@@ -709,7 +709,7 @@ fun ChatScreen(
                         },
                 ) {
                     // Chat background chosen by the user (nothing by default).
-                    ChatWallpaperLayer()
+                    ChatWallpaperLayer(state.wallpaper)
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
@@ -1093,7 +1093,12 @@ fun ChatScreen(
     }
 
     if (wallpaperOpen) {
-        WallpaperDialog(onClose = { wallpaperOpen = false })
+        WallpaperDialog(
+            current = state.wallpaper,
+            onChoose = { state.chooseWallpaper(it) },
+            onChooseCustom = { state.chooseWallpaperPicture(it) },
+            onClose = { wallpaperOpen = false },
+        )
     }
 
     if (confirmBlock) {

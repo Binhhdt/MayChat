@@ -155,6 +155,41 @@ class ChatState(
         }
     }
 
+    // The background of this conversation as stored on the server, so both
+    // people see the same one (null = none).
+    var wallpaper by mutableStateOf<String?>(null)
+        private set
+
+    // If this fails (for example migration 13 was not run) there is simply
+    // no background.
+    suspend fun reloadWallpaper() {
+        attempt { ChatRepository.loadWallpaper(conversationId) }.onSuccess { wallpaper = it }
+    }
+
+    // value: null, or the id of a ready-made background.
+    fun chooseWallpaper(value: String?) {
+        wallpaper = value
+        scope.launch {
+            attempt { ChatRepository.setWallpaper(conversationId, value) }
+                .onFailure { error = it.toUserMessage() }
+            reloadWallpaper()
+        }
+    }
+
+    // A picture (JPEG bytes) as background: stored in this conversation's
+    // private folder, which only its two members can read.
+    fun chooseWallpaperPicture(jpegBytes: ByteArray) {
+        scope.launch {
+            attempt {
+                val path = "$conversationId/wallpaper-${UUID.randomUUID()}.jpg"
+                ChatRepository.uploadMedia(path, jpegBytes)
+                MediaCache.put(path, jpegBytes)
+                ChatRepository.setWallpaper(conversationId, "img:$path")
+            }.onFailure { error = it.toUserMessage() }
+            reloadWallpaper()
+        }
+    }
+
     // Reads the pinned message. If this fails (for example migration 11 was
     // not run) nothing is pinned, exactly as before.
     suspend fun reloadPin() {
@@ -227,6 +262,7 @@ class ChatState(
         loading = false
         reloadReactions()
         reloadPin()
+        reloadWallpaper()
     }
 
     // Safety net for when the live connection silently stops: quietly fetch
@@ -238,6 +274,7 @@ class ChatState(
         if (pollCount % 3 == 0) {
             reloadReactions()
             reloadPin()
+            reloadWallpaper()
         }
         val page = attempt { ChatRepository.loadMessages(conversationId, limit = 15) }.getOrNull() ?: return
         var changed = false

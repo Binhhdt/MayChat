@@ -436,6 +436,29 @@ object ChatRepository {
             .decodeSingle<Message>()
 
     // ------------------------------------------------------------------
+    // Chat background shared by both people (supabase_migration_13)
+    // ------------------------------------------------------------------
+
+    // Returns the background value, or null when there is none.
+    suspend fun loadWallpaper(conversationId: String): String? =
+        supabase.postgrest.from("conversations")
+            .select { filter { eq("id", conversationId) } }
+            .decodeList<Conversation>()
+            .firstOrNull()
+            ?.wallpaper
+
+    // value = null removes the background.
+    suspend fun setWallpaper(conversationId: String, value: String?) {
+        supabase.postgrest.rpc(
+            "set_wallpaper",
+            buildJsonObject {
+                put("p_conversation", conversationId)
+                put("p_value", value ?: "")
+            },
+        )
+    }
+
+    // ------------------------------------------------------------------
     // Pinned message (see supabase_migration_11_pin.sql)
     // ------------------------------------------------------------------
 

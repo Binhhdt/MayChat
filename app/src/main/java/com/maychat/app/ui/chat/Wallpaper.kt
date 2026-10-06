@@ -1,8 +1,5 @@
 package com.maychat.app.ui.chat
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +26,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,126 +39,89 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
+import com.maychat.app.data.MediaCache
+import com.maychat.app.data.attempt
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 
 // A ready-made background: two colors blended from top to bottom, one pair
 // for light mode and a deeper pair for dark mode so text stays readable.
-private class Preset(val id: String, val name: String, val light: List<Color>, val dark: List<Color>)
+// The ids are also known to the database (see supabase_migration_13).
+private class Preset(val id: String, val light: List<Color>, val dark: List<Color>)
 
 private val PRESETS = listOf(
-    Preset("mint", "Bạc hà", listOf(Color(0xFFDFF3EF), Color(0xFFBFE6DF)), listOf(Color(0xFF0E2A29), Color(0xFF123B39))),
-    Preset("peach", "Đào", listOf(Color(0xFFFFEBDD), Color(0xFFFFD3BD)), listOf(Color(0xFF2E1C16), Color(0xFF43271D))),
-    Preset("sky", "Trời xanh", listOf(Color(0xFFE2EFFB), Color(0xFFC4DDF6)), listOf(Color(0xFF111F30), Color(0xFF172C45))),
-    Preset("lilac", "Tím nhạt", listOf(Color(0xFFEEE7F8), Color(0xFFD9CCF0)), listOf(Color(0xFF1E1830), Color(0xFF2A2145))),
-    Preset("sand", "Cát", listOf(Color(0xFFF6EFDD), Color(0xFFE9DDBB)), listOf(Color(0xFF28230F), Color(0xFF3A3215))),
+    Preset("mint", listOf(Color(0xFFDFF3EF), Color(0xFFBFE6DF)), listOf(Color(0xFF0E2A29), Color(0xFF123B39))),
+    Preset("peach", listOf(Color(0xFFFFEBDD), Color(0xFFFFD3BD)), listOf(Color(0xFF2E1C16), Color(0xFF43271D))),
+    Preset("sky", listOf(Color(0xFFE2EFFB), Color(0xFFC4DDF6)), listOf(Color(0xFF111F30), Color(0xFF172C45))),
+    Preset("lilac", listOf(Color(0xFFEEE7F8), Color(0xFFD9CCF0)), listOf(Color(0xFF1E1830), Color(0xFF2A2145))),
+    Preset("sand", listOf(Color(0xFFF6EFDD), Color(0xFFE9DDBB)), listOf(Color(0xFF28230F), Color(0xFF3A3215))),
 )
-
-// The chat background chosen on THIS phone. It applies to every conversation
-// and is stored only on the phone; the other person does not see it.
-object ChatWallpaper {
-    private const val PREFS = "maychat_wallpaper"
-
-    // "none", the id of a preset, or "custom" (a picture from the gallery).
-    var choice by mutableStateOf("none")
-        private set
-    var customImage by mutableStateOf<Bitmap?>(null)
-        private set
-
-    private var loaded = false
-
-    private fun file(context: Context) = File(context.filesDir, "chat_wallpaper.jpg")
-
-    // Reads the saved choice once.
-    fun load(context: Context) {
-        if (loaded) return
-        loaded = true
-        val app = context.applicationContext
-        val saved = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("choice", "none") ?: "none"
-        if (saved == "custom") {
-            val bitmap = runCatching { BitmapFactory.decodeFile(file(app).absolutePath) }.getOrNull()
-            if (bitmap != null) {
-                customImage = bitmap
-                choice = "custom"
-            }
-        } else {
-            choice = saved
-        }
-    }
-
-    fun choose(context: Context, id: String) {
-        choice = id
-        if (id != "custom") customImage = null
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("choice", id).apply()
-    }
-
-    // Saves a picture (already shrunk to JPEG bytes) as the background.
-    suspend fun chooseCustom(context: Context, jpegBytes: ByteArray): Boolean {
-        val app = context.applicationContext
-        val bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                file(app).writeBytes(jpegBytes)
-                BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-            }.getOrNull()
-        } ?: return false
-        customImage = bitmap
-        choose(app, "custom")
-        return true
-    }
-}
 
 @Composable
 private fun presetBrush(preset: Preset): Brush =
     Brush.verticalGradient(if (isSystemInDarkTheme()) preset.dark else preset.light)
 
-// Drawn behind the messages. Draws nothing for "none".
+// Drawn behind the messages. The value is the conversation's background as
+// stored on the server, so both people see the same:
+//   null        -> nothing
+//   "mint" ...  -> a ready-made color background
+//   "img:path"  -> a picture from the conversation's storage folder
 @Composable
-fun ChatWallpaperLayer() {
-    val context = LocalContext.current
-    ChatWallpaper.load(context)
+fun ChatWallpaperLayer(wallpaper: String?) {
+    if (wallpaper == null) return
+    val preset = PRESETS.firstOrNull { it.id == wallpaper }
 
-    val choice = ChatWallpaper.choice
-    val picture = ChatWallpaper.customImage
-    val preset = PRESETS.firstOrNull { it.id == choice }
+    if (preset != null) {
+        Box(modifier = Modifier.fillMaxSize().background(presetBrush(preset)))
+        return
+    }
+    if (!wallpaper.startsWith("img:")) return
 
-    when {
-        choice == "custom" && picture != null -> Box(modifier = Modifier.fillMaxSize()) {
-            Image(
-                bitmap = picture.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            // A light veil in the theme's ground color keeps times and
-            // labels readable on any photo.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.35f)),
-            )
-        }
-        preset != null -> Box(modifier = Modifier.fillMaxSize().background(presetBrush(preset)))
-        else -> {}
+    val path = wallpaper.removePrefix("img:")
+    val picture by produceState(initialValue = MediaCache.cachedBitmap(path), path) {
+        if (this.value == null) this.value = attempt { MediaCache.bitmap(path) }.getOrNull()
+    }
+    val loaded = picture ?: return
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            bitmap = loaded.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // A light veil in the theme's ground color keeps times and labels
+        // readable on any photo.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.35f)),
+        )
     }
 }
 
-// Window to pick the chat background.
+// Window to pick the background of THIS conversation. The choice is saved
+// on the server and shows up on the other person's phone too.
 @Composable
-fun WallpaperDialog(onClose: () -> Unit) {
+fun WallpaperDialog(
+    current: String?,
+    onChoose: (String?) -> Unit,
+    onChooseCustom: (ByteArray) -> Unit,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var error by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
 
     // The system photo picker needs no storage permission.
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             scope.launch {
                 val bytes = compressImage(context, uri)
-                val ok = bytes != null && ChatWallpaper.chooseCustom(context, bytes)
-                if (ok) onClose() else error = "Không dùng được ảnh này làm hình nền."
+                if (bytes == null) {
+                    error = "Không dùng được ảnh này làm hình nền."
+                } else {
+                    onChooseCustom(bytes)
+                    onClose()
+                }
             }
         }
     }
@@ -170,13 +132,13 @@ fun WallpaperDialog(onClose: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Hình nền chỉ hiện trên điện thoại này và áp dụng cho mọi cuộc trò chuyện.",
+                    "Hình nền áp dụng cho cuộc trò chuyện này và cả hai người cùng thấy.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
 
-                // Colored tiles: "none" first, then the presets.
+                // Colored tiles: "none" first, then the ready-made backgrounds.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -191,10 +153,10 @@ fun WallpaperDialog(onClose: () -> Unit) {
                             .background(MaterialTheme.colorScheme.background)
                             .border(
                                 2.dp,
-                                if (ChatWallpaper.choice == "none") selectedBorder else normalBorder,
+                                if (current == null) selectedBorder else normalBorder,
                                 RoundedCornerShape(12.dp),
                             )
-                            .clickable { ChatWallpaper.choose(context, "none") },
+                            .clickable { onChoose(null) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -207,10 +169,10 @@ fun WallpaperDialog(onClose: () -> Unit) {
                                 .background(presetBrush(preset))
                                 .border(
                                     2.dp,
-                                    if (ChatWallpaper.choice == preset.id) selectedBorder else normalBorder,
+                                    if (current == preset.id) selectedBorder else normalBorder,
                                     RoundedCornerShape(12.dp),
                                 )
-                                .clickable { ChatWallpaper.choose(context, preset.id) },
+                                .clickable { onChoose(preset.id) },
                         )
                     }
                 }

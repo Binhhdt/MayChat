@@ -6,6 +6,7 @@ import android.media.Ringtone
 import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.os.Build
+import android.os.PowerManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +14,7 @@ import com.maychat.app.data.CallSignaling
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -142,6 +145,7 @@ object CallManager {
                 launch { attempt { ChatRepository.sendMessage(conversationId, "📞 Cuộc gọi thoại") } }
 
                 val pc = createPeer()
+                onCallStarted()
                 // Let the caller hear the usual waiting tone until the other
                 // side answers.
                 startRingback()
@@ -191,11 +195,24 @@ object CallManager {
             "Cuộc gọi thoại đến",
         )
         startRingtone()
+        loadPeerPicture(senderId)
         pendingTimeoutJob?.cancel()
         pendingTimeoutJob = main.launch {
             // The caller gives up after 45 seconds.
             delay(45_000)
             if (callId == null && peerId == senderId && ui != null) finish("Cuộc gọi nhỡ")
+        }
+    }
+
+    // An incoming call only carries the caller's id and name. Fetch the
+    // full profile so the call screen can show their picture.
+    private fun loadPeerPicture(peer: String) {
+        main.launch {
+            val profile = attempt { ChatRepository.loadProfile(peer) }.getOrNull() ?: return@launch
+            val current = ui ?: return@launch
+            if (peerId == peer && current.peer.id == peer && current.peer.avatarPath == null) {
+                ui = current.copy(peer = current.peer.copy(avatarPath = profile.avatarPath))
+            }
         }
     }
 
@@ -224,6 +241,7 @@ object CallManager {
         callJob = main.launch {
             try {
                 val pc = createPeer()
+                onCallStarted()
                 pc.setRemoteSuspend(SessionDescription(SessionDescription.Type.OFFER, offer))
                 val answer = pc.createAnswerSuspend()
                 pc.setLocalSuspend(answer)
@@ -272,6 +290,77 @@ object CallManager {
     fun toggleSpeaker() {
         speakerOn = !speakerOn
         applySpeaker()
+        updateProximityLock()
+    }
+
+    // ------------------------------------------------------------------
+    // Keeping the call alive, and the screen off at the ear
+    // ------------------------------------------------------------------
+
+    private var proximityLock: PowerManager.WakeLock? = null
+
+    // The audio connection exists now: keep it alive when the app leaves
+    // the screen, and darken the screen when the phone is at the ear.
+    private fun onCallStarted() {
+        val context = appContext ?: return
+        CallService.start(context, ui?.peer?.displayName ?: "MayChat")
+        updateProximityLock()
+    }
+
+    // The screen switches off near the ear only while a call is running
+    // and the loudspeaker is off (with the loudspeaker on, the phone is in
+    // the hand or on the table).
+    private fun updateProximityLock() {
+        val context = appContext ?: return
+        val wanted = peerConnection != null && !speakerOn
+        runCatching {
+            if (wanted) {
+                val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (proximityLock == null &&
+                    power.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)
+                ) {
+                    proximityLock = power.newWakeLock(
+                        PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+                        "maychat:call",
+                    )
+                }
+                val lock = proximityLock
+                // Released after 2 hours at the latest, as a safety net.
+                if (lock != null && !lock.isHeld) lock.acquire(2 * 60 * 60 * 1000L)
+            } else {
+                val lock = proximityLock
+                if (lock != null && lock.isHeld) lock.release()
+            }
+        }
+    }
+
+    // "Từ chối" pressed on the incoming-call notification, possibly while
+    // the app was closed. Stops any ringing here and tries to tell the
+    // caller. onDone is always called, at the latest after 8 seconds.
+    fun declineFromNotification(context: Context, senderId: String, onDone: () -> Unit) {
+        appContext = context.applicationContext
+        // If the call data arrives later anyway, do not ring for it.
+        ignorePeerId = senderId
+        ignoreUntilMs = System.currentTimeMillis() + 60_000
+        if (ui != null && peerId == senderId && !iAmCaller) finish("Đã từ chối")
+
+        main.launch {
+            withTimeoutOrNull(8_000) {
+                attempt {
+                    ChatRepository.sessionStatus.first { it is SessionStatus.Authenticated }
+                    val me = ChatRepository.currentUserId() ?: return@attempt
+                    CallSignaling.send(
+                        senderId,
+                        buildJsonObject {
+                            put("type", "decline")
+                            put("call_id", "none")
+                            put("from", me)
+                        },
+                    )
+                }
+            }
+            onDone()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -321,6 +410,7 @@ object CallManager {
                         "Cuộc gọi thoại đến",
                     )
                     startRingtone()
+                    loadPeerPicture(from)
                     main.launch { attempt { CallSignaling.send(from, signal("ringing", id)) } }
                 } else if (id == callId && !iAmCaller) {
                     // The caller repeats the offer; repeat my answer if I have one.
@@ -361,6 +451,14 @@ object CallManager {
             }
 
             "reject" -> if (id == callId) finish("Người nhận đã từ chối")
+
+            // Declined from the notification, before the callee's app knew
+            // the id of the call.
+            "decline" -> {
+                if (iAmCaller && from == peerId && ui?.phase == CallPhase.OUTGOING) {
+                    finish("Người nhận đã từ chối")
+                }
+            }
 
             "end" -> {
                 if (id == callId) {
@@ -514,6 +612,11 @@ object CallManager {
 
         stopRingtone()
         stopRingback()
+        appContext?.let { CallService.stop(it) }
+        runCatching {
+            val lock = proximityLock
+            if (lock != null && lock.isHeld) lock.release()
+        }
         pendingTimeoutJob?.cancel()
         pendingTimeoutJob = null
         acceptWhenOfferArrives = false

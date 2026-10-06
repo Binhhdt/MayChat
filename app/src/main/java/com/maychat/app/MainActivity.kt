@@ -1,6 +1,8 @@
 package com.maychat.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -9,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.snapshotFlow
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.maychat.app.call.CallManager
 import com.maychat.app.push.ChatToOpen
@@ -76,14 +79,24 @@ class MainActivity : ComponentActivity() {
         val senderId = extras.getString("sender_id") ?: return
         val senderName = extras.getString("sender_name") ?: "MayChat"
         val incomingCall = extras.getBoolean("incoming_call", false)
+        val callAction = extras.getString("call_action")
         Push.requestOpenChat(ChatToOpen(conversationId, senderId, senderName))
         // Do not open the same chat again after a screen rotation.
         intent?.removeExtra("conversation_id")
         intent?.removeExtra("incoming_call")
+        intent?.removeExtra("call_action")
         if (incomingCall) {
             // Ring and show the incoming call screen right away.
             CallManager.prepareIncoming(applicationContext, senderId, senderName)
             showOverLockScreenForCall()
+            // "Nghe máy" was pressed on the notification: answer right away
+            // when the microphone is already allowed. Otherwise the call
+            // screen stays, and its own button asks for the permission.
+            val micAllowed = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (callAction == "accept" && micAllowed) CallManager.accept()
         }
     }
 
