@@ -53,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,6 +99,10 @@ import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
 import com.maychat.app.ui.chat.MessageBubble
+import com.maychat.app.ui.chat.ReactionBurst
+import com.maychat.app.ui.chat.ReactionBurstLayer
+import com.maychat.app.ui.chat.TypingLine
+import com.maychat.app.ui.chat.fly
 import com.maychat.app.ui.chat.ReactionsSheet
 import com.maychat.app.ui.chat.SendState
 import com.maychat.app.ui.chat.UiMessage
@@ -442,6 +447,9 @@ fun GroupChatScreen(
         searchMode = false
         searchQuery = ""
     }
+
+    // Emojis flying up after a reaction was tapped.
+    val bursts = remember { mutableStateListOf<ReactionBurst>() }
 
     // ----- Location and contact cards ----------------------------------
     val sendLocation = rememberLocationSender(
@@ -833,6 +841,7 @@ fun GroupChatScreen(
                                     seenAvatars = seenMarks[message.key] ?: emptyList(),
                                     onSeenClick = { seenFor = message },
                                     onOpenContact = openContact,
+                                    onReactBurst = { emoji, from -> bursts.fly(emoji, from) },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -923,17 +932,12 @@ fun GroupChatScreen(
 
             if (typingAt.isNotEmpty()) {
                 val names = typingAt.keys.map { nameOf(it) }
-                Text(
-                    "••• " + when (names.size) {
+                TypingLine(
+                    when (names.size) {
                         1 -> names[0]
                         2 -> "${names[0]} và ${names[1]}"
                         else -> "${names[0]} và ${names.size - 1} người khác"
-                    } + " đang soạn tin…",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    } + " đang soạn tin",
                 )
             }
 
@@ -1254,6 +1258,9 @@ fun GroupChatScreen(
             )
         }
     }
+
+    // Flying reactions lie above the chat.
+    ReactionBurstLayer(bursts)
 
     // Forwarding goes to people and to my other groups.
     forwarding?.let { target ->

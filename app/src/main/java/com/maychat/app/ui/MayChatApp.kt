@@ -60,7 +60,9 @@ import com.maychat.app.ui.main.QrScreen
 import com.maychat.app.ui.main.SearchScreen
 import com.maychat.app.ui.main.SettingsScreen
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 // A screen shown on top of the two main tabs.
@@ -375,11 +377,46 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         }
     }
 
+    // ----- Red numbers on the bottom bar: unread messages ----------------
+    // Read from the server at start, whenever a message arrives, when a
+    // chat is closed, and every 15 seconds while the app is on screen.
+    var chatUnreadTotal by remember(myId) { mutableStateOf(ListCache.unread(myId).values.sum()) }
+    var groupUnreadTotal by remember(myId) { mutableStateOf(ListCache.groupUnread(myId).values.sum()) }
+    suspend fun reloadUnreadTotals() = coroutineScope {
+        launch { attempt { ChatRepository.loadUnreadCounts() }.onSuccess { chatUnreadTotal = it.values.sum() } }
+        launch { attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess { groupUnreadTotal = it.values.sum() } }
+        Unit
+    }
+    LaunchedEffect(myId, connectionCount, overlay == null) { reloadUnreadTotals() }
+    LaunchedEffect(myId) {
+        ChatRepository.messageEvents.collectLatest {
+            delay(400)
+            reloadUnreadTotals()
+        }
+    }
+    LaunchedEffect(myId) {
+        ChatRepository.groupEvents.collectLatest {
+            delay(400)
+            reloadUnreadTotals()
+        }
+    }
+    LaunchedEffect(myId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(15_000)
+                reloadUnreadTotals()
+            }
+        }
+    }
+
     val bottomBar: @Composable () -> Unit = {
         MainBottomBar(
             selected = tab,
             incomingRequests = friends.incoming.size,
             onSelect = { tab = it },
+            // "Trò chuyện" lists chats and groups, so it counts both.
+            chatUnread = chatUnreadTotal + groupUnreadTotal,
+            groupUnread = groupUnreadTotal,
         )
     }
 

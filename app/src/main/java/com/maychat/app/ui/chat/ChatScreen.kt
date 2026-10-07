@@ -61,6 +61,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,6 +76,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -454,6 +457,9 @@ fun ChatScreen(
         }
         keys
     }
+
+    // Emojis flying up after a reaction was tapped.
+    val bursts = remember { mutableStateListOf<ReactionBurst>() }
 
     // ----- Location and contact cards ----------------------------------
     val sendLocation = rememberLocationSender(
@@ -946,6 +952,7 @@ fun ChatScreen(
                                 onShowReactions = { reactionsFor = message.key },
                                 seenAvatars = if (message.key == seenKey) listOf(other) else emptyList(),
                                 onOpenContact = openContact,
+                                onReactBurst = { emoji, from -> bursts.fly(emoji, from) },
                             )
                             // While choosing several messages: a layer over the
                             // message catches the tap and ticks it on or off.
@@ -1050,12 +1057,7 @@ fun ChatScreen(
             }
 
             if (otherTyping && !blockedByMe) {
-                Text(
-                    "••• ${other.displayName} đang soạn tin…",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                TypingLine("${other.displayName} đang soạn tin")
             }
 
             if (cameraSending) {
@@ -1339,6 +1341,9 @@ fun ChatScreen(
         }
     }
 
+    // Flying reactions lie above the chat.
+    ReactionBurstLayer(bursts)
+
     forwarding?.let { target ->
         ForwardScreen(
             myId = myId,
@@ -1557,6 +1562,9 @@ internal fun MessageBubble(
     onSeenClick: (() -> Unit)? = null,
     // Tapping a contact card: open a chat with that person (their user id).
     onOpenContact: (String) -> Unit = {},
+    // Called together with onReact: where on the screen the reaction was
+    // given, so the screen can let the emoji fly up from there.
+    onReactBurst: (String, Offset) -> Unit = { _, _ -> },
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1611,6 +1619,15 @@ internal fun MessageBubble(
 
     val clipboard = LocalClipboardManager.current
     var menuOpen by remember(message.key) { mutableStateOf(false) }
+
+    // Where a flying reaction starts: the middle of the bubble, or of the
+    // quick reaction button once that one is on screen.
+    var bubbleCenter by remember(message.key) { mutableStateOf(Offset.Zero) }
+    var buttonCenter by remember(message.key) { mutableStateOf(Offset.Zero) }
+    val reactHere: (String, Offset) -> Unit = { emoji, from ->
+        onReact(emoji)
+        onReactBurst(emoji, from)
+    }
 
     val bubbleColor =
         if (message.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
@@ -1709,7 +1726,7 @@ internal fun MessageBubble(
             SelectTick(selectMark)
             Spacer(Modifier.width(6.dp))
         }
-        Box {
+        Box(modifier = Modifier.onGloballyPositioned { bubbleCenter = it.boundsInRoot().center }) {
             when {
                 // Taken back by the sender: a quiet grey note for both people.
                 message.recalled -> Surface(
@@ -1893,7 +1910,7 @@ internal fun MessageBubble(
                                         .clip(CircleShape)
                                         .clickable {
                                             menuOpen = false
-                                            onReact(emoji)
+                                            reactHere(emoji, bubbleCenter)
                                         }
                                         .padding(7.dp),
                                 )
@@ -1978,7 +1995,8 @@ internal fun MessageBubble(
                 // gives a heart.
                 val myEmoji = message.reactions.firstOrNull { it.mine }?.emoji
                 Surface(
-                    onClick = { onReact(myEmoji ?: "❤️") },
+                    onClick = { reactHere(myEmoji ?: "❤️", buttonCenter) },
+                    modifier = Modifier.onGloballyPositioned { buttonCenter = it.boundsInRoot().center },
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 1.dp,

@@ -14,6 +14,7 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.media.AudioAttributes
+import android.os.Build
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -333,14 +334,37 @@ object Push {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // Xiaomi / Redmi / POCO phones draw the "chat" layout WITHOUT any
+        // picture. On those the plain layout is used instead, whose large
+        // picture (on the right) they do show. The lines of one conversation
+        // are still collected in one notification.
+        val line = if (isGroup) "$personName: $text" else text
+        val plainStyle: NotificationCompat.Style? = if (!drawsChatLayoutWithoutPicture()) {
+            null
+        } else {
+            val earlier = runCatching {
+                manager.activeNotifications
+                    .firstOrNull { it.id == notificationId && it.tag == MESSAGE_TAG }
+                    ?.notification?.extras
+                    ?.getCharSequenceArray(NotificationCompat.EXTRA_TEXT_LINES)
+                    ?.toList()
+            }.getOrNull() ?: emptyList()
+            val lines = (earlier + line).takeLast(6)
+            if (lines.size == 1) {
+                NotificationCompat.BigTextStyle().bigText(line)
+            } else {
+                NotificationCompat.InboxStyle().also { inbox -> lines.forEach { inbox.addLine(it) } }
+            }
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF0F766E.toInt())
-            .setStyle(style)
+            .setStyle(plainStyle ?: style)
             // Phones that do not draw the "chat" layout still show the picture.
             .setLargeIcon(picture)
             .setContentTitle(if (isGroup) title else personName)
-            .setContentText(if (isGroup) "$personName: $text" else text)
+            .setContentText(line)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
@@ -356,6 +380,14 @@ object Push {
     }
 
     private const val MESSAGE_TAG = "chat"
+
+    // True on phones whose own notification design leaves the sender's
+    // picture out of "chat" style notifications.
+    private fun drawsChatLayoutWithoutPicture(): Boolean {
+        val maker = (Build.MANUFACTURER ?: "").lowercase()
+        val brand = (Build.BRAND ?: "").lowercase()
+        return listOf("xiaomi", "redmi", "poco").any { it in maker || it in brand }
+    }
 
     // Removes all MayChat notifications (and with them the number on the icon).
     fun clearNotifications(context: Context) {

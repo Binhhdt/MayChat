@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -56,17 +58,27 @@ enum class MainTab { CHATS, FRIENDS, GROUPS, CALLS }
 
 // Bar at the bottom of the four main screens.
 @Composable
-fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) -> Unit) {
+// chatUnread: unread messages in all my chats and groups together (red
+// number on "Trò chuyện"); groupUnread: those in groups (on "Nhóm").
+fun MainBottomBar(
+    selected: MainTab,
+    incomingRequests: Int,
+    onSelect: (MainTab) -> Unit,
+    chatUnread: Int = 0,
+    groupUnread: Int = 0,
+) {
     NavigationBar {
         NavigationBarItem(
             selected = selected == MainTab.CHATS,
             onClick = { onSelect(MainTab.CHATS) },
             icon = {
-                Icon(
-                    painter = painterResource(R.drawable.ic_notification),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                )
+                UnreadBadge(chatUnread) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_notification),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             },
             label = { Text("Trò chuyện") },
         )
@@ -87,11 +99,13 @@ fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) 
             selected = selected == MainTab.GROUPS,
             onClick = { onSelect(MainTab.GROUPS) },
             icon = {
-                Icon(
-                    painter = painterResource(R.drawable.ic_groups),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                )
+                UnreadBadge(groupUnread) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_groups),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             },
             label = { Text("Nhóm") },
         )
@@ -108,6 +122,16 @@ fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) 
             label = { Text("Cuộc gọi") },
         )
     }
+}
+
+// An icon with a red number at its corner (nothing when the number is 0).
+@Composable
+private fun UnreadBadge(count: Int, icon: @Composable () -> Unit) {
+    BadgedBox(
+        badge = {
+            if (count > 0) Badge { Text(if (count > 99) "99+" else count.toString()) }
+        },
+    ) { icon() }
 }
 
 // One person in a list: avatar, name, username, and buttons on the right.
