@@ -204,6 +204,8 @@ data class Group(
     @SerialName("last_message_text") val lastMessageText: String? = null,
     @SerialName("last_message_at") val lastMessageAt: String? = null,
     @SerialName("last_sender_id") val lastSenderId: String? = null,
+    // Background shared by all members (null = none), see migration 22.
+    val wallpaper: String? = null,
 )
 
 @Serializable
@@ -211,6 +213,8 @@ data class GroupMember(
     @SerialName("group_id") val groupId: String,
     @SerialName("user_id") val userId: String,
     @SerialName("joined_at") val joinedAt: String? = null,
+    // Up to when this member has read the group (for "Đã xem").
+    @SerialName("last_read_at") val lastReadAt: String? = null,
 )
 
 @Serializable
@@ -225,6 +229,12 @@ data class GroupMessage(
     @SerialName("file_name") val fileName: String? = null,
     @SerialName("file_size") val fileSize: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    // From migration 22: taken back by the sender, and the quoted message
+    // when this one is a reply. All null for a normal message.
+    @SerialName("recalled_at") val recalledAt: String? = null,
+    @SerialName("reply_to_id") val replyToId: String? = null,
+    @SerialName("reply_preview") val replyPreview: String? = null,
+    @SerialName("reply_sender_id") val replySenderId: String? = null,
 )
 
 // What the app sends when creating a group message.
@@ -244,4 +254,26 @@ data class NewGroupMessage(
 data class GroupUnread(
     @SerialName("group_id") val groupId: String,
     val unread: Int,
+)
+
+// What the app sends for a group message that answers another one.
+@Serializable
+data class NewGroupReplyMessage(
+    @SerialName("group_id") val groupId: String,
+    val content: String,
+    val kind: String = "text",
+    @SerialName("media_path") val mediaPath: String? = null,
+    @SerialName("duration_ms") val durationMs: Int? = null,
+    @SerialName("reply_to_id") val replyToId: String,
+    @SerialName("reply_preview") val replyPreview: String,
+    @SerialName("reply_sender_id") val replySenderId: String,
+)
+
+// My own settings for one group (see supabase_migration_22).
+@Serializable
+data class GroupPref(
+    @SerialName("group_id") val groupId: String,
+    @SerialName("pinned_at") val pinnedAt: String? = null,
+    val muted: Boolean = false,
+    @SerialName("cleared_at") val clearedAt: String? = null,
 )

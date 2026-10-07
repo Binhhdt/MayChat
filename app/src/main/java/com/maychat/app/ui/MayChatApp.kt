@@ -46,6 +46,7 @@ import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.SplashScreen
 import com.maychat.app.ui.group.CreateGroupScreen
 import com.maychat.app.ui.group.GroupChatScreen
+import com.maychat.app.ui.group.GroupsScreen
 import com.maychat.app.ui.main.CallsScreen
 import com.maychat.app.ui.main.ConversationsScreen
 import com.maychat.app.ui.main.EditProfileScreen
@@ -368,6 +369,12 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
                 onOpenSearch = { overlay = Overlay.Search },
                 onOpenQr = { overlay = Overlay.Qr },
                 onOpenChat = { openChat(it) },
+                bottomBar = bottomBar,
+            )
+            MainTab.GROUPS -> GroupsScreen(
+                myId = myId,
+                onOpenGroup = { group -> overlay = Overlay.GroupChat(group.id, group.name) },
+                onCreateGroup = { overlay = Overlay.CreateGroup },
                 bottomBar = bottomBar,
             )
             MainTab.CALLS -> CallsScreen(

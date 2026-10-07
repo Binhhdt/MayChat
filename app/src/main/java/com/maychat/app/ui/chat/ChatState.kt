@@ -34,6 +34,10 @@ data class UiMessage(
     val reactions: List<ReactionChip> = emptyList(),
     val fileName: String? = null,       // for a file message
     val fileSize: Int? = null,
+    // Only filled in by group chats: who wrote this message, and who wrote
+    // the message it quotes.
+    val senderId: String? = null,
+    val replySenderId: String? = null,
 )
 
 // One emoji under a message: how many people chose it, and whether I did.

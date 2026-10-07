@@ -52,9 +52,9 @@ import com.maychat.app.data.Profile
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 
-enum class MainTab { CHATS, FRIENDS, CALLS }
+enum class MainTab { CHATS, FRIENDS, GROUPS, CALLS }
 
-// Bar at the bottom of the three main screens.
+// Bar at the bottom of the four main screens.
 @Composable
 fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) -> Unit) {
     NavigationBar {
@@ -81,6 +81,19 @@ fun MainBottomBar(selected: MainTab, incomingRequests: Int, onSelect: (MainTab) 
                 )
             },
             label = { Text(if (incomingRequests > 0) "Bạn bè ($incomingRequests)" else "Bạn bè") },
+        )
+        // My groups, right next to "Bạn bè".
+        NavigationBarItem(
+            selected = selected == MainTab.GROUPS,
+            onClick = { onSelect(MainTab.GROUPS) },
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.ic_groups),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+            },
+            label = { Text("Nhóm") },
         )
         NavigationBarItem(
             selected = selected == MainTab.CALLS,

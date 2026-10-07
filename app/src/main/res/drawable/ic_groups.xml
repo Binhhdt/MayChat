@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Three people: the "Nhóm" tab. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,5a3,3 0,1 1,0 6a3,3 0,1 1,0 -6zM6,19v-1.5c0,-2 4,-3 6,-3s6,1 6,3V19zM5,7.5a2,2 0,1 1,0 4a2,2 0,1 1,0 -4zM1,18v-1.2c0,-1.6 2.5,-2.4 4,-2.4c0.3,0 0.6,0 0.9,0.1C5,15.3 4.5,16.3 4.5,17.5V18zM19,7.5a2,2 0,1 1,0 4a2,2 0,1 1,0 -4zM23,18v-1.2c0,-1.6 -2.5,-2.4 -4,-2.4c-0.3,0 -0.6,0 -0.9,0.1C19,15.3 19.5,16.3 19.5,17.5V18z" />
+</vector>

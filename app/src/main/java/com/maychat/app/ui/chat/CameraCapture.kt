@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.MediaCache
+import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -49,7 +50,9 @@ object CameraCapture {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 
     // Opens the camera. Returns false if this phone cannot do it.
-    fun start(context: Context, conversationId: String): Boolean {
+    // group = true: conversationId is the id of a GROUP, and the photo is
+    // sent into that group.
+    fun start(context: Context, conversationId: String, group: Boolean = false): Boolean {
         val open = launcher ?: return false
         return try {
             val folder = File(context.cacheDir, "camera")
@@ -57,6 +60,7 @@ object CameraCapture {
             val photo = File(folder, "photo-${System.currentTimeMillis()}.jpg")
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("conversation_id", conversationId)
+                .putBoolean("group", group)
                 .putString("file", photo.absolutePath)
                 .apply()
             open(uriFor(context, photo))
@@ -72,6 +76,7 @@ object CameraCapture {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val conversationId = prefs.getString("conversation_id", null)
         val filePath = prefs.getString("file", null)
+        val toGroup = prefs.getBoolean("group", false)
         prefs.edit().clear().apply()
         if (conversationId == null || filePath == null) return
         val file = File(filePath)
@@ -93,7 +98,13 @@ object CameraCapture {
                 val path = "$conversationId/${UUID.randomUUID()}.jpg"
                 ChatRepository.uploadMedia(path, bytes)
                 MediaCache.put(path, bytes)
-                ChatRepository.sendMediaMessage(conversationId, "image", path, "📷 Ảnh", null)
+                if (toGroup) {
+                    ChatRepository.sendGroupMessage(
+                        NewGroupMessage(groupId = conversationId, content = "📷 Ảnh", kind = "image", mediaPath = path),
+                    )
+                } else {
+                    ChatRepository.sendMediaMessage(conversationId, "image", path, "📷 Ảnh", null)
+                }
             }
             file.delete()
             _sending.value = false

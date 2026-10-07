@@ -62,7 +62,7 @@ fun Throwable.toUserMessage(): String {
             "Nhóm đã đủ 50 thành viên."
 
         "only_leader" in text ->
-            "Chỉ trưởng nhóm mới xóa được thành viên."
+            "Chỉ trưởng nhóm mới làm được việc này."
 
         "invalid_group_name" in text ->
             "Tên nhóm cần từ 1 đến 60 ký tự."

@@ -58,6 +58,7 @@ import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.ConversationPref
 import com.maychat.app.data.Group
+import com.maychat.app.data.GroupPref
 import com.maychat.app.data.ConversationItem
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
@@ -65,6 +66,7 @@ import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
+import com.maychat.app.ui.group.GroupListRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -111,10 +113,23 @@ fun ConversationsScreen(
     // migration 21 was not run) the list simply shows no groups.
     var groups by remember { mutableStateOf<List<Group>>(emptyList()) }
     var groupUnread by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    // My own settings per group: pinned, muted, history deleted on my side.
+    // If loading fails (for example migration 22 was not run) there are none.
+    var groupPrefs by remember { mutableStateOf<Map<String, GroupPref>>(emptyMap()) }
+
+    fun changeGroupPref(groupId: String, pinned: Boolean? = null, muted: Boolean? = null, clear: Boolean = false) {
+        scope.launch {
+            attempt { ChatRepository.setGroupPref(groupId, pinned, muted, clear) }
+                .onFailure { error = it.toUserMessage() }
+            attempt { ChatRepository.loadGroupPrefs() }.onSuccess { groupPrefs = it }
+            attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess { groupUnread = it }
+        }
+    }
 
     suspend fun reload() {
         attempt { ChatRepository.loadGroups() }.onSuccess { groups = it }
         attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess { groupUnread = it }
+        attempt { ChatRepository.loadGroupPrefs() }.onSuccess { groupPrefs = it }
         // If this fails (for example migration 16 was not run) nothing is
         // pinned, muted or hidden, exactly as before.
         attempt { ChatRepository.loadConversationPrefs() }.onSuccess { prefs = it }
@@ -175,6 +190,13 @@ fun ConversationsScreen(
         }
         .sortedByDescending { ChatRepository.toEpochMillis(prefs[it.conversation.id]?.pinnedAt) }
         .sortedByDescending { prefs[it.conversation.id]?.pinnedAt != null }
+
+    // Groups: without those whose history I deleted on my side (they come
+    // back when a newer message arrives; the "Nhóm" tab always shows them).
+    val shownGroups = groups.filter { group ->
+        val cleared = groupPrefs[group.id]?.clearedAt ?: return@filter true
+        ChatRepository.toEpochMillis(group.lastMessageAt ?: group.createdAt) > ChatRepository.toEpochMillis(cleared)
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -289,7 +311,7 @@ fun ConversationsScreen(
             when {
                 loading -> LoadingScreen()
 
-                shown.isEmpty() && groups.isEmpty() -> Column(
+                shown.isEmpty() && shownGroups.isEmpty() -> Column(
                     modifier = Modifier.fillMaxSize().padding(32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -310,29 +332,43 @@ fun ConversationsScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // One list: pinned one-to-one chats first, then the other
-                    // chats and my groups together, newest activity first.
-                    val pinnedChats = shown.filter { prefs[it.conversation.id]?.pinnedAt != null }
-                    val others: List<Any> = (shown.filter { prefs[it.conversation.id]?.pinnedAt == null } + groups)
-                        .sortedByDescending { row ->
-                            when (row) {
-                                is ConversationItem -> ChatRepository.toEpochMillis(
-                                    row.conversation.lastMessageAt ?: row.conversation.createdAt,
-                                )
-                                is Group -> ChatRepository.toEpochMillis(row.lastMessageAt ?: row.createdAt)
-                                else -> 0L
-                            }
-                        }
-                    val rows: List<Any> = pinnedChats + others
+                    // One list: what I pinned first (chats and groups, the
+                    // latest pin on top), then the other chats and groups
+                    // together, newest activity first.
+                    fun activity(row: Any): Long = when (row) {
+                        is ConversationItem -> ChatRepository.toEpochMillis(
+                            row.conversation.lastMessageAt ?: row.conversation.createdAt,
+                        )
+                        is Group -> ChatRepository.toEpochMillis(row.lastMessageAt ?: row.createdAt)
+                        else -> 0L
+                    }
+                    fun pinnedAt(row: Any): String? = when (row) {
+                        is ConversationItem -> prefs[row.conversation.id]?.pinnedAt
+                        is Group -> groupPrefs[row.id]?.pinnedAt
+                        else -> null
+                    }
+                    val all: List<Any> = shown + shownGroups
+                    val pinnedRows = all.filter { pinnedAt(it) != null }
+                        .sortedByDescending { ChatRepository.toEpochMillis(pinnedAt(it)) }
+                    val others = all.filter { pinnedAt(it) == null }.sortedByDescending { activity(it) }
+                    val rows: List<Any> = pinnedRows + others
                     items(
                         rows,
                         key = { row -> if (row is Group) "group-${row.id}" else (row as ConversationItem).conversation.id },
                     ) { row ->
                         if (row is Group) {
-                            GroupRow(
+                            val groupPref = groupPrefs[row.id]
+                            GroupListRow(
                                 group = row,
+                                myId = myId,
                                 unread = groupUnread[row.id] ?: 0,
+                                pinned = groupPref?.pinnedAt != null,
+                                muted = groupPref?.muted == true,
+                                clearedAt = groupPref?.clearedAt,
                                 onClick = { onOpenGroup(row) },
+                                onTogglePin = { changeGroupPref(row.id, pinned = groupPref?.pinnedAt == null) },
+                                onToggleMute = { changeGroupPref(row.id, muted = groupPref?.muted != true) },
+                                onClear = { changeGroupPref(row.id, clear = true) },
                             )
                             return@items
                         }
@@ -547,80 +583,5 @@ private fun ConversationRow(
             }
         }
     }
-    }
-}
-
-// One group in the list: same look as a conversation, with a "Nhóm" mark.
-@Composable
-private fun GroupRow(group: Group, unread: Int, onClick: () -> Unit) {
-    val hasUnread = unread > 0
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = if (hasUnread) MaterialTheme.colorScheme.surface else Color.Transparent,
-        shadowElevation = if (hasUnread) 1.dp else 0.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Avatar(name = group.name, online = false, size = 54.dp)
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_group),
-                        contentDescription = "Nhóm",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        group.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    group.lastMessageText ?: "Chưa có tin nhắn",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (hasUnread) FontWeight.SemiBold else null,
-                    color = if (hasUnread) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    formatTime(group.lastMessageAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (hasUnread) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-                if (hasUnread) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        if (unread > 99) "99+" else unread.toString(),
-                        color = MaterialTheme.colorScheme.onError,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = 22.dp)
-                            .background(MaterialTheme.colorScheme.error, CircleShape)
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                    )
-                }
-            }
-        }
     }
 }

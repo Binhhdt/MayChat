@@ -1431,9 +1431,11 @@ fun ChatScreen(
     }
 }
 
+// Also used by the group chat screen, which fills in the last three
+// settings; a one-to-one chat leaves them out and looks exactly as before.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     selectMark: Boolean?,
     onSelectMany: () -> Unit,
     markQuery: String?,
@@ -1452,6 +1454,12 @@ private fun MessageBubble(
     otherName: String,
     onReply: () -> Unit,
     onReact: (String) -> Unit,
+    // Group chats only. senderLabel: the sender's name, shown above the
+    // first message of a run. quoteName: who wrote the quoted message.
+    // sentMeta: replaces "Đã gửi / Đã nhận / Đã xem" under my own messages.
+    senderLabel: String? = null,
+    quoteName: String? = null,
+    sentMeta: String? = null,
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1526,6 +1534,7 @@ private fun MessageBubble(
         !message.mine -> time
         message.state == SendState.SENDING -> "Đang gửi…"
         message.state == SendState.FAILED -> "Gửi lỗi. Chạm vào tin nhắn để gửi lại"
+        sentMeta != null -> "$time · $sentMeta"
         message.state == SendState.READ -> "$time · Đã xem"
         message.state == SendState.DELIVERED -> "$time · Đã nhận"
         else -> "$time · Đã gửi"
@@ -1586,6 +1595,18 @@ private fun MessageBubble(
         modifier = Modifier.weight(1f),
         horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
     ) {
+        // Group chats: who is speaking.
+        if (senderLabel != null) {
+            Text(
+                senderLabel,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
         if (selectMark != null && message.mine) {
             SelectTick(selectMark)
@@ -1617,7 +1638,7 @@ private fun MessageBubble(
                     ),
                 ) {
                     Column(horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start) {
-                        MediaQuote(message, otherName)
+                        MediaQuote(message, quoteName ?: otherName)
                         ChatImage(path)
                     }
                 }
@@ -1649,7 +1670,7 @@ private fun MessageBubble(
                     Column {
                         if (message.replyPreview != null) {
                             Box(modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
-                                MediaQuote(message, otherName)
+                                MediaQuote(message, quoteName ?: otherName)
                             }
                         }
                         VoiceBubbleContent(
@@ -1695,7 +1716,7 @@ private fun MessageBubble(
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                                     Text(
-                                        if (message.replyToMine) "Bạn" else otherName,
+                                        if (message.replyToMine) "Bạn" else (quoteName ?: otherName),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                     )
@@ -1856,9 +1877,9 @@ private val PANEL_EMOJIS = listOf(
     "☕", "🍜", "🍻", "⚽", "🎵", "📞", "✅", "❌",
 )
 
-// Simple emoji keyboard: a grid of common emojis.
+// Simple emoji keyboard: a grid of common emojis. (Also used by group chats.)
 @Composable
-private fun EmojiPanel(onPick: (String) -> Unit) {
+internal fun EmojiPanel(onPick: (String) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(8),
         modifier = Modifier

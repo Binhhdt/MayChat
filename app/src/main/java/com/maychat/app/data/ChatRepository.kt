@@ -517,11 +517,14 @@ object ChatRepository {
         val beforeUtc = before?.let {
             runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
         }
+        // Messages up to the moment I deleted the history on my side are left out.
+        val cleared = groupClearedUtc(groupId)
         return supabase.postgrest.from("group_messages")
             .select {
                 filter {
                     eq("group_id", groupId)
                     if (beforeUtc != null) lt("created_at", beforeUtc)
+                    if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
                 limit(limit.toLong())
@@ -531,6 +534,152 @@ object ChatRepository {
 
     suspend fun sendGroupMessage(message: NewGroupMessage) {
         supabase.postgrest.from("group_messages").insert(message)
+    }
+
+    // ------------------------------------------------------------------
+    // Group chats: the features of one-to-one chats
+    // (see supabase_migration_22_group_features.sql)
+    // ------------------------------------------------------------------
+
+    // Group id -> the moment up to which I deleted its history on my side.
+    @Volatile
+    private var groupClearedAt: Map<String, String> = emptyMap()
+
+    private fun groupClearedUtc(groupId: String): String? =
+        groupClearedAt[groupId]?.let {
+            runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
+        }
+
+    // My settings per group: pinned at the top, muted, history deleted.
+    suspend fun loadGroupPrefs(): Map<String, GroupPref> {
+        val list = supabase.postgrest.from("group_prefs")
+            .select()
+            .decodeList<GroupPref>()
+        groupClearedAt = list.mapNotNull { pref -> pref.clearedAt?.let { pref.groupId to it } }.toMap()
+        return list.associateBy { it.groupId }
+    }
+
+    // pinned / muted: null leaves the setting as it is.
+    // clear = true deletes the history of the group on my side.
+    suspend fun setGroupPref(
+        groupId: String,
+        pinned: Boolean? = null,
+        muted: Boolean? = null,
+        clear: Boolean = false,
+    ) {
+        supabase.postgrest.rpc(
+            "set_group_pref",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_pinned", pinned)
+                put("p_muted", muted)
+                put("p_clear", clear)
+            },
+        )
+        attempt { loadGroupPrefs() }
+    }
+
+    // The rows of the member list, with up to when each member has read.
+    suspend fun loadGroupMemberRows(groupId: String): List<GroupMember> =
+        supabase.postgrest.from("group_members")
+            .select { filter { eq("group_id", groupId) } }
+            .decodeList<GroupMember>()
+
+    suspend fun sendGroupReply(message: NewGroupReplyMessage) {
+        supabase.postgrest.from("group_messages").insert(message)
+    }
+
+    suspend fun recallGroupMessage(messageId: String) {
+        supabase.postgrest.rpc("recall_group_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun hideGroupMessage(messageId: String) {
+        supabase.postgrest.rpc("hide_group_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun loadHiddenGroupMessageIds(groupId: String): Set<String> =
+        supabase.postgrest.rpc(
+            "hidden_group_message_ids",
+            buildJsonObject { put("p_group", groupId) },
+        ).decodeList<String>().toSet()
+
+    // emoji = null removes my reaction.
+    suspend fun setGroupReaction(messageId: String, emoji: String?) {
+        supabase.postgrest.rpc(
+            "set_group_reaction",
+            buildJsonObject {
+                put("p_message", messageId)
+                put("p_emoji", emoji ?: "")
+            },
+        )
+    }
+
+    suspend fun loadGroupReactions(groupId: String): List<Reaction> =
+        supabase.postgrest.rpc(
+            "group_reactions",
+            buildJsonObject { put("p_group", groupId) },
+        ).decodeList<Reaction>()
+
+    suspend fun loadGroupPinnedMessage(groupId: String): PinnedMessage? =
+        supabase.postgrest.rpc(
+            "group_pinned_message",
+            buildJsonObject { put("p_group", groupId) },
+        ).decodeList<PinnedMessage>().firstOrNull()
+            // A message I deleted on my side is not shown as pinned to me.
+            ?.takeIf { pin ->
+                val cleared = groupClearedAt[groupId]
+                cleared == null || toEpochMillis(pin.createdAt) > toEpochMillis(cleared)
+            }
+
+    suspend fun pinGroupMessage(messageId: String) {
+        supabase.postgrest.rpc("pin_group_message", buildJsonObject { put("p_message", messageId) })
+    }
+
+    suspend fun unpinGroupMessage(groupId: String) {
+        supabase.postgrest.rpc("unpin_group_message", buildJsonObject { put("p_group", groupId) })
+    }
+
+    // value = null removes the background.
+    suspend fun setGroupWallpaper(groupId: String, value: String?) {
+        supabase.postgrest.rpc(
+            "set_group_wallpaper",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_value", value ?: "")
+            },
+        )
+    }
+
+    // Text messages of one group that contain the given words, accents and
+    // upper/lower case ignored (newest first, at most SEARCH_LIMIT).
+    suspend fun searchGroupMessages(groupId: String, query: String): List<GroupMessage> {
+        val clean = query.trim().replace("\\", "").replace("%", "").replace("_", " ")
+        if (clean.length < 2) return emptyList()
+        return supabase.postgrest.rpc(
+            "search_group_messages",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_query", clean)
+                put("p_after", groupClearedUtc(groupId))
+            },
+        ).decodeList<GroupMessage>()
+    }
+
+    // Newest pictures or files of one group, for the group information
+    // screen. kind is "image" or "file".
+    suspend fun loadGroupSharedMedia(groupId: String, kind: String, limit: Int): List<GroupMessage> {
+        val cleared = groupClearedUtc(groupId)
+        return supabase.postgrest.from("group_messages")
+            .select {
+                filter {
+                    eq("group_id", groupId)
+                    eq("kind", kind)
+                    if (cleared != null) gt("created_at", cleared)
+                }
+                order("created_at", Order.DESCENDING)
+                limit(limit.toLong())
+            }
+            .decodeList<GroupMessage>()
     }
 
     // Loads one page of messages, newest first. Pass the time of the oldest

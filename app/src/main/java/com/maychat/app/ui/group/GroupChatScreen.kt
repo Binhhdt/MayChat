@@ -2,11 +2,13 @@ package com.maychat.app.ui.group
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,17 +18,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -43,6 +46,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,52 +57,60 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
-import com.maychat.app.data.Group
 import com.maychat.app.data.GroupMessage
-import com.maychat.app.data.MediaCache
-import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
-import com.maychat.app.ui.chat.ChatImage
-import com.maychat.app.ui.chat.FileBubbleContent
+import com.maychat.app.ui.chat.CameraCapture
+import com.maychat.app.ui.chat.ChatWallpaperLayer
+import com.maychat.app.ui.chat.EmojiPanel
+import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
-import com.maychat.app.ui.chat.VideoBubbleContent
-import com.maychat.app.ui.chat.VoiceBubbleContent
+import com.maychat.app.ui.chat.MessageBubble
+import com.maychat.app.ui.chat.SendState
+import com.maychat.app.ui.chat.UiMessage
 import com.maychat.app.ui.chat.VoicePlayer
 import com.maychat.app.ui.chat.VoiceRecorder
+import com.maychat.app.ui.chat.WallpaperDialog
 import com.maychat.app.ui.chat.compressImage
 import com.maychat.app.ui.chat.formatDuration
-import com.maychat.app.ui.chat.isVideoFile
 import com.maychat.app.ui.chat.readPickedFile
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.BackButton
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.dayLabel
-import com.maychat.app.ui.common.formatTime
 import com.maychat.app.ui.common.localDay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.UUID
 
+// Longest voice message: 2 minutes.
 private const val MAX_VOICE_MS = 120_000L
 
-// Chat screen of one group. Phase 1: text, pictures, voice messages and
-// files; each message shows who sent it. New messages are fetched every
-// 3 seconds while the screen is open.
+// Chat screen of one group. It has the features of a one-to-one chat:
+// reply, reactions, take back, delete on my side, pin, forward, choosing
+// several messages, search, background, photo from the camera. Each message
+// shows who sent it. There is no live connection for groups: new messages
+// are fetched every 3 seconds while the screen is open.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupChatScreen(
@@ -109,175 +122,75 @@ fun GroupChatScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val state = remember(groupId) { GroupChatState(groupId, myId, scope) }
+    val recorder = remember { VoiceRecorder(context.applicationContext) }
+    val connectionCount by ChatRepository.connectionCount.collectAsState()
     val listState = rememberLazyListState()
 
-    var group by remember(groupId) { mutableStateOf<Group?>(null) }
-    var members by remember(groupId) { mutableStateOf<List<Profile>>(emptyList()) }
-    // Messages by id; the screen shows them newest first.
-    var byId by remember(groupId) { mutableStateOf<Map<String, GroupMessage>>(emptyMap()) }
-    var loading by remember(groupId) { mutableStateOf(true) }
-    var hasOlder by remember(groupId) { mutableStateOf(false) }
-    var error by remember(groupId) { mutableStateOf<String?>(null) }
     var draft by remember(groupId) { mutableStateOf("") }
-    // How many of my messages are on their way to the server.
-    var sending by remember(groupId) { mutableStateOf(0) }
-    var infoOpen by remember(groupId) { mutableStateOf(false) }
-    var viewerPath by remember(groupId) { mutableStateOf<String?>(null) }
-
-    val messages = remember(byId) {
-        byId.values.sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
-    }
-    val memberById = remember(members) { members.associateBy { it.id } }
-
-    suspend fun reloadGroup() {
-        attempt { ChatRepository.loadGroup(groupId) }.onSuccess { loaded ->
-            // No longer a member (removed, or the group is gone): leave the screen.
-            if (loaded == null) onBack() else group = loaded
-        }
-        attempt { ChatRepository.loadGroupMembers(groupId) }.onSuccess { members = it }
-    }
-
-    suspend fun fetchNewest(limit: Int) {
-        attempt { ChatRepository.loadGroupMessages(groupId, limit = limit) }
-            .onSuccess { page ->
-                val before = byId.size
-                byId = byId + page.associateBy { it.id }
-                if (loading) hasOlder = page.size == limit
-                error = null
-                if (byId.size != before) attempt { ChatRepository.markGroupRead(groupId) }
-            }
-            .onFailure { if (loading) error = it.toUserMessage() }
-        loading = false
-    }
-
-    LaunchedEffect(groupId) {
-        reloadGroup()
-        fetchNewest(ChatRepository.PAGE_SIZE)
-        attempt { ChatRepository.markGroupRead(groupId) }
-    }
-
-    // Fetch new messages every 3 seconds while the screen is showing, and
-    // the member list every 15 seconds.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(groupId, lifecycleOwner) {
-        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            var round = 0
-            while (true) {
-                delay(3_000)
-                round++
-                if (!loading) fetchNewest(20)
-                if (round % 5 == 0) reloadGroup()
-            }
-        }
-    }
-
-    // Stay at the bottom when a new message arrives and I am already there.
-    LaunchedEffect(messages.firstOrNull()?.id) {
-        if (listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0)
-    }
-
-    // Uploads a file into the group's folder, then sends the message for it.
-    fun sendMedia(kind: String, bytes: ByteArray, extension: String, label: String, durationMs: Int?, fileName: String?) {
-        sending++
-        scope.launch {
-            attempt {
-                val path = "$groupId/${UUID.randomUUID()}.$extension"
-                ChatRepository.uploadMedia(path, bytes)
-                MediaCache.put(path, bytes)
-                ChatRepository.sendGroupMessage(
-                    NewGroupMessage(
-                        groupId = groupId,
-                        content = label,
-                        kind = kind,
-                        mediaPath = path,
-                        durationMs = durationMs,
-                        fileName = fileName,
-                        fileSize = if (kind == "file") bytes.size else null,
-                    ),
-                )
-            }
-                .onSuccess {
-                    fetchNewest(20)
-                    listState.scrollToItem(0)
-                }
-                .onFailure { error = it.toUserMessage() }
-            sending--
-        }
-    }
-
-    // ----- Pictures and files --------------------------------------------
-    val pickImages = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(10),
-    ) { uris ->
-        scope.launch {
-            for (uri in uris) {
-                val bytes = compressImage(context, uri)
-                if (bytes == null) {
-                    error = "Có ảnh không đọc được và đã bị bỏ qua."
-                } else {
-                    sendMedia("image", bytes, "jpg", "📷 Ảnh", null, null)
-                }
-            }
-        }
-    }
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val picked = readPickedFile(context, uri)
-                    if (picked == null) {
-                        error = "Không đọc được file này."
-                    } else {
-                        val ending = picked.name.substringAfterLast('.', "").lowercase()
-                            .filter { it in 'a'..'z' || it in '0'..'9' }.take(8).ifEmpty { "bin" }
-                        sendMedia("file", picked.bytes, ending, "📎 ${picked.name}", null, picked.name)
-                    }
-                } catch (e: IllegalArgumentException) {
-                    error = "File quá lớn. Chỉ gửi được file tối đa 5 MB."
-                }
-            }
-        }
-    }
-
-    // ----- Voice message --------------------------------------------------
-    val recorder = remember { VoiceRecorder(context.applicationContext) }
+    var menuOpen by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
     var recordedMs by remember { mutableLongStateOf(0L) }
 
-    fun startRecording() {
-        VoicePlayer.stop()
-        if (recorder.start()) {
-            recordedMs = 0L
-            recording = true
-        } else {
-            error = "Không dùng được micro lúc này."
+    var infoOpen by remember(groupId) { mutableStateOf(false) }
+    var wallpaperOpen by remember { mutableStateOf(false) }
+    // The picture currently open on the whole screen (null = none).
+    var viewerPath by remember(groupId) { mutableStateOf<String?>(null) }
+    // The message I am answering (null = a normal message).
+    var replyingTo by remember(groupId) { mutableStateOf<UiMessage?>(null) }
+    // Whether the emoji panel under the text box is open.
+    var emojiOpen by remember(groupId) { mutableStateOf(false) }
+
+    val group = state.group
+    val groupName = group?.name ?: initialName
+    val memberById = remember(state.members) { state.members.associateBy { it.id } }
+
+    // People who wrote here but are no longer members (they left or were
+    // removed): their names and pictures are looked up once.
+    var formerMembers by remember(groupId) { mutableStateOf<Map<String, Profile>>(emptyMap()) }
+    val askedFor = remember(groupId) { HashSet<String>() }
+    LaunchedEffect(state.messages, state.members) {
+        if (state.members.isEmpty()) return@LaunchedEffect
+        val unknown = state.messages.mapNotNull { it.senderId }.toSet()
+            .filter { it !in memberById && it !in askedFor }
+        if (unknown.isNotEmpty()) {
+            askedFor.addAll(unknown)
+            attempt { ChatRepository.loadProfiles(unknown) }
+                .onSuccess { found -> formerMembers = formerMembers + found.associateBy { it.id } }
+        }
+    }
+    fun personOf(userId: String?): Profile? = userId?.let { memberById[it] ?: formerMembers[it] }
+    fun nameOf(userId: String?): String = personOf(userId)?.displayName ?: "Thành viên"
+
+    // Removed from the group, or the group no longer exists: leave the screen.
+    LaunchedEffect(state.gone) {
+        if (state.gone) onBack()
+    }
+
+    // Load at start, and again whenever the connection comes (back) up.
+    LaunchedEffect(groupId, connectionCount) { state.refresh() }
+
+    // New messages, reactions and "đã xem" every 3 seconds while showing.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(groupId, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(3_000)
+                state.poll()
+            }
         }
     }
 
-    fun finishRecording(sendIt: Boolean) {
-        recording = false
-        if (!sendIt) {
-            recorder.cancel()
-            return
-        }
-        val result = recorder.stop()
-        if (result == null) {
-            error = "Bản ghi quá ngắn. Hãy ghi ít nhất 1 giây."
-        } else {
-            sendMedia("voice", result.bytes, "m4a", "🎤 Tin nhắn thoại", result.durationMs, null)
-        }
+    // Only mark the group as read while the chat is really on screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        state.visible = true
+        scope.launch { state.refresh() }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        state.visible = false
     }
 
-    val askMicrophone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startRecording() else error = "Cần quyền micro để ghi tin nhắn thoại."
-    }
-    LaunchedEffect(recording) {
-        while (recording) {
-            recordedMs = recorder.elapsedMs
-            if (recordedMs >= MAX_VOICE_MS) finishRecording(sendIt = true)
-            delay(200)
-        }
-    }
+    // Leaving the chat: stop any playing voice message and drop a recording.
     DisposableEffect(groupId) {
         onDispose {
             VoicePlayer.stop()
@@ -285,68 +198,373 @@ fun GroupChatScreen(
         }
     }
 
-    // Which messages start a new day, and which start a run of one sender
-    // (those show the sender's picture and name). Newest first, so the
-    // message before in time is at index + 1.
-    val dateLabels = remember(messages) {
+    // Line with the date above the first message of each day. The list is
+    // newest-first, so the message before this one in time is at index + 1.
+    val dateLabels = remember(state.messages) {
+        val list = state.messages
         val labels = HashMap<String, String>()
-        for (i in messages.indices) {
-            val day = localDay(messages[i].createdAt)
-            val older = messages.getOrNull(i + 1)
-            if (older == null || localDay(older.createdAt) != day) labels[messages[i].id] = dayLabel(day)
+        for (i in list.indices) {
+            val day = localDay(list[i].createdAt)
+            val older = list.getOrNull(i + 1)
+            if (older == null || localDay(older.createdAt) != day) {
+                labels[list[i].key] = dayLabel(day)
+            }
         }
         labels
     }
-    val runStarts = remember(messages) {
+
+    // Which messages of other people start a run of one sender: those show
+    // the sender's picture and name.
+    val runStarts = remember(state.messages, dateLabels) {
+        val list = state.messages
         val keys = HashSet<String>()
-        for (i in messages.indices) {
-            val current = messages[i]
-            val older = messages.getOrNull(i + 1)
+        for (i in list.indices) {
+            val current = list[i]
+            if (current.mine || current.kind == "system") continue
+            val older = list.getOrNull(i + 1)
             if (older == null || older.senderId != current.senderId || older.kind == "system" ||
-                dateLabels.containsKey(current.id)
+                dateLabels.containsKey(current.key)
             ) {
-                keys.add(current.id)
+                keys.add(current.key)
             }
         }
         keys
     }
 
+    // ----- Choosing several messages at once ---------------------------
+    var selecting by remember(groupId) { mutableStateOf(false) }
+    var selectedKeys by remember(groupId) { mutableStateOf<Set<String>>(emptySet()) }
+    // Keys of the chosen messages being forwarded together (null = none).
+    var forwardingMany by remember(groupId) { mutableStateOf<List<String>?>(null) }
+    var confirmDeleteMany by remember(groupId) { mutableStateOf(false) }
+    val leaveSelecting: () -> Unit = {
+        selecting = false
+        selectedKeys = emptySet()
+    }
+    // The chosen messages, oldest first.
+    fun chosenMessages(): List<UiMessage> =
+        state.messages.filter { it.key in selectedKeys }.reversed()
+    BackHandler(enabled = selecting) { leaveSelecting() }
+
+    // Forwarding: the message being forwarded (null = none).
+    var forwarding by remember(groupId) { mutableStateOf<UiMessage?>(null) }
+    // Short confirmation line, for example after forwarding.
+    var notice by remember(groupId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            delay(3_000)
+            notice = null
+        }
+    }
+
+    // Taking a photo: handled by CameraCapture (and MainActivity), so the
+    // photo is still sent when Android closes this screen while the camera
+    // app is open. Here we only show its progress and errors.
+    val cameraSending by CameraCapture.sending.collectAsState()
+    LaunchedEffect(groupId) {
+        CameraCapture.errors.collect { state.showError(it) }
+    }
+    LaunchedEffect(cameraSending) {
+        if (!cameraSending) state.poll()
+    }
+    val askCameraForPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            state.showError("Cần quyền camera để chụp ảnh. Bạn có thể bật trong Cài đặt của điện thoại.")
+        } else if (!CameraCapture.start(context, groupId, group = true)) {
+            state.showError("Không mở được máy ảnh trên điện thoại này.")
+        }
+    }
+
+    // Tapping the message area puts the keyboard (and the emoji panel) away.
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val dismissKeyboard: () -> Unit = {
+        focusManager.clearFocus()
+        keyboard?.hide()
+        emojiOpen = false
+    }
+
+    // Brings one message into view, about a third up from the bottom,
+    // loading older messages first when it is not on screen yet.
+    suspend fun jumpTo(messageId: String, createdAt: String) {
+        state.loadUntil(createdAt)
+        val index = state.messages.indexOfFirst { it.key == messageId }
+        if (index >= 0) {
+            val third = listState.layoutInfo.viewportSize.height / 3
+            listState.scrollToItem(index, -third)
+        }
+    }
+
+    // ----- Search inside this group ------------------------------------
+    var searchMode by remember(groupId) { mutableStateOf(false) }
+    var searchQuery by remember(groupId) { mutableStateOf("") }
+    // Matching messages, oldest first. searchIndex points at the one shown.
+    var searchResults by remember(groupId) { mutableStateOf<List<GroupMessage>>(emptyList()) }
+    var searchIndex by remember(groupId) { mutableStateOf(-1) }
+    var searchBusy by remember(groupId) { mutableStateOf(false) }
+    val currentResult = searchResults.getOrNull(searchIndex)
+
+    // Run the search a short moment after typing stops; start at the newest match.
+    LaunchedEffect(searchMode, searchQuery) {
+        if (!searchMode || searchQuery.trim().length < 2) {
+            searchResults = emptyList()
+            searchIndex = -1
+            searchBusy = false
+            return@LaunchedEffect
+        }
+        searchBusy = true
+        delay(400)
+        attempt { ChatRepository.searchGroupMessages(groupId, searchQuery) }
+            .onSuccess { found ->
+                searchResults = found.reversed()
+                searchIndex = found.size - 1
+            }
+            .onFailure { state.showError(it.toUserMessage()) }
+        searchBusy = false
+    }
+
+    // Jump to the current match: load older messages if needed, then scroll.
+    LaunchedEffect(currentResult?.id) {
+        val target = currentResult ?: return@LaunchedEffect
+        val at = target.createdAt ?: return@LaunchedEffect
+        jumpTo(target.id, at)
+    }
+
+    // The search box gets the cursor (and the keyboard) as soon as it appears.
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(searchMode) {
+        if (searchMode) {
+            delay(150)
+            runCatching { searchFocus.requestFocus() }
+        }
+    }
+
+    // The message the pin banner jumped to; it gets a short flash.
+    var flashKey by remember(groupId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(flashKey) {
+        if (flashKey != null) {
+            delay(1_500)
+            flashKey = null
+        }
+    }
+
+    // Back closes the search first, not the whole chat.
+    BackHandler(enabled = searchMode) {
+        searchMode = false
+        searchQuery = ""
+    }
+
+    // True when a message from someone else arrived while I was reading
+    // older messages further up. Shows the "Tin nhắn mới" button.
+    var newBelow by remember(groupId) { mutableStateOf(false) }
+    val newest = state.messages.firstOrNull()
+    val newestKey = newest?.key
+    LaunchedEffect(newestKey) {
+        if (newest == null) return@LaunchedEffect
+        if (newest.mine || listState.firstVisibleItemIndex <= 2) {
+            listState.scrollToItem(0)
+            newBelow = false
+        } else {
+            newBelow = true
+        }
+    }
+    val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    LaunchedEffect(atBottom) {
+        if (atBottom) newBelow = false
+    }
+
+    // ----- Sending pictures and files -----------------------------------
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(10),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            // If I am answering a message, the first picture carries the quote.
+            var replyKey = replyingTo?.key
+            replyingTo = null
+            scope.launch {
+                for (uri in uris) {
+                    val bytes = compressImage(context, uri)
+                    if (bytes == null) {
+                        state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
+                    } else {
+                        state.sendImage(bytes, replyToKey = replyKey)
+                        replyKey = null
+                    }
+                }
+            }
+        }
+    }
+
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val picked = readPickedFile(context, uri)
+                    if (picked == null) {
+                        state.showError("Không đọc được file này.")
+                    } else {
+                        state.sendFile(picked.bytes, picked.name)
+                    }
+                } catch (e: IllegalArgumentException) {
+                    state.showError("File quá lớn. Chỉ gửi được file tối đa 5 MB.")
+                }
+            }
+        }
+    }
+
+    // ----- Recording a voice message -------------------------------------
+    fun startRecording() {
+        VoicePlayer.stop()
+        if (recorder.start()) {
+            recordedMs = 0L
+            recording = true
+        } else {
+            state.showError("Không dùng được micro lúc này.")
+        }
+    }
+
+    fun finishRecording(send: Boolean) {
+        recording = false
+        if (!send) {
+            recorder.cancel()
+            return
+        }
+        val result = recorder.stop()
+        if (result == null) {
+            state.showError("Bản ghi quá ngắn. Hãy ghi ít nhất 1 giây.")
+        } else {
+            state.sendVoice(result.bytes, result.durationMs, replyToKey = replyingTo?.key)
+            replyingTo = null
+        }
+    }
+
+    val askMicrophone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            startRecording()
+        } else {
+            state.showError("Cần quyền micro để ghi tin nhắn thoại. Bạn có thể bật trong Cài đặt của điện thoại.")
+        }
+    }
+
+    // Counts the seconds while recording and stops at the maximum length.
+    LaunchedEffect(recording) {
+        while (recording) {
+            recordedMs = recorder.elapsedMs
+            if (recordedMs >= MAX_VOICE_MS) {
+                finishRecording(send = true)
+                break
+            }
+            delay(200)
+        }
+    }
+
+    // App goes to the background while recording: throw the recording away.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (recording) finishRecording(send = false)
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { infoOpen = true },
-                    ) {
-                        Avatar(name = group?.name ?: initialName, online = false, size = 36.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                group?.name ?: initialName,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                if (members.isEmpty()) "Nhóm" else "${members.size} thành viên",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (selecting) {
+                TopAppBar(
+                    title = { Text("Đã chọn ${selectedKeys.size}") },
+                    navigationIcon = { BackButton(onClick = leaveSelecting) },
+                )
+            } else if (searchMode) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Tìm tin nhắn văn bản") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(24.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 12.dp)
+                                .focusRequester(searchFocus),
+                        )
+                    },
+                    navigationIcon = {
+                        BackButton(
+                            onClick = {
+                                searchMode = false
+                                searchQuery = ""
+                            },
+                        )
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        // Tapping the picture or the name opens the group information.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { infoOpen = true },
+                        ) {
+                            Avatar(name = groupName, online = false, size = 36.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    groupName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    if (state.members.isEmpty()) "Nhóm" else "${state.members.size} thành viên",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = { BackButton(onClick = onBack) },
+                    actions = {
+                        IconButton(onClick = { infoOpen = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_group),
+                                contentDescription = "Thông tin nhóm",
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
-                    }
-                },
-                navigationIcon = { BackButton(onClick = onBack) },
-                actions = {
-                    IconButton(onClick = { infoOpen = true }) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_group),
-                            contentDescription = "Thành viên nhóm",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
-            )
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_more),
+                                    contentDescription = "Tùy chọn",
+                                )
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Thông tin nhóm") },
+                                    onClick = {
+                                        menuOpen = false
+                                        infoOpen = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Tìm trong nhóm") },
+                                    onClick = {
+                                        menuOpen = false
+                                        searchMode = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Hình nền") },
+                                    onClick = {
+                                        menuOpen = false
+                                        wallpaperOpen = true
+                                    },
+                                )
+                            }
+                        }
+                    },
+                )
+            }
         },
     ) { innerPadding ->
         Column(
@@ -356,52 +574,196 @@ fun GroupChatScreen(
                 .consumeWindowInsets(innerPadding)
                 .imePadding(),
         ) {
-            if (loading) {
-                Column(modifier = Modifier.weight(1f).fillMaxWidth()) { LoadingScreen() }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    reverseLayout = true,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+            // Pinned message: tap to jump to it, ✕ to remove the pin.
+            state.pinned?.let { pin ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            scope.launch {
+                                jumpTo(pin.messageId, pin.createdAt)
+                                flashKey = pin.messageId
+                            }
+                        }
+                        .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    items(messages, key = { it.id }) { message ->
-                        GroupBubble(
-                            message = message,
-                            mine = message.senderId == myId,
-                            sender = memberById[message.senderId],
-                            startsRun = message.id in runStarts,
-                            dateLabel = dateLabels[message.id],
-                            onOpenImage = { viewerPath = it },
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Tin nhắn đã ghim",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            pin.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (hasOlder) {
-                        item(key = "load-older") {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        val oldest = messages.lastOrNull()?.createdAt ?: return@TextButton
-                                        scope.launch {
-                                            attempt { ChatRepository.loadGroupMessages(groupId, before = oldest) }
-                                                .onSuccess { page ->
-                                                    byId = byId + page.associateBy { it.id }
-                                                    hasOlder = page.size == ChatRepository.PAGE_SIZE
-                                                }
-                                                .onFailure { error = it.toUserMessage() }
+                    TextButton(onClick = { state.unpin() }) { Text("✕") }
+                }
+            }
+
+            if (state.loading) {
+                Column(modifier = Modifier.weight(1f).fillMaxWidth()) { LoadingScreen() }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        // Watches touches BEFORE the messages get them and does
+                        // not use them up, so tapping, press-and-hold and
+                        // scrolling on messages keep working.
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                var pressedAt: Offset? = null
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull() ?: continue
+                                    if (event.type == PointerEventType.Press) {
+                                        pressedAt = change.position
+                                    } else if (event.type == PointerEventType.Release) {
+                                        val start = pressedAt
+                                        pressedAt = null
+                                        if (start != null &&
+                                            (change.position - start).getDistance() < viewConfiguration.touchSlop
+                                        ) {
+                                            dismissKeyboard()
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                ) {
+                    ChatWallpaperLayer(state.wallpaper)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        reverseLayout = true,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(state.messages, key = { it.key }) { message ->
+                            val sender = personOf(message.senderId)
+                            val startsRun = message.key in runStarts
+                            // Notices, and messages still being sent, cannot be chosen.
+                            val canChoose = message.kind != "system" &&
+                                message.state != SendState.SENDING &&
+                                message.state != SendState.FAILED
+                            Box {
+                                MessageBubble(
+                                    selectMark = if (selecting && canChoose) message.key in selectedKeys else null,
+                                    onSelectMany = {
+                                        selecting = true
+                                        selectedKeys = setOf(message.key)
+                                    },
+                                    markQuery = if (searchMode && searchQuery.trim().length >= 2) {
+                                        searchQuery.trim()
+                                    } else {
+                                        null
+                                    },
+                                    isPinned = message.key == state.pinned?.messageId,
+                                    onTogglePin = {
+                                        if (message.key == state.pinned?.messageId) {
+                                            state.unpin()
+                                        } else {
+                                            state.pin(message.key)
                                         }
                                     },
-                                ) { Text("Tải tin nhắn cũ hơn") }
+                                    highlightQuery = when {
+                                        message.key == currentResult?.id -> searchQuery.trim()
+                                        message.key == flashKey -> ""
+                                        else -> null
+                                    },
+                                    dateLabel = dateLabels[message.key],
+                                    onForward = { forwarding = message },
+                                    showAvatar = startsRun,
+                                    otherAvatarPath = sender?.avatarPath,
+                                    message = message,
+                                    onRetry = { state.retry(message.key) },
+                                    onOpenImage = { viewerPath = it },
+                                    onRecall = { state.recall(message.key) },
+                                    onHide = { state.hide(message.key) },
+                                    otherName = nameOf(message.senderId),
+                                    onReply = { replyingTo = message },
+                                    onReact = { emoji -> state.react(message.key, emoji) },
+                                    senderLabel = if (startsRun) nameOf(message.senderId) else null,
+                                    quoteName = nameOf(message.replySenderId),
+                                    sentMeta = state.sentMeta(message),
+                                )
+                                // While choosing several messages: a layer over the
+                                // message catches the tap and ticks it on or off.
+                                if (selecting && canChoose) {
+                                    val picked = message.key in selectedKeys
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                            ) {
+                                                selectedKeys = if (picked) {
+                                                    selectedKeys - message.key
+                                                } else {
+                                                    selectedKeys + message.key
+                                                }
+                                            },
+                                    )
+                                }
                             }
+                        }
+                        if (state.hasOlder) {
+                            item(key = "load-older") {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    TextButton(onClick = { state.loadOlder() }, enabled = !state.loadingOlder) {
+                                        Text(if (state.loadingOlder) "Đang tải…" else "Tải tin nhắn cũ hơn")
+                                    }
+                                }
+                            }
+                        }
+                        if (state.messages.isEmpty()) {
+                            item(key = "empty") {
+                                Text(
+                                    "Hãy gửi lời chào tới cả nhóm.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    // Floating button: jump down to the newest message.
+                    if (newBelow) {
+                        Surface(
+                            onClick = {
+                                newBelow = false
+                                scope.launch { listState.animateScrollToItem(0) }
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 6.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 12.dp),
+                        ) {
+                            Text(
+                                "↓ Tin nhắn mới",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            )
                         }
                     }
                 }
             }
 
-            error?.let {
+            state.error?.let {
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
@@ -409,16 +771,83 @@ fun GroupChatScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            if (sending > 0) {
+
+            notice?.let {
                 Text(
-                    "Đang gửi…",
+                    it,
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
 
-            if (recording) {
+            if (cameraSending) {
+                Text(
+                    "Đang gửi ảnh vừa chụp…",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            if (selecting) {
+                // What to do with the chosen messages.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = {
+                            forwardingMany = chosenMessages().filter { !it.recalled }.map { it.key }
+                        },
+                        enabled = selectedKeys.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Chuyển tiếp") }
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedButton(
+                        onClick = { confirmDeleteMany = true },
+                        enabled = selectedKeys.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Xóa phía tôi", color = MaterialTheme.colorScheme.error) }
+                }
+            } else if (searchMode) {
+                // "Result 3/5" with buttons to the older and the newer match.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        when {
+                            searchQuery.trim().length < 2 -> "Nhập ít nhất 2 ký tự"
+                            searchBusy -> "Đang tìm…"
+                            searchResults.isEmpty() -> "Không tìm thấy"
+                            searchResults.size >= ChatRepository.SEARCH_LIMIT ->
+                                "Kết quả thứ ${searchIndex + 1}/${searchResults.size}+"
+                            else -> "Kết quả thứ ${searchIndex + 1}/${searchResults.size}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // Down = towards newer messages, up = towards older ones.
+                    TextButton(
+                        onClick = { searchIndex++ },
+                        enabled = searchIndex < searchResults.size - 1,
+                    ) { Text("∨", style = MaterialTheme.typography.titleLarge) }
+                    TextButton(
+                        onClick = { searchIndex-- },
+                        enabled = searchIndex > 0,
+                    ) { Text("∧", style = MaterialTheme.typography.titleLarge) }
+                }
+            } else if (recording) {
+                // Shown instead of the text box while the microphone is on.
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -428,16 +857,64 @@ fun GroupChatScreen(
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedButton(onClick = { finishRecording(sendIt = false) }) { Text("Hủy") }
+                    OutlinedButton(onClick = { finishRecording(send = false) }) { Text("Hủy") }
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { finishRecording(sendIt = true) }) { Text("Gửi") }
+                    Button(onClick = { finishRecording(send = true) }) { Text("Gửi") }
                 }
             } else {
+                // "Replying to ..." strip above the text box.
+                replyingTo?.let { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_reply),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (target.mine) "Trả lời chính bạn" else "Trả lời ${nameOf(target.senderId)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                target.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        TextButton(onClick = { replyingTo = null }) { Text("✕") }
+                    }
+                }
+
+                // Text box row: emoji on the left; file, camera, microphone and
+                // picture on the right while the box is empty, the send button
+                // once there is text.
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = { emojiOpen = !emojiOpen }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_emoji),
+                            contentDescription = "Biểu tượng cảm xúc",
+                            tint = if (emojiOpen) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
@@ -455,14 +932,38 @@ fun GroupChatScreen(
                     if (draft.isBlank()) {
                         IconButton(
                             onClick = {
-                                runCatching { pickFile.launch(arrayOf("*/*")) }
-                                    .onFailure { error = "Không mở được trình chọn file trên điện thoại này." }
+                                try {
+                                    pickFile.launch(arrayOf("*/*"))
+                                } catch (e: Exception) {
+                                    state.showError("Không mở được trình chọn file trên điện thoại này.")
+                                }
                             },
                             modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_attach),
                                 contentDescription = "Gửi file",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val cameraGranted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.CAMERA,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (!cameraGranted) {
+                                    askCameraForPhoto.launch(Manifest.permission.CAMERA)
+                                } else if (!CameraCapture.start(context, groupId, group = true)) {
+                                    state.showError("Không mở được máy ảnh trên điện thoại này.")
+                                }
+                            },
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_camera),
+                                contentDescription = "Chụp ảnh",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(24.dp),
                             )
@@ -486,7 +987,7 @@ fun GroupChatScreen(
                         }
                         IconButton(
                             onClick = {
-                                pickImages.launch(
+                                pickImage.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                                 )
                             },
@@ -503,22 +1004,9 @@ fun GroupChatScreen(
                         Spacer(Modifier.width(4.dp))
                         FilledIconButton(
                             onClick = {
-                                val text = draft.trim().take(4000)
-                                // Cleared at once; put back if sending fails.
+                                state.send(draft, replyToKey = replyingTo?.key)
                                 draft = ""
-                                sending++
-                                scope.launch {
-                                    attempt { ChatRepository.sendGroupMessage(NewGroupMessage(groupId, text)) }
-                                        .onSuccess {
-                                            fetchNewest(20)
-                                            listState.scrollToItem(0)
-                                        }
-                                        .onFailure {
-                                            error = it.toUserMessage()
-                                            if (draft.isBlank()) draft = text
-                                        }
-                                    sending--
-                                }
+                                replyingTo = null
                             },
                         ) {
                             Icon(
@@ -530,148 +1018,140 @@ fun GroupChatScreen(
                         Spacer(Modifier.width(4.dp))
                     }
                 }
+
+                // Emoji panel: tap one to add it to the message.
+                if (emojiOpen) {
+                    EmojiPanel(onPick = { draft += it })
+                }
             }
         }
     }
 
-    viewerPath?.let { path -> ImageViewer(path = path, onClose = { viewerPath = null }) }
+    viewerPath?.let { path ->
+        ImageViewer(path = path, onClose = { viewerPath = null })
+    }
 
-    val current = group
-    if (infoOpen && current != null) {
+    // Forwarding goes to PEOPLE (one-to-one conversations), like in a
+    // one-to-one chat.
+    forwarding?.let { target ->
+        ForwardScreen(
+            myId = myId,
+            friends = friends,
+            previewText = target.text,
+            onClose = { forwarding = null },
+            onSend = { targets, note ->
+                forwarding = null
+                scope.launch {
+                    var sent = 0
+                    var failure: String? = null
+                    for (destination in targets) {
+                        attempt {
+                            // Create the conversation first if there is none yet.
+                            val id = destination.conversationId
+                                ?: ChatRepository.openConversation(destination.profile.id)
+                            state.forwardTo(id, target.key)
+                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                        }
+                            .onSuccess { sent++ }
+                            .onFailure { failure = it.toUserMessage() }
+                    }
+                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent người."
+                    failure?.let { state.showError(it) }
+                }
+            },
+        )
+    }
+
+    forwardingMany?.let { keys ->
+        ForwardScreen(
+            myId = myId,
+            friends = friends,
+            previewText = "${keys.size} tin nhắn",
+            onClose = { forwardingMany = null },
+            onSend = { targets, note ->
+                forwardingMany = null
+                leaveSelecting()
+                scope.launch {
+                    var sent = 0
+                    var failure: String? = null
+                    for (destination in targets) {
+                        attempt {
+                            val id = destination.conversationId
+                                ?: ChatRepository.openConversation(destination.profile.id)
+                            // One after the other, so they arrive in the same order.
+                            for (key in keys) state.forwardTo(id, key)
+                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                        }
+                            .onSuccess { sent++ }
+                            .onFailure { failure = it.toUserMessage() }
+                    }
+                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent người."
+                    failure?.let { state.showError(it) }
+                }
+            },
+        )
+    }
+
+    if (confirmDeleteMany) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteMany = false },
+            title = { Text("Xóa ${selectedKeys.size} tin nhắn?") },
+            text = { Text("Các tin này sẽ biến mất trên máy bạn. Các thành viên khác vẫn thấy chúng.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteMany = false
+                        chosenMessages().forEach { state.hide(it.key) }
+                        leaveSelecting()
+                    },
+                ) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteMany = false }) { Text("Không") }
+            },
+        )
+    }
+
+    if (infoOpen && group != null) {
         GroupInfoScreen(
             myId = myId,
-            group = current,
-            members = members,
+            group = group,
+            members = state.members,
             friends = friends,
-            onChanged = { scope.launch { reloadGroup() } },
+            onChanged = {
+                scope.launch {
+                    state.reloadGroup()
+                    state.poll()
+                }
+            },
             onLeft = {
+                infoOpen = false
+                onBack()
+            },
+            onSearch = {
+                infoOpen = false
+                searchMode = true
+            },
+            onWallpaper = {
+                infoOpen = false
+                wallpaperOpen = true
+            },
+            onOpenImage = { viewerPath = it },
+            onCleared = {
+                // The history is gone on my side: leave the chat.
                 infoOpen = false
                 onBack()
             },
             onClose = { infoOpen = false },
         )
     }
-}
 
-// One message of a group.
-@Composable
-private fun GroupBubble(
-    message: GroupMessage,
-    mine: Boolean,
-    sender: Profile?,
-    startsRun: Boolean,
-    dateLabel: String?,
-    onOpenImage: (String) -> Unit,
-) {
-    val senderName = sender?.displayName ?: "Thành viên cũ"
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (dateLabel != null) {
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    dateLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                )
-            }
-        }
-
-        // A notice written by the server, for example "đã thêm An vào nhóm".
-        if (message.kind == "system") {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    "${if (mine) "Bạn" else senderName} ${message.content}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(vertical = 4.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                )
-            }
-        } else {
-
-        val bubbleColor = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-        val textColor = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-        val shape = if (mine) {
-            RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 4.dp, bottomStart = 18.dp)
-        } else {
-            RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 4.dp)
-        }
-        val path = message.mediaPath
-
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            // Other people's messages: picture of the sender at the start of a run.
-            if (!mine) {
-                if (startsRun) {
-                    Avatar(name = senderName, online = false, size = 32.dp, avatarPath = sender?.avatarPath)
-                } else {
-                    Spacer(Modifier.width(32.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
-            ) {
-                if (!mine && startsRun) {
-                    Text(
-                        senderName,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-                    )
-                }
-                when {
-                    message.kind == "image" && path != null ->
-                        Box(modifier = Modifier.clickable { onOpenImage(path) }) { ChatImage(path) }
-
-                    message.kind == "voice" && path != null -> Surface(color = bubbleColor, shape = shape) {
-                        VoiceBubbleContent(path = path, durationMs = message.durationMs, textColor = textColor)
-                    }
-
-                    message.kind == "file" && path != null && isVideoFile(message.fileName) ->
-                        VideoBubbleContent(path = path)
-
-                    message.kind == "file" && path != null -> Surface(color = bubbleColor, shape = shape) {
-                        FileBubbleContent(
-                            path = path,
-                            fileName = message.fileName ?: "file",
-                            fileSize = message.fileSize,
-                            textColor = textColor,
-                        )
-                    }
-
-                    else -> Surface(
-                        color = bubbleColor,
-                        shape = shape,
-                        modifier = Modifier.widthIn(max = 300.dp),
-                    ) {
-                        Text(
-                            message.content,
-                            color = textColor,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-                Text(
-                    formatTime(message.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                )
-            }
-        }
-        }
+    if (wallpaperOpen) {
+        WallpaperDialog(
+            current = state.wallpaper,
+            onChoose = { state.chooseWallpaper(it) },
+            onChooseCustom = { state.chooseWallpaperPicture(it) },
+            onClose = { wallpaperOpen = false },
+        )
     }
 }
