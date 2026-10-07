@@ -1174,6 +1174,25 @@ fun ChatScreen(
             conversationId = conversationId,
             other = other,
             statusText = if (other.id in online) "Đang hoạt động" else "",
+            friends = friends,
+            onCall = {
+                optionsOpen = false
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (granted) {
+                    CallManager.startCall(other, conversationId)
+                } else {
+                    askMicrophoneForCall.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            onBlock = { confirmBlock = true },
+            onDeleted = {
+                // The conversation is gone on my side: leave the chat.
+                optionsOpen = false
+                onBack()
+            },
             onClose = { optionsOpen = false },
             onSearch = {
                 optionsOpen = false

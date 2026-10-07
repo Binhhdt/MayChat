@@ -153,3 +153,32 @@ data class NewFileMessage(
     @SerialName("file_name") val fileName: String,
     @SerialName("file_size") val fileSize: Int,
 )
+
+// My own settings for one conversation (see supabase_migration_16).
+@Serializable
+data class ConversationPref(
+    @SerialName("conversation_id") val conversationId: String,
+    @SerialName("pinned_at") val pinnedAt: String? = null,
+    val muted: Boolean = false,
+    @SerialName("cleared_at") val clearedAt: String? = null,
+)
+
+// One row of the "user_settings" table.
+@Serializable
+data class UserSettings(
+    @SerialName("mute_messages") val muteMessages: Boolean = false,
+)
+
+// One call in the call history.
+@Serializable
+data class CallLog(
+    val id: String,
+    @SerialName("caller_id") val callerId: String,
+    @SerialName("callee_id") val calleeId: String,
+    @SerialName("started_at") val startedAt: String? = null,
+    val status: String = "ringing",
+    @SerialName("duration_s") val durationS: Int = 0,
+)
+
+// A call of the history together with the other person's profile.
+data class CallItem(val call: CallLog, val other: Profile, val outgoing: Boolean)

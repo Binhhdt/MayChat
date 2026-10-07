@@ -1,7 +1,9 @@
 package com.maychat.app.ui.main
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +56,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.ConversationPref
 import com.maychat.app.data.ConversationItem
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
@@ -71,6 +75,7 @@ fun ConversationsScreen(
     onOpenSearch: () -> Unit,
     onOpenChat: (conversationId: String, other: Profile) -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenSettings: () -> Unit,
     bottomBar: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -86,7 +91,23 @@ fun ConversationsScreen(
     // Unread messages per conversation id (shown as a red number in the list).
     var unreadCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
 
+    // My own settings per conversation: pinned, muted, deleted on my side.
+    var prefs by remember { mutableStateOf<Map<String, ConversationPref>>(emptyMap()) }
+    // The conversation I am about to delete on my side (asks first).
+    var confirmDelete by remember { mutableStateOf<ConversationItem?>(null) }
+
+    fun changePref(conversationId: String, pinned: Boolean? = null, muted: Boolean? = null, clear: Boolean = false) {
+        scope.launch {
+            attempt { ChatRepository.setConversationPref(conversationId, pinned, muted, clear) }
+                .onFailure { error = it.toUserMessage() }
+            attempt { ChatRepository.loadConversationPrefs() }.onSuccess { prefs = it }
+        }
+    }
+
     suspend fun reload() {
+        // If this fails (for example migration 16 was not run) nothing is
+        // pinned, muted or hidden, exactly as before.
+        attempt { ChatRepository.loadConversationPrefs() }.onSuccess { prefs = it }
         attempt { ChatRepository.loadConversations(myId) }
             .onSuccess {
                 conversations = it
@@ -133,6 +154,17 @@ fun ConversationsScreen(
     }
 
     var accountMenuOpen by remember { mutableStateOf(false) }
+
+    // What the list shows: without the conversations I deleted on my side
+    // (they come back when a newer message arrives), pinned ones first.
+    val shown = conversations
+        .filter { item ->
+            val cleared = prefs[item.conversation.id]?.clearedAt ?: return@filter true
+            val last = item.conversation.lastMessageAt ?: item.conversation.createdAt
+            ChatRepository.toEpochMillis(last) > ChatRepository.toEpochMillis(cleared)
+        }
+        .sortedByDescending { ChatRepository.toEpochMillis(prefs[it.conversation.id]?.pinnedAt) }
+        .sortedByDescending { prefs[it.conversation.id]?.pinnedAt != null }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -181,6 +213,13 @@ fun ConversationsScreen(
                                 onClick = {
                                     accountMenuOpen = false
                                     onOpenProfile()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cài đặt") },
+                                onClick = {
+                                    accountMenuOpen = false
+                                    onOpenSettings()
                                 },
                             )
                             DropdownMenuItem(
@@ -239,7 +278,7 @@ fun ConversationsScreen(
             when {
                 loading -> LoadingScreen()
 
-                conversations.isEmpty() -> Column(
+                shown.isEmpty() -> Column(
                     modifier = Modifier.fillMaxSize().padding(32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -260,18 +299,51 @@ fun ConversationsScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(conversations, key = { it.conversation.id }) { item ->
+                    items(shown, key = { it.conversation.id }) { item ->
+                        val pref = prefs[item.conversation.id]
+                        val pinned = pref?.pinnedAt != null
+                        val muted = pref?.muted == true
                         ConversationRow(
                             item = item,
                             myId = myId,
                             online = item.other.id in online,
                             unread = unreadCounts[item.conversation.id] ?: 0,
+                            pinned = pinned,
+                            muted = muted,
                             onClick = { onOpenChat(item.conversation.id, item.other) },
+                            onTogglePin = { changePref(item.conversation.id, pinned = !pinned) },
+                            onToggleMute = { changePref(item.conversation.id, muted = !muted) },
+                            onDelete = { confirmDelete = item },
                         )
                     }
                 }
             }
         }
+    }
+
+    // Ask before deleting a conversation on my side.
+    confirmDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Xóa cuộc trò chuyện?") },
+            text = {
+                Text(
+                    "Toàn bộ tin nhắn với ${item.other.displayName} sẽ biến mất trên máy bạn và không khôi phục được. " +
+                        "${item.other.displayName} vẫn giữ nguyên tin nhắn ở phía họ.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = null
+                        changePref(item.conversation.id, clear = true)
+                    },
+                ) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Không") }
+            },
+        )
     }
 
     // Ask before signing out, so one wrong tap does not log the user out.
@@ -297,14 +369,21 @@ fun ConversationsScreen(
 
 // One conversation as a rounded card. A conversation with unread messages
 // stands out: white card, bold text and a red number.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRow(
     item: ConversationItem,
     myId: String,
     online: Boolean,
     unread: Int,
+    pinned: Boolean,
+    muted: Boolean,
     onClick: () -> Unit,
+    onTogglePin: () -> Unit,
+    onToggleMute: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val c = item.conversation
     val preview = when {
         c.lastMessageText == null -> "Chưa có tin nhắn"
@@ -313,12 +392,39 @@ private fun ConversationRow(
     }
     val hasUnread = unread > 0
 
+    Box {
+    // Press-and-hold menu of this conversation.
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+            text = { Text(if (pinned) "Bỏ ghim" else "Ghim lên đầu") },
+            onClick = {
+                menuOpen = false
+                onTogglePin()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text(if (muted) "Bật thông báo" else "Tắt thông báo") },
+            onClick = {
+                menuOpen = false
+                onToggleMute()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("Xóa cuộc trò chuyện", color = MaterialTheme.colorScheme.error) },
+            onClick = {
+                menuOpen = false
+                onDelete()
+            },
+        )
+    }
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(20.dp),
         color = if (hasUnread) MaterialTheme.colorScheme.surface else Color.Transparent,
         shadowElevation = if (hasUnread) 1.dp else 0.dp,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -355,16 +461,37 @@ private fun ConversationRow(
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    formatTime(c.lastMessageAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (hasUnread) FontWeight.SemiBold else null,
-                    color = if (hasUnread) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Small marks: pinned, notifications off.
+                    if (pinned) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_pin),
+                            contentDescription = "Đã ghim",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    if (muted) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_bell),
+                            contentDescription = "Đã tắt thông báo",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        formatTime(c.lastMessageAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (hasUnread) FontWeight.SemiBold else null,
+                        color = if (hasUnread) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
                 // Red number: unread messages in this conversation.
                 if (hasUnread) {
                     Spacer(Modifier.height(6.dp))
@@ -382,5 +509,6 @@ private fun ConversationRow(
                 }
             }
         }
+    }
     }
 }

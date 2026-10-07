@@ -292,6 +292,110 @@ object ChatRepository {
     // Messages
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // My settings per conversation: pinned, muted, deleted on my side
+    // (see supabase_migration_16_prefs_calls.sql)
+    // ------------------------------------------------------------------
+
+    // Conversation id -> the moment up to which I deleted it on my side.
+    // Kept here so every query for messages can leave the older ones out.
+    @Volatile
+    private var clearedAt: Map<String, String> = emptyMap()
+
+    // In the "...Z" form, so the value contains no "+" sign.
+    private fun clearedUtc(conversationId: String): String? =
+        clearedAt[conversationId]?.let {
+            runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
+        }
+
+    suspend fun loadConversationPrefs(): Map<String, ConversationPref> {
+        val list = supabase.postgrest.from("conversation_prefs")
+            .select()
+            .decodeList<ConversationPref>()
+        clearedAt = list.mapNotNull { pref -> pref.clearedAt?.let { pref.conversationId to it } }.toMap()
+        return list.associateBy { it.conversationId }
+    }
+
+    // pinned / muted: null leaves the setting as it is.
+    // clear = true deletes the conversation on my side.
+    suspend fun setConversationPref(
+        conversationId: String,
+        pinned: Boolean? = null,
+        muted: Boolean? = null,
+        clear: Boolean = false,
+    ) {
+        supabase.postgrest.rpc(
+            "set_conversation_pref",
+            buildJsonObject {
+                put("p_conversation", conversationId)
+                put("p_pinned", pinned)
+                put("p_muted", muted)
+                put("p_clear", clear)
+            },
+        )
+        attempt { loadConversationPrefs() }
+    }
+
+    // ------------------------------------------------------------------
+    // Account settings
+    // ------------------------------------------------------------------
+
+    // True when I switched message notifications off.
+    suspend fun loadMuteMessages(): Boolean =
+        supabase.postgrest.from("user_settings")
+            .select()
+            .decodeList<UserSettings>()
+            .firstOrNull()
+            ?.muteMessages ?: false
+
+    suspend fun setMuteMessages(muted: Boolean) {
+        supabase.postgrest.rpc("set_mute_messages", buildJsonObject { put("p_muted", muted) })
+    }
+
+    suspend fun changePassword(newPassword: String) {
+        supabase.auth.updateUser { password = newPassword }
+    }
+
+    // ------------------------------------------------------------------
+    // Call history
+    // ------------------------------------------------------------------
+
+    // Written by the caller's phone when a call starts. Returns the id of
+    // the new history row.
+    suspend fun logCallStart(calleeId: String): String =
+        supabase.postgrest.rpc("log_call_start", buildJsonObject { put("p_callee", calleeId) })
+            .data.trim().trim('"')
+
+    // status: answered, missed, declined, cancelled or failed.
+    suspend fun logCallEnd(callId: String, status: String, durationSeconds: Int) {
+        supabase.postgrest.rpc(
+            "log_call_end",
+            buildJsonObject {
+                put("p_call", callId)
+                put("p_status", status)
+                put("p_duration", durationSeconds)
+            },
+        )
+    }
+
+    // My newest 100 calls, made and received, with the other person's profile.
+    suspend fun loadCalls(myId: String): List<CallItem> {
+        val calls = supabase.postgrest.from("calls")
+            .select {
+                order("started_at", Order.DESCENDING)
+                limit(100L)
+            }
+            .decodeList<CallLog>()
+        if (calls.isEmpty()) return emptyList()
+
+        val otherIds = calls.map { if (it.callerId == myId) it.calleeId else it.callerId }.distinct()
+        val profiles = loadProfiles(otherIds).associateBy { it.id }
+        return calls.mapNotNull { call ->
+            val outgoing = call.callerId == myId
+            profiles[if (outgoing) call.calleeId else call.callerId]?.let { CallItem(call, it, outgoing) }
+        }
+    }
+
     // Loads one page of messages, newest first. Pass the time of the oldest
     // message already shown to get the page before it.
     suspend fun loadMessages(
@@ -303,11 +407,13 @@ object ChatRepository {
         val beforeUtc = before?.let {
             runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
         }
+        val cleared = clearedUtc(conversationId)
         return supabase.postgrest.from("messages")
             .select {
                 filter {
                     eq("conversation_id", conversationId)
                     if (beforeUtc != null) lt("created_at", beforeUtc)
+                    if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
                 limit(limit.toLong())
@@ -467,6 +573,11 @@ object ChatRepository {
             "pinned_message",
             buildJsonObject { put("p_conversation", conversationId) },
         ).decodeList<PinnedMessage>().firstOrNull()
+            // A message I deleted on my side is not shown as pinned to me.
+            ?.takeIf { pin ->
+                val cleared = clearedAt[conversationId]
+                cleared == null || toEpochMillis(pin.createdAt) > toEpochMillis(cleared)
+            }
 
     suspend fun pinMessage(messageId: String) {
         supabase.postgrest.rpc("pin_message", buildJsonObject { put("p_message", messageId) })
@@ -503,12 +614,14 @@ object ChatRepository {
         // "%" and "_" have a special meaning in the search pattern.
         val clean = query.trim().replace("\\", "").replace("%", "").replace("_", " ")
         if (clean.length < 2) return emptyList()
+        val cleared = clearedUtc(conversationId)
         return supabase.postgrest.from("messages")
             .select {
                 filter {
                     eq("conversation_id", conversationId)
                     eq("kind", "text")
                     ilike("content", "%$clean%")
+                    if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
                 limit(SEARCH_LIMIT.toLong())
@@ -526,17 +639,20 @@ object ChatRepository {
 
     // Newest pictures or files of one conversation, for the Options screen.
     // kind is "image" or "file".
-    suspend fun loadSharedMedia(conversationId: String, kind: String, limit: Int): List<Message> =
-        supabase.postgrest.from("messages")
+    suspend fun loadSharedMedia(conversationId: String, kind: String, limit: Int): List<Message> {
+        val cleared = clearedUtc(conversationId)
+        return supabase.postgrest.from("messages")
             .select {
                 filter {
                     eq("conversation_id", conversationId)
                     eq("kind", kind)
+                    if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
                 limit(limit.toLong())
             }
             .decodeList<Message>()
+    }
 
     suspend fun markConversationRead(conversationId: String) {
         supabase.postgrest.rpc(

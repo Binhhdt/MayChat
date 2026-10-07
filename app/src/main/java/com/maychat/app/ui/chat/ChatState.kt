@@ -247,6 +247,10 @@ class ChatState(
 
     // Loads the newest page. Also used to catch up after being offline.
     suspend fun refresh() {
+        // Know up to where I deleted this conversation on my side before
+        // asking for messages. If this fails (for example migration 16 was
+        // not run) nothing is left out, exactly as before.
+        attempt { ChatRepository.loadConversationPrefs() }
         // Which messages I have hidden. If this fails (for example migration
         // 09 was not run) nothing is hidden, exactly as before.
         attempt { ChatRepository.loadHiddenMessageIds(conversationId) }.onSuccess {

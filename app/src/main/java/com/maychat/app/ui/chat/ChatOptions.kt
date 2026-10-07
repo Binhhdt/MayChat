@@ -22,16 +22,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,8 +54,12 @@ import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.BackButton
+import com.maychat.app.ui.main.FriendsState
+import com.maychat.app.ui.main.Relation
+import kotlinx.coroutines.launch
 
 // "Tùy chọn": everything about one conversation in one place. The person's
 // picture and name, shortcuts to search and to the chat background, and the
@@ -61,11 +69,28 @@ fun ChatOptionsScreen(
     conversationId: String,
     other: Profile,
     statusText: String,
+    friends: FriendsState,
+    onCall: () -> Unit,
+    onBlock: () -> Unit,
+    onDeleted: () -> Unit,
     onSearch: () -> Unit,
     onWallpaper: () -> Unit,
     onOpenImage: (String) -> Unit,
     onClose: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    val relation = friends.relation(other.id)
+    val blockedByMe = relation == Relation.BLOCKED
+
+    // Whether I switched this conversation's notifications off.
+    var muted by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    LaunchedEffect(conversationId) {
+        attempt { ChatRepository.loadConversationPrefs() }
+            .onSuccess { muted = it[conversationId]?.muted == true }
+    }
+
     var images by remember { mutableStateOf<List<Message>>(emptyList()) }
     var files by remember { mutableStateOf<List<Message>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
@@ -117,9 +142,41 @@ fun ChatOptionsScreen(
                     }
 
                     Spacer(Modifier.height(20.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (!blockedByMe) ShortcutTile("Gọi\nthoại", R.drawable.ic_call, onCall)
                         ShortcutTile("Tìm\ntin nhắn", R.drawable.ic_search, onSearch)
                         ShortcutTile("Đổi\nhình nền", R.drawable.ic_image, onWallpaper)
+                        ShortcutTile(
+                            if (muted) "Bật\nthông báo" else "Tắt\nthông báo",
+                            R.drawable.ic_bell,
+                            onClick = {
+                                val wanted = !muted
+                                muted = wanted
+                                actionError = null
+                                scope.launch {
+                                    attempt { ChatRepository.setConversationPref(conversationId, muted = wanted) }
+                                        .onFailure {
+                                            muted = !wanted
+                                            actionError = it.toUserMessage()
+                                        }
+                                }
+                            },
+                        )
+                    }
+                    if (muted) {
+                        Text(
+                            "Đã tắt thông báo của cuộc trò chuyện này",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    actionError?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                     }
 
                     Spacer(Modifier.height(24.dp))
@@ -158,11 +215,73 @@ fun ChatOptionsScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider()
+
+                    // Friendship, blocking, deleting.
+                    when (relation) {
+                        Relation.NONE -> ActionLine("Gửi lời mời kết bạn") { friends.sendRequest(other.id) }
+                        Relation.REQUEST_SENT -> ActionLine("Hủy lời mời kết bạn") { friends.remove(other.id) }
+                        Relation.REQUEST_RECEIVED -> {
+                            ActionLine("Chấp nhận kết bạn") { friends.accept(other.id) }
+                            ActionLine("Từ chối lời mời kết bạn") { friends.reject(other.id) }
+                        }
+                        Relation.FRIEND -> ActionLine("Hủy kết bạn") { friends.remove(other.id) }
+                        Relation.BLOCKED -> {}
+                    }
+                    if (blockedByMe) {
+                        ActionLine("Bỏ chặn") { friends.unblock(other.id) }
+                    } else {
+                        ActionLine("Chặn người này", danger = true, onClick = onBlock)
+                    }
+                    ActionLine("Xóa cuộc trò chuyện", danger = true) { confirmDelete = true }
                     Spacer(Modifier.height(24.dp))
                 }
             }
         }
+
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("Xóa cuộc trò chuyện?") },
+                text = {
+                    Text(
+                        "Toàn bộ tin nhắn với ${other.displayName} sẽ biến mất trên máy bạn và không khôi phục được. " +
+                            "${other.displayName} vẫn giữ nguyên tin nhắn ở phía họ.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmDelete = false
+                            scope.launch {
+                                attempt { ChatRepository.setConversationPref(conversationId, clear = true) }
+                                    .onSuccess { onDeleted() }
+                                    .onFailure { actionError = it.toUserMessage() }
+                            }
+                        },
+                    ) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDelete = false }) { Text("Không") }
+                },
+            )
+        }
     }
+}
+
+// One tappable line of the options screen.
+@Composable
+private fun ActionLine(text: String, danger: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyLarge,
+        color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    )
 }
 
 // Round shortcut button with a label under it.

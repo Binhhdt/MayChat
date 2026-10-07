@@ -44,6 +44,7 @@ import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.SplashScreen
+import com.maychat.app.ui.main.CallsScreen
 import com.maychat.app.ui.main.ConversationsScreen
 import com.maychat.app.ui.main.EditProfileScreen
 import com.maychat.app.ui.main.FriendsScreen
@@ -51,6 +52,7 @@ import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.MainBottomBar
 import com.maychat.app.ui.main.MainTab
 import com.maychat.app.ui.main.SearchScreen
+import com.maychat.app.ui.main.SettingsScreen
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,6 +61,7 @@ import kotlinx.coroutines.launch
 private sealed interface Overlay {
     data object Search : Overlay
     data object EditProfile : Overlay
+    data object Settings : Overlay
     data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
 
@@ -69,6 +72,7 @@ private val OverlaySaver = listSaver<Overlay?, String>(
             null -> emptyList()
             Overlay.Search -> listOf("search")
             Overlay.EditProfile -> listOf("profile")
+            Overlay.Settings -> listOf("settings")
             is Overlay.Chat -> listOf(
                 "chat",
                 value.conversationId,
@@ -83,6 +87,7 @@ private val OverlaySaver = listSaver<Overlay?, String>(
         when (saved.firstOrNull()) {
             "search" -> Overlay.Search
             "profile" -> Overlay.EditProfile
+            "settings" -> Overlay.Settings
             "chat" -> if (saved.size >= 6) {
                 Overlay.Chat(
                     conversationId = saved[1],
@@ -328,11 +333,17 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
                 onOpenSearch = { overlay = Overlay.Search },
                 onOpenChat = { id, other -> overlay = Overlay.Chat(id, other) },
                 onOpenProfile = { overlay = Overlay.EditProfile },
+                onOpenSettings = { overlay = Overlay.Settings },
                 bottomBar = bottomBar,
             )
             MainTab.FRIENDS -> FriendsScreen(
                 friends = friends,
                 onOpenSearch = { overlay = Overlay.Search },
+                onOpenChat = { openChat(it) },
+                bottomBar = bottomBar,
+            )
+            MainTab.CALLS -> CallsScreen(
+                myId = myId,
                 onOpenChat = { openChat(it) },
                 bottomBar = bottomBar,
             )
@@ -346,6 +357,10 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         Overlay.EditProfile -> EditProfileScreen(
             myId = myId,
             onBack = { overlay = null },
+        )
+        Overlay.Settings -> SettingsScreen(
+            onBack = { overlay = null },
+            onOpenProfile = { overlay = Overlay.EditProfile },
         )
         is Overlay.Chat -> ChatScreen(
             myId = myId,

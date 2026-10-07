@@ -18,9 +18,11 @@ import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -89,6 +91,10 @@ object CallManager {
     private var callId: String? = null
     private var peerId: String? = null
     private var iAmCaller = false
+
+    // The call history row being written for the call I started (null when
+    // I am not the caller). Resolves to the row's id, or null if it failed.
+    private var callLogJob: Deferred<String?>? = null
     private var offerFromPeer: String? = null   // waiting for me to accept
     private var myAnswer: String? = null        // kept so it can be re-sent
     private var callJob: Job? = null
@@ -143,6 +149,9 @@ object CallManager {
                 // A line in the chat: call history, and it also triggers the
                 // normal message notification on the other phone.
                 launch { attempt { ChatRepository.sendMessage(conversationId, "📞 Cuộc gọi thoại") } }
+                // A row in the call history. Started on its own, so ending
+                // the call does not cancel it (see finish()).
+                callLogJob = main.async { attempt { ChatRepository.logCallStart(peer.id) }.getOrNull() }
 
                 val pc = createPeer()
                 onCallStarted()
@@ -609,6 +618,29 @@ object CallManager {
         val current = ui ?: return
         if (current.phase == CallPhase.ENDED) return
         val endedId = callId
+
+        // Complete the call history row (only the caller's phone writes it).
+        val logJob = callLogJob
+        callLogJob = null
+        if (logJob != null) {
+            val connectedAt = current.connectedAtMs
+            val status = when {
+                connectedAt > 0L -> "answered"
+                reason == "Người nhận đã từ chối" -> "declined"
+                reason == "Không có trả lời" -> "missed"
+                reason == "Đã kết thúc cuộc gọi" -> "cancelled"
+                else -> "failed"
+            }
+            val seconds = if (connectedAt > 0L) {
+                ((System.currentTimeMillis() - connectedAt) / 1000).toInt().coerceAtLeast(0)
+            } else {
+                0
+            }
+            main.launch {
+                val logId = logJob.await() ?: return@launch
+                attempt { ChatRepository.logCallEnd(logId, status, seconds) }
+            }
+        }
 
         stopRingtone()
         stopRingback()
