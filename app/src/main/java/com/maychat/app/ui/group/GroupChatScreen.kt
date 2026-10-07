@@ -87,6 +87,7 @@ import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
 import com.maychat.app.ui.chat.MessageBubble
+import com.maychat.app.ui.chat.ReactionsSheet
 import com.maychat.app.ui.chat.SendState
 import com.maychat.app.ui.chat.UiMessage
 import com.maychat.app.ui.chat.VoicePlayer
@@ -161,6 +162,31 @@ fun GroupChatScreen(
     }
     fun personOf(userId: String?): Profile? = userId?.let { memberById[it] ?: formerMembers[it] }
     fun nameOf(userId: String?): String = personOf(userId)?.displayName ?: "Thành viên"
+
+    // ----- "Is typing": who is writing right now -----------------------
+    // User id -> when their last "typing" signal arrived.
+    var typingAt by remember(groupId) { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var myTypingSentAt by remember(groupId) { mutableLongStateOf(0L) }
+    LaunchedEffect(groupId) {
+        ChatRepository.listenTypingWho(groupId, myId) { who ->
+            typingAt = typingAt + (who to System.currentTimeMillis())
+        }
+    }
+    // A name disappears 4 seconds after that person's last signal.
+    LaunchedEffect(typingAt.isEmpty()) {
+        while (typingAt.isNotEmpty()) {
+            delay(1_000)
+            val now = System.currentTimeMillis()
+            val still = typingAt.filterValues { now - it < 4_000 }
+            if (still.size != typingAt.size) typingAt = still
+        }
+    }
+    // Their message has arrived, so they are no longer "typing".
+    val newestSender = state.messages.firstOrNull()?.takeIf { !it.mine }
+    LaunchedEffect(newestSender?.key) {
+        val who = newestSender?.senderId
+        if (who != null && who in typingAt) typingAt = typingAt - who
+    }
 
     // Removed from the group, or the group no longer exists: leave the screen.
     LaunchedEffect(state.gone) {
@@ -248,6 +274,8 @@ fun GroupChatScreen(
 
     // Forwarding: the message being forwarded (null = none).
     var forwarding by remember(groupId) { mutableStateOf<UiMessage?>(null) }
+    // The message whose "who reacted" sheet is open (null = none).
+    var reactionsFor by remember(groupId) { mutableStateOf<String?>(null) }
     // Short confirmation line, for example after forwarding.
     var notice by remember(groupId) { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
@@ -693,6 +721,7 @@ fun GroupChatScreen(
                                     senderLabel = if (startsRun) nameOf(message.senderId) else null,
                                     quoteName = nameOf(message.replySenderId),
                                     sentMeta = state.sentMeta(message),
+                                    onShowReactions = { reactionsFor = message.key },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -777,6 +806,22 @@ fun GroupChatScreen(
                     it,
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            if (typingAt.isNotEmpty()) {
+                val names = typingAt.keys.map { nameOf(it) }
+                Text(
+                    "••• " + when (names.size) {
+                        1 -> names[0]
+                        2 -> "${names[0]} và ${names[1]}"
+                        else -> "${names[0]} và ${names.size - 1} người khác"
+                    } + " đang soạn tin…",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
@@ -917,7 +962,15 @@ fun GroupChatScreen(
                     }
                     OutlinedTextField(
                         value = draft,
-                        onValueChange = { draft = it },
+                        onValueChange = {
+                            draft = it
+                            // Tell the group "typing", at most once every 2.5 seconds.
+                            val now = System.currentTimeMillis()
+                            if (it.isNotBlank() && now - myTypingSentAt > 2_500) {
+                                myTypingSentAt = now
+                                scope.launch { ChatRepository.sendTyping(groupId, myId) }
+                            }
+                        },
                         placeholder = { Text("Tin nhắn") },
                         maxLines = 4,
                         shape = RoundedCornerShape(24.dp),
@@ -1029,6 +1082,23 @@ fun GroupChatScreen(
 
     viewerPath?.let { path ->
         ImageViewer(path = path, onClose = { viewerPath = null })
+    }
+
+    reactionsFor?.let { key ->
+        val reactors = state.messages.firstOrNull { it.key == key }?.reactors ?: emptyList()
+        if (reactors.isEmpty()) {
+            // The last reaction was removed: nothing left to show.
+            LaunchedEffect(key) { reactionsFor = null }
+        } else {
+            ReactionsSheet(
+                reactors = reactors,
+                myId = myId,
+                nameOf = { nameOf(it) },
+                avatarOf = { personOf(it)?.avatarPath },
+                onReact = { emoji -> state.react(key, emoji) },
+                onClose = { reactionsFor = null },
+            )
+        }
     }
 
     // Forwarding goes to PEOPLE (one-to-one conversations), like in a

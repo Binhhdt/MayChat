@@ -16,6 +16,7 @@ import com.maychat.app.data.Reaction
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.ReactionChip
+import com.maychat.app.ui.chat.Reactor
 import com.maychat.app.ui.chat.SendState
 import com.maychat.app.ui.chat.UiMessage
 import kotlinx.coroutines.CoroutineScope
@@ -137,6 +138,7 @@ class GroupChatState(
                     fileSize = m.fileSize,
                     senderId = m.senderId,
                     replySenderId = m.replySenderId,
+                    reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji) },
                 )
             }
         val waiting = pending.asReversed().map { p ->

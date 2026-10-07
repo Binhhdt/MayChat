@@ -1193,6 +1193,33 @@ object ChatRepository {
         }
     }
 
+    // Same as listenTyping, for a GROUP: tells WHO is typing (their user
+    // id). channelId is the id of the group.
+    suspend fun listenTypingWho(channelId: String, myId: String, onTyping: (String) -> Unit) {
+        val channel = supabase.channel("typing-$channelId")
+        synchronized(typingChannels) { typingChannels[channelId] = channel }
+        try {
+            coroutineScope {
+                val events = channel.broadcastFlow<JsonObject>(event = "typing")
+                launch {
+                    events.collect { payload ->
+                        val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
+                        if (from != null && from != myId) onTyping(from)
+                    }
+                }
+                delay(300)
+                joinWithRetry(channel)
+            }
+        } finally {
+            synchronized(typingChannels) {
+                if (typingChannels[channelId] === channel) typingChannels.remove(channelId)
+            }
+            withContext(NonCancellable) {
+                runCatching { supabase.realtime.removeChannel(channel) }
+            }
+        }
+    }
+
     // Tells the other person "I am typing". Does nothing when offline.
     suspend fun sendTyping(conversationId: String, myId: String) {
         val channel = synchronized(typingChannels) { typingChannels[conversationId] } ?: return

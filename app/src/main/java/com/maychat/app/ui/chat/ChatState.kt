@@ -38,6 +38,8 @@ data class UiMessage(
     // the message it quotes.
     val senderId: String? = null,
     val replySenderId: String? = null,
+    // Who reacted with what (for the "who reacted" sheet).
+    val reactors: List<Reactor> = emptyList(),
 )
 
 // One emoji under a message: how many people chose it, and whether I did.
@@ -129,6 +131,7 @@ class ChatState(
                     reactions = chipsFor(m.id),
                     fileName = m.fileName,
                     fileSize = m.fileSize,
+                    reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji) },
                 )
             }
         val waiting = pending.asReversed().map { p ->

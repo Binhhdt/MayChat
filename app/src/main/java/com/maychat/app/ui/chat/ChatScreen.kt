@@ -328,6 +328,8 @@ fun ChatScreen(
 
     // Forwarding: the message being forwarded (null = none).
     var forwarding by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
+    // The message whose "who reacted" sheet is open (null = none).
+    var reactionsFor by remember(conversationId) { mutableStateOf<String?>(null) }
     // Short confirmation line, for example after forwarding.
     var notice by remember(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
@@ -906,6 +908,7 @@ fun ChatScreen(
                                 otherName = other.displayName,
                                 onReply = { replyingTo = message },
                                 onReact = { emoji -> state.react(message.key, emoji) },
+                                onShowReactions = { reactionsFor = message.key },
                             )
                             // While choosing several messages: a layer over the
                             // message catches the tap and ticks it on or off.
@@ -1283,6 +1286,23 @@ fun ChatScreen(
         ImageViewer(path = path, onClose = { viewerPath = null })
     }
 
+    reactionsFor?.let { key ->
+        val reactors = state.messages.firstOrNull { it.key == key }?.reactors ?: emptyList()
+        if (reactors.isEmpty()) {
+            // The last reaction was removed: nothing left to show.
+            LaunchedEffect(key) { reactionsFor = null }
+        } else {
+            ReactionsSheet(
+                reactors = reactors,
+                myId = myId,
+                nameOf = { if (it == other.id) other.displayName else "Bạn" },
+                avatarOf = { if (it == other.id) other.avatarPath else null },
+                onReact = { emoji -> state.react(key, emoji) },
+                onClose = { reactionsFor = null },
+            )
+        }
+    }
+
     forwarding?.let { target ->
         ForwardScreen(
             myId = myId,
@@ -1460,6 +1480,8 @@ internal fun MessageBubble(
     senderLabel: String? = null,
     quoteName: String? = null,
     sentMeta: String? = null,
+    // Tapping the reactions under the bubble: show who reacted.
+    onShowReactions: () -> Unit = {},
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1823,27 +1845,46 @@ internal fun MessageBubble(
             SelectTick(selectMark)
         }
         }
-        // Reactions under the bubble. Tapping mine removes it.
-        // Reactions under the bubble. Tapping mine removes it.
+        // Reactions under the bubble, like in Zalo: one small pill with the
+        // emojis and how many people reacted. Tapping it shows who reacted.
         if (message.reactions.isNotEmpty()) {
+            val iReacted = message.reactions.any { it.mine }
+            val total = message.reactions.sumOf { it.count }
             Row(
                 modifier = Modifier.padding(top = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                message.reactions.forEach { chip ->
+                Surface(
+                    onClick = onShowReactions,
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 1.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        if (iReacted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                ) {
+                    Text(
+                        message.reactions.take(3).joinToString("") { it.emoji } +
+                            if (total > 1) " $total" else "",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                // Quick heart for a message I have not reacted to yet.
+                if (!iReacted) {
                     Surface(
-                        onClick = { onReact(chip.emoji) },
-                        shape = RoundedCornerShape(50),
+                        onClick = { onReact("❤️") },
+                        shape = CircleShape,
                         color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(
-                            1.dp,
-                            if (chip.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                        ),
+                        shadowElevation = 1.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Text(
-                            if (chip.count > 1) "${chip.emoji} ${chip.count}" else chip.emoji,
+                            "🤍",
                             style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                         )
                     }
                 }
@@ -1865,7 +1906,7 @@ internal fun MessageBubble(
 }
 
 // The six reactions offered in the press-and-hold menu.
-private val QUICK_REACTIONS = listOf("❤️", "👍", "😆", "😮", "😢", "😡")
+internal val QUICK_REACTIONS = listOf("❤️", "👍", "😆", "😮", "😢", "😡")
 
 // Emojis offered in the panel under the text box.
 private val PANEL_EMOJIS = listOf(
