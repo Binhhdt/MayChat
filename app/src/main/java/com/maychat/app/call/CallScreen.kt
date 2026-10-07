@@ -132,10 +132,11 @@ fun CallScreen(call: CallUi) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_call),
+                    // A camera for a video call, a handset for a voice call.
+                    painter = painterResource(if (call.video) R.drawable.ic_videocam else R.drawable.ic_call),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(if (call.video) 20.dp else 16.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -181,7 +182,29 @@ fun CallScreen(call: CallUi) {
                 }
             }
 
-            Spacer(Modifier.height(36.dp))
+            if (call.video) {
+                // Large camera mark, so a video call is not mistaken for a voice call.
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(CallAmber)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_videocam),
+                        contentDescription = null,
+                        tint = CallAmberText,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("GỌI VIDEO", color = CallAmberText, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(18.dp))
+            } else {
+                Spacer(Modifier.height(36.dp))
+            }
             Text(
                 call.peer.displayName,
                 fontSize = 32.sp,
@@ -232,9 +255,10 @@ fun CallScreen(call: CallUi) {
                         onClick = { CallManager.reject() },
                     )
                     RoundCallButton(
-                        label = "Nghe máy",
+                        label = if (call.video) "Nghe video" else "Nghe máy",
                         color = AcceptGreen,
                         hangUpIcon = false,
+                        icon = if (call.video) R.drawable.ic_videocam else R.drawable.ic_call,
                         onClick = {
                             val granted = ContextCompat.checkSelfPermission(
                                 context,
@@ -293,7 +317,13 @@ fun CallScreen(call: CallUi) {
 
 // Big round button with a phone icon and a label under it.
 @Composable
-private fun RoundCallButton(label: String, color: Color, hangUpIcon: Boolean, onClick: () -> Unit) {
+private fun RoundCallButton(
+    label: String,
+    color: Color,
+    hangUpIcon: Boolean,
+    icon: Int = R.drawable.ic_call,
+    onClick: () -> Unit,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
@@ -303,7 +333,7 @@ private fun RoundCallButton(label: String, color: Color, hangUpIcon: Boolean, on
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_call),
+                    painter = painterResource(icon),
                     contentDescription = label,
                     tint = Color.White,
                     // The same handset, turned face-down, means "hang up".

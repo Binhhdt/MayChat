@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -917,14 +918,12 @@ fun ChatScreen(
                                 Box(
                                     modifier = Modifier
                                         .matchParentSize()
-                                        .background(
-                                            if (picked) {
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                                            } else {
-                                                Color.Transparent
-                                            },
-                                        )
-                                        .clickable {
+                                        // No tint: the tick beside the message
+                                        // is the only mark of a chosen message.
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                        ) {
                                             selectedKeys = if (picked) {
                                                 selectedKeys - message.key
                                             } else {
