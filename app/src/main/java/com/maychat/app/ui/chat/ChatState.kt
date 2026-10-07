@@ -172,11 +172,21 @@ class ChatState(
         attempt { ChatRepository.loadWallpaper(conversationId) }.onSuccess { wallpaper = it }
     }
 
+    // The picture of the background that was just replaced is not used
+    // any more: remove it from the storage.
+    private suspend fun deleteOldWallpaperPicture(before: String?, now: String?) {
+        if (before != null && before != now && before.startsWith("img:")) {
+            ChatRepository.deleteMedia(before.removePrefix("img:"))
+        }
+    }
+
     // value: null, or the id of a ready-made background.
     fun chooseWallpaper(value: String?) {
+        val before = wallpaper
         wallpaper = value
         scope.launch {
             attempt { ChatRepository.setWallpaper(conversationId, value) }
+                .onSuccess { deleteOldWallpaperPicture(before, value) }
                 .onFailure { error = it.toUserMessage() }
             reloadWallpaper()
         }
@@ -185,12 +195,14 @@ class ChatState(
     // A picture (JPEG bytes) as background: stored in this conversation's
     // private folder, which only its two members can read.
     fun chooseWallpaperPicture(jpegBytes: ByteArray) {
+        val before = wallpaper
         scope.launch {
             attempt {
                 val path = "$conversationId/wallpaper-${UUID.randomUUID()}.jpg"
                 ChatRepository.uploadMedia(path, jpegBytes)
                 MediaCache.put(path, jpegBytes)
                 ChatRepository.setWallpaper(conversationId, "img:$path")
+                deleteOldWallpaperPicture(before, "img:$path")
             }.onFailure { error = it.toUserMessage() }
             reloadWallpaper()
         }
@@ -391,10 +403,14 @@ class ChatState(
 
     // Take back one of my own messages, for both people.
     fun recall(messageId: String) {
+        // The file of a recalled picture, voice message or file is no
+        // longer needed by anyone: remove it from the storage as well.
+        val filePath = confirmed[messageId]?.mediaPath
         scope.launch {
             attempt { ChatRepository.recallMessage(messageId) }
                 .onSuccess {
                     error = null
+                    if (filePath != null) ChatRepository.deleteMedia(filePath)
                     poll()
                 }
                 .onFailure { error = it.toUserMessage() }

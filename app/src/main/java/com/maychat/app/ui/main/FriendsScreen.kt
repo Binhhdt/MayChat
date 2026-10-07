@@ -149,6 +149,7 @@ private fun SectionTitle(text: String) {
 fun FriendsScreen(
     friends: FriendsState,
     onOpenSearch: () -> Unit,
+    onOpenQr: () -> Unit,
     onOpenChat: (Profile) -> Unit,
     bottomBar: @Composable () -> Unit,
 ) {
@@ -166,7 +167,16 @@ fun FriendsScreen(
                     .statusBarsPadding()
                     .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp),
             ) {
-                Text("Bạn bè", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Bạn bè",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // My QR code, and reading a friend's code.
+                    OutlinedButton(onClick = onOpenQr) { Text("Mã QR") }
+                }
                 Spacer(Modifier.height(16.dp))
                 Surface(
                     onClick = onOpenSearch,

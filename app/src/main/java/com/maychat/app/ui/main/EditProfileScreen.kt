@@ -115,6 +115,11 @@ fun EditProfileScreen(myId: String, onBack: () -> Unit) {
                     null   // keep the current avatar
                 }
                 ChatRepository.updateMyProfile(name, avatarPath)
+                // The picture that was just replaced is not used any more.
+                val oldPath = me?.avatarPath
+                if (avatarPath != null && oldPath != null && oldPath != avatarPath) {
+                    ChatRepository.deleteAvatar(oldPath)
+                }
             }
                 .onSuccess { onBack() }
                 .onFailure { error = it.toUserMessage() }

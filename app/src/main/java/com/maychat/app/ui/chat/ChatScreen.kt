@@ -341,10 +341,12 @@ fun ChatScreen(
         if (!searchMode || searchQuery.trim().length < 2) {
             searchResults = emptyList()
             searchIndex = -1
+            searchBusy = false
             return@LaunchedEffect
         }
-        delay(400)
+        // "Đang tìm…" from the first moment, not "Không tìm thấy".
         searchBusy = true
+        delay(400)
         attempt { ChatRepository.searchMessages(conversationId, searchQuery) }
             .onSuccess { found ->
                 searchResults = found.reversed()
@@ -1424,6 +1426,10 @@ private fun MessageBubble(
         if (highlightQuery != null) {
             flashing = true
             delay(1_200)
+            flashing = false
+        } else {
+            // The search moved on to another message before the flash was
+            // over: switch it off here, otherwise the band would stay.
             flashing = false
         }
     }

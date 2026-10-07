@@ -58,7 +58,7 @@ fun Throwable.toUserMessage(): String {
         "bucket not found" in text ->
             "Máy chủ chưa bật lưu ảnh và ghi âm. Hãy chạy file supabase_migration_03_media.sql."
 
-        "rate limit" in text || "over_request_rate_limit" in text ->
+        "rate limit" in text || "over_request_rate_limit" in text || "rate_limited" in text ->
             "Thao tác quá nhanh. Chờ một lát rồi thử lại."
 
         "email" in text && "invalid" in text ->

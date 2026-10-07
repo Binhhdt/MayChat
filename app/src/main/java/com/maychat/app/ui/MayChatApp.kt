@@ -51,6 +51,7 @@ import com.maychat.app.ui.main.FriendsScreen
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.MainBottomBar
 import com.maychat.app.ui.main.MainTab
+import com.maychat.app.ui.main.QrScreen
 import com.maychat.app.ui.main.SearchScreen
 import com.maychat.app.ui.main.SettingsScreen
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -62,6 +63,7 @@ private sealed interface Overlay {
     data object Search : Overlay
     data object EditProfile : Overlay
     data object Settings : Overlay
+    data object Qr : Overlay
     data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
 
@@ -73,6 +75,7 @@ private val OverlaySaver = listSaver<Overlay?, String>(
             Overlay.Search -> listOf("search")
             Overlay.EditProfile -> listOf("profile")
             Overlay.Settings -> listOf("settings")
+            Overlay.Qr -> listOf("qr")
             is Overlay.Chat -> listOf(
                 "chat",
                 value.conversationId,
@@ -88,6 +91,7 @@ private val OverlaySaver = listSaver<Overlay?, String>(
             "search" -> Overlay.Search
             "profile" -> Overlay.EditProfile
             "settings" -> Overlay.Settings
+            "qr" -> Overlay.Qr
             "chat" -> if (saved.size >= 6) {
                 Overlay.Chat(
                     conversationId = saved[1],
@@ -339,6 +343,7 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             MainTab.FRIENDS -> FriendsScreen(
                 friends = friends,
                 onOpenSearch = { overlay = Overlay.Search },
+                onOpenQr = { overlay = Overlay.Qr },
                 onOpenChat = { openChat(it) },
                 bottomBar = bottomBar,
             )
@@ -356,6 +361,12 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         )
         Overlay.EditProfile -> EditProfileScreen(
             myId = myId,
+            onBack = { overlay = null },
+        )
+        Overlay.Qr -> QrScreen(
+            myId = myId,
+            friends = friends,
+            onOpenChat = { openChat(it) },
             onBack = { overlay = null },
         )
         Overlay.Settings -> SettingsScreen(

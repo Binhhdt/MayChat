@@ -496,6 +496,16 @@ object ChatRepository {
     // Recall (for both people) and hide (on my side only)
     // ------------------------------------------------------------------
 
+    // Removes files from the storage to free space. Best effort: if it fails
+    // (for example migration 18 was not run) the file just stays there.
+    suspend fun deleteMedia(path: String) {
+        attempt { supabase.storage.from(MEDIA_BUCKET).delete(listOf(path)) }
+    }
+
+    suspend fun deleteAvatar(path: String) {
+        attempt { supabase.storage.from(AVATAR_BUCKET).delete(listOf(path)) }
+    }
+
     suspend fun recallMessage(messageId: String) {
         supabase.postgrest.rpc("recall_message", buildJsonObject { put("p_message", messageId) })
     }
