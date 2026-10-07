@@ -21,6 +21,8 @@ import com.maychat.app.ui.chat.Reactor
 import com.maychat.app.ui.chat.SendState
 import com.maychat.app.ui.chat.UiMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -109,6 +111,13 @@ class GroupChatState(
         val at = ChatRepository.toEpochMillis(createdAt)
         if (at == 0L) return 0
         return readUpTo.count { (userId, readAt) -> userId != myId && readAt >= at }
+    }
+
+    // Ids of the OTHER members who have read a message sent at this time.
+    fun readersOf(createdAt: String?): Set<String> {
+        val at = ChatRepository.toEpochMillis(createdAt)
+        if (at == 0L) return emptySet()
+        return readUpTo.filter { (userId, readAt) -> userId != myId && readAt >= at }.keys
     }
 
     // The line under one of my messages: "Đã gửi" or "3 người đã xem".
@@ -246,19 +255,32 @@ class GroupChatState(
         scope.launch { attempt { ChatRepository.markGroupRead(groupId) } }
     }
 
+    // Starts refresh() unless one is already running. Every trigger (screen
+    // opened, connection came back, app returned to the front) goes through
+    // here, so a refresh is never cut off halfway and started again - which
+    // could keep the spinner turning for a long time.
+    private var refreshJob: Job? = null
+
+    fun requestRefresh() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = scope.launch { refresh() }
+    }
+
     // Loads the newest page. Also used to catch up after being offline.
     suspend fun refresh() = coroutineScope {
         // Know up to where I deleted this group's history on my side before
         // asking for messages. (Waited for only when it was never read since
         // login; otherwise it is refreshed alongside.)
+        // The group and its members are asked for right away, alongside.
+        launch { reloadGroup() }
         if (ChatRepository.groupPrefsKnown) {
             launch { attempt { ChatRepository.loadGroupPrefs() } }
         } else {
-            attempt { ChatRepository.loadGroupPrefs() }
+            // At most 4 seconds: a slow answer must not hold the messages back.
+            withTimeoutOrNull(4_000) { attempt { ChatRepository.loadGroupPrefs() } }
         }
         // Everything else is asked for AT THE SAME TIME (before: six
         // questions one after the other, which made opening a group slow).
-        launch { reloadGroup() }
         val hiddenAnswer = async { attempt { ChatRepository.loadHiddenGroupMessageIds(groupId) } }
         val pageAnswer = async { attempt { ChatRepository.loadGroupMessages(groupId) } }
         hiddenAnswer.await().onSuccess {

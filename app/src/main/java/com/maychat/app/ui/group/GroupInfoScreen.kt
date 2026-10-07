@@ -218,7 +218,8 @@ fun GroupInfoScreen(
                             Spacer(Modifier.height(16.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 ShortcutTile("Tìm\ntin nhắn", R.drawable.ic_search, onSearch)
-                                ShortcutTile("Đổi\nhình nền", R.drawable.ic_image, onWallpaper)
+                                // Only the leader and the deputies change the background.
+                                if (canManage) ShortcutTile("Đổi\nhình nền", R.drawable.ic_image, onWallpaper)
                                 ShortcutTile(
                                     if (muted) "Bật\nthông báo" else "Tắt\nthông báo",
                                     R.drawable.ic_bell,

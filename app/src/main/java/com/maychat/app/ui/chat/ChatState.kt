@@ -12,6 +12,8 @@ import com.maychat.app.data.Reaction
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -285,6 +287,17 @@ class ChatState(
         }
     }
 
+    // Starts refresh() unless one is already running. Every trigger (screen
+    // opened, connection came back, app returned to the front) goes through
+    // here, so a refresh is never cut off halfway and started again - which
+    // could keep the spinner turning for a long time.
+    private var refreshJob: Job? = null
+
+    fun requestRefresh() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = scope.launch { refresh() }
+    }
+
     // Loads the newest page. Also used to catch up after being offline.
     suspend fun refresh() = coroutineScope {
         // Know up to where I deleted this conversation on my side before
@@ -295,7 +308,8 @@ class ChatState(
         if (ChatRepository.conversationPrefsKnown) {
             launch { attempt { ChatRepository.loadConversationPrefs() } }
         } else {
-            attempt { ChatRepository.loadConversationPrefs() }
+            // At most 4 seconds: a slow answer must not hold the messages back.
+            withTimeoutOrNull(4_000) { attempt { ChatRepository.loadConversationPrefs() } }
         }
         // The hidden messages and the newest page are asked for AT THE SAME
         // TIME (before: one after the other).

@@ -239,7 +239,7 @@ fun ChatScreen(
     }
 
     // Load at start, and again whenever the live connection comes (back) up.
-    LaunchedEffect(conversationId, connectionCount) { state.refresh() }
+    LaunchedEffect(conversationId, connectionCount) { state.requestRefresh() }
 
     // Live messages and read receipts.
     LaunchedEffect(conversationId) {
@@ -286,7 +286,7 @@ fun ChatScreen(
     var resumedBefore by remember(conversationId) { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         state.visible = true
-        if (resumedBefore) scope.launch { state.refresh() }
+        if (resumedBefore) state.requestRefresh()
         resumedBefore = true
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
@@ -1507,6 +1507,9 @@ internal fun MessageBubble(
     // Group chats only: names that are shown in bold when the text
     // contains "@name" (a mention).
     mentionNames: List<String> = emptyList(),
+    // Group chats only: tapping the line under my message ("2 người đã
+    // xem") shows who has read it. null = the line cannot be tapped.
+    onMetaClick: (() -> Unit)? = null,
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1923,7 +1926,9 @@ internal fun MessageBubble(
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            modifier = Modifier
+                .then(if (onMetaClick != null) Modifier.clickable(onClick = onMetaClick) else Modifier)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
         )
     }
     }

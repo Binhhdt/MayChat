@@ -36,10 +36,12 @@ import com.maychat.app.call.CallManager
 import com.maychat.app.call.CallScreen
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.DeviceId
+import com.maychat.app.data.ListCache
 import com.maychat.app.data.Profile
 import com.maychat.app.data.SupabaseProvider
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
+import com.maychat.app.push.ChatToOpen
 import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
@@ -283,9 +285,33 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     }
 
     // A notification was tapped: open that conversation.
+    // First choice: find it in the lists remembered on the phone. That
+    // needs no network, so the chat opens at once, without showing the
+    // conversation list on the way.
+    fun openFromMemory(target: ChatToOpen): Boolean {
+        ListCache.groups(myId)?.firstOrNull { it.id == target.conversationId }?.let { group ->
+            overlay = Overlay.GroupChat(group.id, group.name)
+            return true
+        }
+        ListCache.conversations(myId)?.firstOrNull { it.conversation.id == target.conversationId }?.let { item ->
+            tab = MainTab.CHATS
+            overlay = Overlay.Chat(item.conversation.id, item.other)
+            return true
+        }
+        return false
+    }
+    // The app was started BY the tap: decide before the first screen is drawn.
+    remember(myId) {
+        Push.chatToOpen.value?.let { if (openFromMemory(it)) Push.clearOpenChat() }
+        true
+    }
     val chatToOpen by Push.chatToOpen.collectAsState()
     LaunchedEffect(chatToOpen) {
         val target = chatToOpen ?: return@LaunchedEffect
+        if (openFromMemory(target)) {
+            Push.clearOpenChat()
+            return@LaunchedEffect
+        }
         // The work runs in the screen's own scope, NOT in this effect:
         // clearing the request (last line) restarts the effect, and that
         // used to cancel the work halfway, so the chat never opened.

@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -1220,7 +1221,30 @@ object ChatRepository {
             delay(300)
             launch { joinWithRetry(db) }
             launch { joinWithRetry(presence) }
-            launch { joinWithRetry(groupDb) }
+            // The group channel joins only after the main one is up, and
+            // gives up after three tries (then groups are simply checked
+            // every few seconds, as before). It must never keep the
+            // connection busy or disturb one-to-one messages.
+            launch {
+                db.status.first { it == RealtimeChannel.Status.SUBSCRIBED }
+                delay(2_000)
+                var tries = 0
+                while (tries < 3 && groupDb.status.value != RealtimeChannel.Status.SUBSCRIBED) {
+                    tries++
+                    try {
+                        withTimeoutOrNull(10_000) { groupDb.subscribe(blockUntilSubscribed = true) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        // Not available: try again below, or give up.
+                    }
+                    if (groupDb.status.value != RealtimeChannel.Status.SUBSCRIBED) delay(5_000)
+                }
+                if (groupDb.status.value != RealtimeChannel.Status.SUBSCRIBED) {
+                    runCatching { supabase.realtime.removeChannel(groupDb) }
+                    if (groupChannel === groupDb) groupChannel = null
+                }
+            }
 
             // Watchdog: phones often drop the live connection (screen off,
             // Wi-Fi to mobile data, battery saver). If a channel stays

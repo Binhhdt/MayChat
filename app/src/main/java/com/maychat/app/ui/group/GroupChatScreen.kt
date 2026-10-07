@@ -152,6 +152,10 @@ fun GroupChatScreen(
     var emojiOpen by remember(groupId) { mutableStateOf(false) }
 
     val group = state.group
+    // Leader or deputy: may change the background of the group.
+    val canManage = group?.ownerId == myId || myId in state.deputies
+    // The message whose "who has read it" window is open (null = none).
+    var seenFor by remember(groupId) { mutableStateOf<UiMessage?>(null) }
     val groupName = group?.name ?: initialName
     val memberById = remember(state.members) { state.members.associateBy { it.id } }
 
@@ -228,7 +232,7 @@ fun GroupChatScreen(
     }
 
     // Load at start, and again whenever the connection comes (back) up.
-    LaunchedEffect(groupId, connectionCount) { state.refresh() }
+    LaunchedEffect(groupId, connectionCount) { state.requestRefresh() }
 
     // A message was added or changed in this group: fetch it at once.
     LaunchedEffect(groupId) {
@@ -252,7 +256,7 @@ fun GroupChatScreen(
     var resumedBefore by remember(groupId) { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         state.visible = true
-        if (resumedBefore) scope.launch { state.refresh() }
+        if (resumedBefore) state.requestRefresh()
         resumedBefore = true
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
@@ -624,13 +628,16 @@ fun GroupChatScreen(
                                         searchMode = true
                                     },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Hình nền") },
-                                    onClick = {
-                                        menuOpen = false
-                                        wallpaperOpen = true
-                                    },
-                                )
+                                // Only the leader and the deputies change the background.
+                                if (canManage) {
+                                    DropdownMenuItem(
+                                        text = { Text("Hình nền") },
+                                        onClick = {
+                                            menuOpen = false
+                                            wallpaperOpen = true
+                                        },
+                                    )
+                                }
                             }
                         }
                     },
@@ -766,6 +773,11 @@ fun GroupChatScreen(
                                     sentMeta = state.sentMeta(message),
                                     onShowReactions = { reactionsFor = message.key },
                                     mentionNames = mentionNames,
+                                    onMetaClick = if (message.mine && message.createdAt != null && !message.recalled) {
+                                        { seenFor = message }
+                                    } else {
+                                        null
+                                    },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -1322,6 +1334,46 @@ fun GroupChatScreen(
         )
     }
 
+    // Who has read one of my messages, and who has not yet.
+    seenFor?.let { message ->
+        val readers = state.readersOf(message.createdAt)
+        val others = state.members.filter { it.id != myId }
+        val seen = others.filter { it.id in readers }
+        val notSeen = others.filter { it.id !in readers }
+        AlertDialog(
+            onDismissRequest = { seenFor = null },
+            title = { Text("Ai đã xem") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Đã xem (${seen.size})",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (seen.isEmpty()) {
+                        Text(
+                            "Chưa ai xem tin này.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                        )
+                    }
+                    seen.forEach { person -> SeenRow(person) }
+                    if (notSeen.isNotEmpty()) {
+                        Spacer(Modifier.size(12.dp))
+                        Text(
+                            "Chưa xem (${notSeen.size})",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        notSeen.forEach { person -> SeenRow(person) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { seenFor = null }) { Text("Đóng") } },
+        )
+    }
+
     if (wallpaperOpen) {
         WallpaperDialog(
             current = state.wallpaper,
@@ -1329,5 +1381,18 @@ fun GroupChatScreen(
             onChooseCustom = { state.chooseWallpaperPicture(it) },
             onClose = { wallpaperOpen = false },
         )
+    }
+}
+
+// One member in the "who has read it" window.
+@Composable
+private fun SeenRow(person: Profile) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Avatar(name = person.displayName, online = false, size = 36.dp, avatarPath = person.avatarPath)
+        Spacer(Modifier.width(10.dp))
+        Text(person.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
