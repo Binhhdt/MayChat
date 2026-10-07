@@ -9,6 +9,7 @@ import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
 import com.maychat.app.data.PinnedMessage
 import com.maychat.app.data.Reaction
+import com.maychat.app.data.SPECIAL_KINDS
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +46,8 @@ data class UiMessage(
     val replySenderId: String? = null,
     // Who reacted with what (for the "who reacted" sheet).
     val reactors: List<Reactor> = emptyList(),
+    // Sticker / location / contact card data.
+    val extra: String? = null,
 )
 
 // One emoji under a message: how many people chose it, and whether I did.
@@ -62,6 +65,8 @@ private class PendingMessage(
     val replyPreview: String? = null,
     val replySenderId: String? = null,
     val fileName: String? = null,
+    // For a sticker, a location or a contact card.
+    val extra: String? = null,
 ) {
     var failed: Boolean = false
 
@@ -158,7 +163,8 @@ class ChatState(
                     reactions = chipsFor(m.id),
                     fileName = m.fileName,
                     fileSize = m.fileSize,
-                    reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji) },
+                            reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji, it.count) },
+                    extra = m.extra,
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -173,6 +179,7 @@ class ChatState(
                 durationMs = p.durationMs,
                 replyPreview = p.replyPreview,
                 replyToMine = p.replySenderId == myId,
+                extra = p.extra,
             )
         }
         messages = waiting + sent
@@ -182,13 +189,14 @@ class ChatState(
     private fun chipsFor(messageId: String): List<ReactionChip> {
         val list = reactions[messageId] ?: return emptyList()
         return list.groupBy { it.emoji }
-            .map { (emoji, group) -> ReactionChip(emoji, group.size, group.any { it.userId == myId }) }
+            .map { (emoji, group) -> ReactionChip(emoji, group.sumOf { it.count }, group.any { it.userId == myId }) }
             .sortedByDescending { it.count }
     }
 
     // Loads all reactions of this conversation. If this fails (for example
     // migration 10 was not run) no reactions are shown, exactly as before.
     suspend fun reloadReactions() {
+        if (reactInFlight > 0) return
         attempt { ChatRepository.loadReactions(conversationId) }.onSuccess { all ->
             val next = all.groupBy { it.messageId }
             // Only when something really changed (this runs every few seconds).
@@ -282,21 +290,47 @@ class ChatState(
         }
     }
 
-    // Tap an emoji: sets it as my reaction; tapping my current one removes it.
+    // How many of my taps are still on their way to the server. While there
+    // are any, the reactions are not re-read, so the count never jumps back
+    // in the middle of a quick series of taps.
+    private var reactInFlight = 0
+
+    // Tap an emoji: the same one as my current reaction counts one more
+    // (like tapping the heart several times in Zalo), another one replaces it.
     fun react(messageId: String, emoji: String) {
-        val current = reactions[messageId]?.firstOrNull { it.userId == myId }?.emoji
-        val next: String? = if (current == emoji) null else emoji
+        val mineNow = reactions[messageId]?.firstOrNull { it.userId == myId }
+        val next = if (mineNow != null && mineNow.emoji == emoji) {
+            mineNow.copy(count = minOf(mineNow.count + 1, 999))
+        } else {
+            Reaction(messageId, myId, emoji, 1)
+        }
 
         // Show the change at once, then confirm with the server.
         val others = (reactions[messageId] ?: emptyList()).filter { it.userId != myId }
-        val updated = if (next == null) others else others + Reaction(messageId, myId, next)
-        reactions = reactions + (messageId to updated)
+        reactions = reactions + (messageId to (others + next))
         publish()
 
+        reactInFlight++
         scope.launch {
-            attempt { ChatRepository.setReaction(messageId, next) }
+            attempt { ChatRepository.addReaction(messageId, emoji) }
                 .onFailure { error = it.toUserMessage() }
-            reloadReactions()
+            reactInFlight--
+            if (reactInFlight == 0) reloadReactions()
+        }
+    }
+
+    // Takes my reaction off a message.
+    fun unreact(messageId: String) {
+        val others = (reactions[messageId] ?: emptyList()).filter { it.userId != myId }
+        reactions = reactions + (messageId to others)
+        publish()
+
+        reactInFlight++
+        scope.launch {
+            attempt { ChatRepository.setReaction(messageId, null) }
+                .onFailure { error = it.toUserMessage() }
+            reactInFlight--
+            if (reactInFlight == 0) reloadReactions()
         }
     }
 
@@ -445,7 +479,10 @@ class ChatState(
     suspend fun forwardTo(targetConversationId: String, messageKey: String) {
         val original = confirmed[messageKey] ?: throw IllegalStateException("message not found")
         val path = original.mediaPath
-        if (original.kind == "text" || path == null) {
+        val extra = original.extra
+        if (original.kind in SPECIAL_KINDS && extra != null) {
+            ChatRepository.sendSpecial(targetConversationId, original.kind, original.content, extra)
+        } else if (original.kind == "text" || path == null) {
             ChatRepository.sendMessage(targetConversationId, original.content)
         } else {
             val bytes = MediaCache.bytes(path)
@@ -487,6 +524,7 @@ class ChatState(
             original.mediaPath,
             original.durationMs,
             original.fileName,
+            original.extra,
         )
     }
 
@@ -518,6 +556,13 @@ class ChatState(
                     publish()
                 }
         }
+    }
+
+    // A sticker ("sticker"), my location ("location") or a contact card
+    // ("contact"). text is what lists and notifications show; extra is the
+    // data: which sticker, "lat,lng", or the person's id.
+    fun sendSpecial(kind: String, text: String, extra: String) {
+        enqueue(PendingMessage(UUID.randomUUID().toString(), text, kind = kind, extra = extra))
     }
 
     // replyToKey: the message being answered (its key on screen), or null.
@@ -605,7 +650,10 @@ class ChatState(
                 val replyToId = item.replyToId
                 val replyPreview = item.replyPreview
                 val replySenderId = item.replySenderId
-                if (item.kind == "text" && replyToId != null && replyPreview != null && replySenderId != null) {
+                val extra = item.extra
+                if (item.kind in SPECIAL_KINDS && extra != null) {
+                    ChatRepository.sendSpecial(conversationId, item.kind, item.text, extra)
+                } else if (item.kind == "text" && replyToId != null && replyPreview != null && replySenderId != null) {
                     ChatRepository.sendReply(conversationId, item.text, replyToId, replyPreview, replySenderId)
                 } else if (item.kind == "text" || data == null) {
                     ChatRepository.sendMessage(conversationId, item.text)

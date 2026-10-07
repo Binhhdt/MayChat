@@ -54,6 +54,30 @@ data class Message(
     // For a sent file: its original name and its size in bytes.
     @SerialName("file_name") val fileName: String? = null,
     @SerialName("file_size") val fileSize: Int? = null,
+    // For a sticker, a location or a contact card (migration 27): which
+    // sticker, the coordinates, or whose card it is.
+    val extra: String? = null,
+)
+
+// Kinds of message that have no file but carry a small piece of data in
+// "extra": a sticker, a location, a contact card.
+val SPECIAL_KINDS = setOf("sticker", "location", "contact")
+
+// What the app sends when creating a sticker, location or contact message.
+@Serializable
+data class NewSpecialMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    val kind: String,
+    val extra: String,
+)
+
+@Serializable
+data class NewGroupSpecialMessage(
+    @SerialName("group_id") val groupId: String,
+    val content: String,
+    val kind: String,
+    val extra: String,
 )
 
 // What the app sends when creating a message. The database fills in the
@@ -119,6 +143,8 @@ data class Reaction(
     @SerialName("message_id") val messageId: String,
     @SerialName("user_id") val userId: String,
     val emoji: String,
+    // How many times this user tapped it (migration 27; 1 without it).
+    val count: Int = 1,
 )
 
 // What the app sends for a picture or voice message that answers another one.
@@ -239,6 +265,8 @@ data class GroupMessage(
     @SerialName("reply_to_id") val replyToId: String? = null,
     @SerialName("reply_preview") val replyPreview: String? = null,
     @SerialName("reply_sender_id") val replySenderId: String? = null,
+    // Sticker / location / contact card data (migration 27).
+    val extra: String? = null,
 )
 
 // What the app sends when creating a group message.

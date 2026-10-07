@@ -14,6 +14,7 @@ import com.maychat.app.data.NewGroupReplyMessage
 import com.maychat.app.data.PinnedMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.Reaction
+import com.maychat.app.data.SPECIAL_KINDS
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.ReactionChip
@@ -40,6 +41,8 @@ private class PendingGroupMessage(
     val replyPreview: String? = null,
     val replySenderId: String? = null,
     val fileName: String? = null,
+    // For a sticker, a location or a contact card.
+    val extra: String? = null,
 ) {
     var failed: Boolean = false
 
@@ -178,7 +181,8 @@ class GroupChatState(
                     fileSize = m.fileSize,
                     senderId = m.senderId,
                     replySenderId = m.replySenderId,
-                    reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji) },
+                            reactors = (reactions[m.id] ?: emptyList()).map { Reactor(it.userId, it.emoji, it.count) },
+                    extra = m.extra,
                 )
             }
         val waiting = pending.asReversed().map { p ->
@@ -195,6 +199,7 @@ class GroupChatState(
                 replyToMine = p.replySenderId == myId,
                 senderId = myId,
                 replySenderId = p.replySenderId,
+                extra = p.extra,
             )
         }
         messages = waiting + sent
@@ -204,7 +209,7 @@ class GroupChatState(
     private fun chipsFor(messageId: String): List<ReactionChip> {
         val list = reactions[messageId] ?: return emptyList()
         return list.groupBy { it.emoji }
-            .map { (emoji, group) -> ReactionChip(emoji, group.size, group.any { it.userId == myId }) }
+            .map { (emoji, group) -> ReactionChip(emoji, group.sumOf { it.count }, group.any { it.userId == myId }) }
             .sortedByDescending { it.count }
     }
 
@@ -248,6 +253,7 @@ class GroupChatState(
     // If these fail (for example migration 22 was not run) there are simply
     // no reactions, no pin and no background, exactly as before.
     suspend fun reloadReactions() {
+        if (reactInFlight > 0) return
         attempt { ChatRepository.loadGroupReactions(groupId) }.onSuccess { all ->
             val next = all.groupBy { it.messageId }
             // Only when something really changed (this runs every few seconds).
@@ -484,22 +490,49 @@ class GroupChatState(
         }
     }
 
-    // Tap an emoji: sets it as my reaction; tapping my current one removes it.
+    // How many of my taps are still on their way to the server. While there
+    // are any, the reactions are not re-read, so the count never jumps back
+    // in the middle of a quick series of taps.
+    private var reactInFlight = 0
+
+    // Tap an emoji: the same one as my current reaction counts one more
+    // (like tapping the heart several times in Zalo), another one replaces it.
     fun react(messageId: String, emoji: String) {
-        val current = reactions[messageId]?.firstOrNull { it.userId == myId }?.emoji
-        val next: String? = if (current == emoji) null else emoji
+        val mineNow = reactions[messageId]?.firstOrNull { it.userId == myId }
+        val next = if (mineNow != null && mineNow.emoji == emoji) {
+            mineNow.copy(count = minOf(mineNow.count + 1, 999))
+        } else {
+            Reaction(messageId, myId, emoji, 1)
+        }
 
         // Show the change at once, then confirm with the server.
         val others = (reactions[messageId] ?: emptyList()).filter { it.userId != myId }
-        val updated = if (next == null) others else others + Reaction(messageId, myId, next)
-        reactions = reactions + (messageId to updated)
+        reactions = reactions + (messageId to (others + next))
         publish()
 
+        reactInFlight++
         scope.launch {
-            attempt { ChatRepository.setGroupReaction(messageId, next) }
+            attempt { ChatRepository.addGroupReaction(messageId, emoji) }
                 .onSuccess { tellOthers() }
                 .onFailure { error = it.toUserMessage() }
-            reloadReactions()
+            reactInFlight--
+            if (reactInFlight == 0) reloadReactions()
+        }
+    }
+
+    // Takes my reaction off a message.
+    fun unreact(messageId: String) {
+        val others = (reactions[messageId] ?: emptyList()).filter { it.userId != myId }
+        reactions = reactions + (messageId to others)
+        publish()
+
+        reactInFlight++
+        scope.launch {
+            attempt { ChatRepository.setGroupReaction(messageId, null) }
+                .onSuccess { tellOthers() }
+                .onFailure { error = it.toUserMessage() }
+            reactInFlight--
+            if (reactInFlight == 0) reloadReactions()
         }
     }
 
@@ -554,6 +587,11 @@ class GroupChatState(
     suspend fun forwardTo(targetConversationId: String, messageKey: String) {
         val original = confirmed[messageKey] ?: throw IllegalStateException("message not found")
         val path = original.mediaPath
+        val special = original.extra
+        if (original.kind in SPECIAL_KINDS && special != null) {
+            ChatRepository.sendSpecial(targetConversationId, original.kind, original.content, special)
+            return
+        }
         if (original.kind == "text" || path == null) {
             ChatRepository.sendMessage(targetConversationId, original.content)
             return
@@ -596,10 +634,18 @@ class GroupChatState(
             original.mediaPath,
             original.durationMs,
             original.fileName,
+            original.extra,
         )
     }
 
     // ----- Sending --------------------------------------------------------
+
+    // A sticker ("sticker"), my location ("location") or a contact card
+    // ("contact"). text is what lists and notifications show; extra is the
+    // data: which sticker, "lat,lng", or the person's id.
+    fun sendSpecial(kind: String, text: String, extra: String) {
+        enqueue(PendingGroupMessage(UUID.randomUUID().toString(), text, kind = kind, extra = extra))
+    }
 
     // replyToKey: the message being answered (its key on screen), or null.
     fun send(text: String, replyToKey: String? = null) {
@@ -678,6 +724,11 @@ class GroupChatState(
         scope.launch {
             attempt {
                 val data = item.bytes
+                val special = item.extra
+                if (item.kind in SPECIAL_KINDS && special != null) {
+                    // A sticker, a location or a contact card: no file.
+                    ChatRepository.sendGroupSpecial(groupId, item.kind, item.text, special)
+                } else {
                 // Step 1: upload the file (skipped on retry if already done).
                 val path: String? = if (item.kind == "text" || data == null) {
                     null
@@ -724,6 +775,7 @@ class GroupChatState(
                             fileSize = if (item.kind == "file") data?.size else null,
                         ),
                     )
+                }
                 }
                 // The saved message comes back with the next read; fetch it
                 // BEFORE the waiting copy is removed, so the bubble does not

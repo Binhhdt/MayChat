@@ -127,6 +127,8 @@ fun ChatScreen(
     other: Profile,
     friends: FriendsState,
     onBack: () -> Unit,
+    // Opens a chat with another person (used by a tapped contact card).
+    onOpenChat: (Profile) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -451,6 +453,27 @@ fun ChatScreen(
             if (!current.mine && (older == null || older.mine)) keys.add(current.key)
         }
         keys
+    }
+
+    // ----- Location and contact cards ----------------------------------
+    val sendLocation = rememberLocationSender(
+        onLocation = { state.sendSpecial("location", "📍 Vị trí", it) },
+        onProgress = { notice = it },
+        onError = { state.showError(it) },
+    )
+    var contactPickerOpen by remember(conversationId) { mutableStateOf(false) }
+    // A contact card was tapped: open a chat with that person.
+    val openContact: (String) -> Unit = { userId ->
+        if (userId == myId) {
+            state.showError("Đây là danh thiếp của chính bạn.")
+        } else if (userId == other.id) {
+            state.showError("Bạn đang trò chuyện với người này.")
+        } else {
+            scope.launch {
+                val person = attempt { ChatRepository.loadProfile(userId) }.getOrNull()
+                if (person == null) state.showError("Không tìm thấy người dùng này.") else onOpenChat(person)
+            }
+        }
     }
 
     // The newest of my messages the other person has read: their small
@@ -922,6 +945,7 @@ fun ChatScreen(
                                 onReact = { emoji -> state.react(message.key, emoji) },
                                 onShowReactions = { reactionsFor = message.key },
                                 seenAvatars = if (message.key == seenKey) listOf(other) else emptyList(),
+                                onOpenContact = openContact,
                             )
                             // While choosing several messages: a layer over the
                             // message catches the tap and ticks it on or off.
@@ -1193,24 +1217,19 @@ fun ChatScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (draft.isBlank()) {
-                        IconButton(
-                            onClick = {
+                        // Paper clip: a file, my location, or a contact card.
+                        AttachMenuButton(
+                            enabled = !blockedByMe,
+                            onFile = {
                                 try {
                                     pickFile.launch(arrayOf("*/*"))
                                 } catch (e: Exception) {
                                     state.showError("Không mở được trình chọn file trên điện thoại này.")
                                 }
                             },
-                            enabled = !blockedByMe,
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_attach),
-                                contentDescription = "Gửi file",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
+                            onLocation = sendLocation,
+                            onContact = { contactPickerOpen = true },
+                        )
                         IconButton(
                             onClick = {
                                 val cameraGranted = ContextCompat.checkSelfPermission(
@@ -1289,7 +1308,10 @@ fun ChatScreen(
 
                 // Emoji panel: tap one to add it to the message.
                 if (emojiOpen) {
-                    EmojiPanel(onPick = { draft += it })
+                    EmojiPanel(
+                        onPick = { draft += it },
+                        onSticker = { code -> state.sendSpecial("sticker", stickerText(code), code) },
+                    )
                 }
             }
         }
@@ -1311,6 +1333,7 @@ fun ChatScreen(
                 nameOf = { if (it == other.id) other.displayName else "Bạn" },
                 avatarOf = { if (it == other.id) other.avatarPath else null },
                 onReact = { emoji -> state.react(key, emoji) },
+                onRemove = { state.unreact(key) },
                 onClose = { reactionsFor = null },
             )
         }
@@ -1389,6 +1412,17 @@ fun ChatScreen(
                     failure?.let { state.showError(it) }
                 }
             },
+        )
+    }
+
+    if (contactPickerOpen) {
+        ContactPickerDialog(
+            friends = friends.friends,
+            onPick = { person ->
+                contactPickerOpen = false
+                state.sendSpecial("contact", contactText(person), person.id)
+            },
+            onClose = { contactPickerOpen = false },
         )
     }
 
@@ -1521,6 +1555,8 @@ internal fun MessageBubble(
     // are shown under it, like in Zalo. Tapping them calls onSeenClick.
     seenAvatars: List<Profile> = emptyList(),
     onSeenClick: (() -> Unit)? = null,
+    // Tapping a contact card: open a chat with that person (their user id).
+    onOpenContact: (String) -> Unit = {},
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1743,6 +1779,32 @@ internal fun MessageBubble(
                     }
                 }
 
+                // A sticker: its picture, without a bubble.
+                message.kind == "sticker" -> Box(
+                    modifier = Modifier.combinedClickable(
+                        onLongClick = openMenu,
+                        onClick = { if (failed) onRetry() },
+                    ),
+                ) {
+                    StickerImage(code = message.extra, fallback = message.text.removePrefix("Sticker").trim())
+                }
+
+                // A location: tap to open the map.
+                message.kind == "location" -> Surface(color = bubbleColor, shape = bubbleShape, border = outline) {
+                    LocationCard(coordinates = message.extra, textColor = textColor, onLongPress = openMenu)
+                }
+
+                // A contact card: tap to open a chat with that person.
+                message.kind == "contact" -> Surface(color = bubbleColor, shape = bubbleShape, border = outline) {
+                    ContactCard(
+                        userId = message.extra,
+                        text = message.text,
+                        textColor = textColor,
+                        onOpen = { if (failed) onRetry() else message.extra?.let(onOpenContact) },
+                        onLongPress = openMenu,
+                    )
+                }
+
                 // A message of only one to three emojis: shown large, without
                 // a bubble, like a sticker.
                 message.kind == "text" && message.replyPreview == null && isEmojiOnly(message.text) -> Box(
@@ -1911,21 +1973,22 @@ internal fun MessageBubble(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                     )
                 }
-                // Quick heart for a message I have not reacted to yet.
-                if (!iReacted) {
-                    Surface(
-                        onClick = { onReact("❤️") },
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface,
-                        shadowElevation = 1.dp,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    ) {
-                        Text(
-                            "🤍",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                        )
-                    }
+                // Quick button, like the heart in Zalo: every tap counts one
+                // more. It repeats my own reaction; when I have none yet it
+                // gives a heart.
+                val myEmoji = message.reactions.firstOrNull { it.mine }?.emoji
+                Surface(
+                    onClick = { onReact(myEmoji ?: "❤️") },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 1.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Text(
+                        myEmoji ?: "🤍",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                    )
                 }
             }
         }
@@ -1992,14 +2055,33 @@ private val PANEL_EMOJIS = listOf(
 )
 
 // Simple emoji keyboard: a grid of common emojis. (Also used by group chats.)
+// onSticker: when given, the panel gets a second tab with stickers; a tapped
+// sticker is handed over by its code and sent at once by the caller.
 @Composable
-internal fun EmojiPanel(onPick: (String) -> Unit) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(8),
+internal fun EmojiPanel(onPick: (String) -> Unit, onSticker: ((String) -> Unit)? = null) {
+    var stickerTab by remember { mutableStateOf(false) }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(if (onSticker != null) 264.dp else 220.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+    if (onSticker != null) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            TextButton(onClick = { stickerTab = false }) {
+                Text("Emoji", fontWeight = if (!stickerTab) FontWeight.Bold else null)
+            }
+            TextButton(onClick = { stickerTab = true }) {
+                Text("Sticker", fontWeight = if (stickerTab) FontWeight.Bold else null)
+            }
+        }
+    }
+    if (onSticker != null && stickerTab) {
+        StickerGrid(onPick = onSticker)
+    } else
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(8),
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(8.dp),
     ) {
         items(PANEL_EMOJIS) { emoji ->
@@ -2014,6 +2096,7 @@ internal fun EmojiPanel(onPick: (String) -> Unit) {
                 Text(emoji, fontSize = 24.sp)
             }
         }
+    }
     }
 }
 

@@ -39,33 +39,15 @@ async function rpc(name: string, args: Record<string, unknown>): Promise<any> {
   return text ? JSON.parse(text) : null;
 }
 
-// A web address of the sender's avatar that works for one hour, or null when
-// the sender has no avatar. The "avatars" storage is private, so Firebase gets
-// a temporary signed address. Any problem here returns null: the notification
-// is then sent without a picture, exactly as before.
-// (Needs supabase_migration_23_push_avatar.sql.)
-async function senderAvatarUrl(senderId: unknown, secret: string): Promise<string | null> {
+// What the app needs to draw the notification itself: who sent the message,
+// where their avatar is stored, the plain text, and whether it is a group.
+// Any problem here returns null; the notification is then built from the
+// basic payload (title and body) alone.
+// (Needs supabase_migration_27_reactions_kinds_push.sql.)
+async function messageInfo(messageId: unknown, secret: string): Promise<any | null> {
   try {
-    if (!senderId) return null;
-    const path = await rpc("push_avatar", { p_user: String(senderId), p_secret: secret });
-    if (typeof path !== "string" || path.length === 0) return null;
-
-    const key = serverKey();
-    const encoded = path.split("/").map(encodeURIComponent).join("/");
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/avatars/${encoded}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({ expiresIn: 3600 }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const signed = data.signedURL ?? data.signedUrl;
-    if (typeof signed !== "string" || signed.length === 0) return null;
-    return `${SUPABASE_URL}/storage/v1${signed.startsWith("/") ? "" : "/"}${signed}`;
+    const info = await rpc("push_message_info", { p_message_id: String(messageId), p_secret: secret });
+    return info && typeof info === "object" ? info : null;
   } catch (_e) {
     return null;
   }
@@ -132,13 +114,15 @@ async function googleAccessToken(account: { client_email: string; private_key: s
 
 // Builds what is sent to Firebase for one phone.
 //
-// - A normal message: a notification that Android shows by itself, even when
-//   the app is closed (unchanged from before).
-// - A call (the chat line starts with the telephone emoji): a "data" message
-//   instead. It wakes the app, which then rings and shows the incoming call
-//   over the lock screen. It expires after 30 seconds so a late delivery does
-//   not ring for a call that is long over.
-function fcmMessage(token: string, payload: any, avatarUrl: string | null): Record<string, unknown> {
+// Both kinds are "data" messages: they wake the app, and the app decides
+// what to show.
+// - A normal message: the app draws the notification itself (round picture
+//   of the sender on the left, like Zalo) and tells the server "received",
+//   which is what turns "Đã gửi" into "Đã nhận" on the sender's phone.
+// - A call (the chat line starts with the telephone emoji): the app rings
+//   and shows the incoming call over the lock screen. It expires after 30
+//   seconds so a late delivery does not ring for a call that is long over.
+function fcmMessage(token: string, payload: any, info: any | null): Record<string, unknown> {
   const isCall = typeof payload.body === "string" && payload.body.startsWith("\u{1F4DE}");
 
   if (isCall) {
@@ -154,29 +138,28 @@ function fcmMessage(token: string, payload: any, avatarUrl: string | null): Reco
     };
   }
 
+  const isGroup = info?.is_group === true;
   return {
     token,
-    // Shown by Android itself, even when the app is closed.
-    notification: { title: payload.title, body: payload.body },
-    // Read by the app when the notification is tapped.
+    // Every value must be text: Firebase accepts nothing else in "data".
     data: {
+      type: "message",
       conversation_id: String(payload.conversation_id),
       sender_id: String(payload.sender_id),
-      sender_name: String(payload.title),
+      // Used when the notification is tapped (the group's name for a group).
+      sender_name: String(payload.title ?? "MayChat"),
+      title: String(payload.title ?? "MayChat"),
+      body: String(payload.body ?? ""),
+      is_group: isGroup ? "1" : "0",
+      // Who wrote it, their picture, and the text without the "Name: " prefix.
+      person_name: String(info?.sender_name ?? payload.title ?? "MayChat"),
+      avatar_path: String(info?.avatar_path ?? ""),
+      text: String(info?.text ?? payload.body ?? ""),
+      // The number shown on the app icon.
+      unread: String(Number(payload.unread) || 1),
     },
-    android: {
-      priority: "HIGH",
-      notification: {
-        channel_id: "messages",
-        // Same tag = one notification per conversation, updated in place.
-        tag: String(payload.conversation_id),
-        // The number shown on the app icon.
-        notification_count: Number(payload.unread) || 1,
-        sound: "default",
-        // The sender's picture, shown on the notification (when they have one).
-        ...(avatarUrl ? { image: avatarUrl } : {}),
-      },
-    },
+    // A message is still worth showing a day later.
+    android: { priority: "HIGH", ttl: "86400s" },
   };
 }
 
@@ -201,9 +184,9 @@ Deno.serve(async (req: Request) => {
     const account = JSON.parse(rawAccount);
     const accessToken = await googleAccessToken(account);
 
-    // The sender's picture for a normal message (a call rings without one).
+    // Details for a normal message (a call does not need them).
     const isCall = typeof payload.body === "string" && payload.body.startsWith("\u{1F4DE}");
-    const avatarUrl = isCall ? null : await senderAvatarUrl(payload.sender_id, secret);
+    const info = isCall ? null : await messageInfo(message_id, secret);
 
     let sent = 0;
     for (const token of payload.tokens as string[]) {
@@ -215,7 +198,7 @@ Deno.serve(async (req: Request) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ message: fcmMessage(token, payload, avatarUrl) }),
+          body: JSON.stringify({ message: fcmMessage(token, payload, info) }),
         },
       );
       if (res.ok) {

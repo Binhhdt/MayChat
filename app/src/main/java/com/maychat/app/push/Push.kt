@@ -7,9 +7,17 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -17,10 +25,13 @@ import com.maychat.app.BuildConfig
 import com.maychat.app.MainActivity
 import com.maychat.app.R
 import com.maychat.app.call.CallActionReceiver
+import com.maychat.app.data.ChatRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import kotlin.coroutines.resume
 
 // A chat the user asked to open by tapping a notification.
@@ -206,6 +217,145 @@ object Push {
             // Notifications are not allowed for the app: nothing can be shown.
         }
     }
+
+    // ----- Message notifications drawn by the app itself -----------------
+    // The server sends a "data" message; the app builds the notification,
+    // so it can look like a chat: the sender's round picture on the left,
+    // the lines of one conversation collected in one notification.
+
+    // The sender's picture as a circle, or null. Kept in a small folder of
+    // files so it is only downloaded once.
+    private suspend fun roundAvatar(context: Context, avatarPath: String): Bitmap? {
+        if (avatarPath.isBlank()) return null
+        return try {
+            val folder = File(context.cacheDir, "notification-avatars")
+            val file = File(folder, avatarPath.filter { it.isLetterOrDigit() || it == '-' || it == '.' })
+            val bytes = if (file.exists() && file.length() > 0) {
+                file.readBytes()
+            } else {
+                val downloaded = withTimeoutOrNull(4_000) { ChatRepository.downloadAvatar(avatarPath) } ?: return null
+                runCatching {
+                    folder.mkdirs()
+                    file.writeBytes(downloaded)
+                }
+                downloaded
+            }
+            val source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            // Cut the middle square out and draw it as a circle.
+            val size = 160
+            val side = minOf(source.width, source.height)
+            val square = Bitmap.createBitmap(
+                source,
+                (source.width - side) / 2,
+                (source.height - side) / 2,
+                side,
+                side,
+            )
+            val scaled = Bitmap.createScaledBitmap(square, size, size, true)
+            val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(output)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+            canvas.drawBitmap(scaled, 0f, 0f, paint)
+            output
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+    }
+
+    // A round picture with the first letter of the name, for people
+    // without an avatar (same look as inside the app).
+    private fun letterAvatar(name: String): Bitmap {
+        val size = 160
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = 0xFF0F766E.toInt()
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        paint.color = 0xFFFFFFFF.toInt()
+        paint.textSize = 76f
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        val letter = name.trim().take(1).uppercase().ifEmpty { "?" }
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2f, paint)
+        return output
+    }
+
+    // Shows (or adds a line to) the notification of one conversation.
+    // data: what the server sent, see fcmMessage in the notification function.
+    suspend fun showMessage(context: Context, data: Map<String, String>) {
+        val conversationId = data["conversation_id"] ?: return
+        val senderId = data["sender_id"] ?: return
+        val title = data["title"] ?: data["sender_name"] ?: "MayChat"
+        val isGroup = data["is_group"] == "1"
+        val personName = (data["person_name"] ?: title).ifBlank { title }
+        val text = (data["text"] ?: data["body"] ?: "").ifBlank { "Tin nhắn mới" }
+        val unread = data["unread"]?.toIntOrNull() ?: 1
+
+        val picture = roundAvatar(context, data["avatar_path"] ?: "") ?: letterAvatar(personName)
+        val sender = Person.Builder()
+            .setName(personName)
+            .setKey(senderId)
+            .setIcon(IconCompat.createWithBitmap(picture))
+            .build()
+        val me = Person.Builder().setName("Bạn").build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = conversationId.hashCode()
+
+        // Earlier lines of this conversation that are still on screen stay.
+        val style = runCatching {
+            manager.activeNotifications
+                .firstOrNull { it.id == notificationId && it.tag == MESSAGE_TAG }
+                ?.notification
+                ?.let { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it) }
+        }.getOrNull() ?: NotificationCompat.MessagingStyle(me)
+        style.setGroupConversation(isGroup)
+        if (isGroup) style.setConversationTitle(title)
+        style.addMessage(text, System.currentTimeMillis(), sender)
+
+        // Tapping opens that conversation (read by MainActivity).
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("conversation_id", conversationId)
+            putExtra("sender_id", senderId)
+            putExtra("sender_name", data["sender_name"] ?: title)
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            notificationId,
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF0F766E.toInt())
+            .setStyle(style)
+            // Phones that do not draw the "chat" layout still show the picture.
+            .setLargeIcon(picture)
+            .setContentTitle(if (isGroup) title else personName)
+            .setContentText(if (isGroup) "$personName: $text" else text)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setNumber(unread)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        try {
+            manager.notify(MESSAGE_TAG, notificationId, notification)
+        } catch (e: SecurityException) {
+            // Notifications are not allowed for the app: nothing can be shown.
+        }
+    }
+
+    private const val MESSAGE_TAG = "chat"
 
     // Removes all MayChat notifications (and with them the number on the icon).
     fun clearNotifications(context: Context) {

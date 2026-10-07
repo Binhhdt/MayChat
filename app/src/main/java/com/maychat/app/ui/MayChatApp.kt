@@ -435,6 +435,7 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             initialName = current.name,
             friends = friends.friends,
             onBack = { overlay = null },
+            onOpenChat = { openChat(it) },
         )
         Overlay.Qr -> QrScreen(
             myId = myId,
@@ -452,6 +453,7 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             other = current.other,
             friends = friends,
             onBack = { overlay = null },
+            onOpenChat = { openChat(it) },
         )
     }
 }

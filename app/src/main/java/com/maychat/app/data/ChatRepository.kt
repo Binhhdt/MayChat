@@ -652,7 +652,12 @@ object ChatRepository {
     }
 
     suspend fun loadGroupReactions(groupId: String): List<Reaction> =
-        supabase.postgrest.rpc(
+        attempt {
+            supabase.postgrest.rpc(
+                "group_reactions_v2",
+                buildJsonObject { put("p_group", groupId) },
+            ).decodeList<Reaction>()
+        }.getOrNull() ?: supabase.postgrest.rpc(
             "group_reactions",
             buildJsonObject { put("p_group", groupId) },
         ).decodeList<Reaction>()
@@ -731,7 +736,12 @@ object ChatRepository {
         mediaPath: String?,
         durationMs: Int?,
         fileName: String?,
+        extra: String? = null,
     ) {
+        if (kind in SPECIAL_KINDS && extra != null) {
+            sendGroupSpecial(groupId, kind, content, extra)
+            return
+        }
         if (kind == "text" || mediaPath == null) {
             sendGroupMessage(NewGroupMessage(groupId = groupId, content = content))
             return
@@ -992,6 +1002,45 @@ object ChatRepository {
         supabase.postgrest.rpc("unpin_message", buildJsonObject { put("p_conversation", conversationId) })
     }
 
+    // Tap an emoji: the same emoji as my current one counts one more,
+    // another emoji replaces it (supabase_migration_27). Without that
+    // migration it falls back to setting the emoji once, as before.
+    suspend fun addReaction(messageId: String, emoji: String) {
+        val added = attempt {
+            supabase.postgrest.rpc(
+                "add_reaction",
+                buildJsonObject {
+                    put("p_message", messageId)
+                    put("p_emoji", emoji)
+                },
+            )
+        }
+        if (added.isFailure) setReaction(messageId, emoji)
+    }
+
+    suspend fun addGroupReaction(messageId: String, emoji: String) {
+        val added = attempt {
+            supabase.postgrest.rpc(
+                "add_group_reaction",
+                buildJsonObject {
+                    put("p_message", messageId)
+                    put("p_emoji", emoji)
+                },
+            )
+        }
+        if (added.isFailure) setGroupReaction(messageId, emoji)
+    }
+
+    // A sticker, a location or a contact card (supabase_migration_27).
+    suspend fun sendSpecial(conversationId: String, kind: String, content: String, extra: String): Message =
+        supabase.postgrest.from("messages")
+            .insert(NewSpecialMessage(conversationId, content, kind, extra)) { select() }
+            .decodeSingle<Message>()
+
+    suspend fun sendGroupSpecial(groupId: String, kind: String, content: String, extra: String) {
+        supabase.postgrest.from("group_messages").insert(NewGroupSpecialMessage(groupId, content, kind, extra))
+    }
+
     // emoji = null removes my reaction.
     suspend fun setReaction(messageId: String, emoji: String?) {
         supabase.postgrest.rpc(
@@ -1003,8 +1052,14 @@ object ChatRepository {
         )
     }
 
+    // With the counts when migration 27 is there, otherwise as before.
     suspend fun loadReactions(conversationId: String): List<Reaction> =
-        supabase.postgrest.rpc(
+        attempt {
+            supabase.postgrest.rpc(
+                "conversation_reactions_v2",
+                buildJsonObject { put("p_conversation", conversationId) },
+            ).decodeList<Reaction>()
+        }.getOrNull() ?: supabase.postgrest.rpc(
             "conversation_reactions",
             buildJsonObject { put("p_conversation", conversationId) },
         ).decodeList<Reaction>()

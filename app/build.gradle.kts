@@ -62,6 +62,62 @@ listOf("Regular", "Medium", "SemiBold", "Bold").forEach { weight ->
     }
 }
 
+// ---------------------------------------------------------------------
+// Stickers: pictures from Google's "Noto Emoji" (free to use, Apache 2.0
+// licence), fetched while the APK is being built and packed into the app,
+// like the font above. If a download fails the build still succeeds and
+// the app shows that sticker as a large emoji instead.
+// The list must match STICKERS in ui/chat/Extras.kt.
+// ---------------------------------------------------------------------
+val stickerFolder = file("src/main/assets/stickers")
+val stickerCodes = listOf(
+    "1f600", "1f602", "1f923", "1f60d", "1f970", "1f618", "1f60e", "1f914",
+    "1f62d", "1f621", "1f631", "1f634", "1f97a", "1f644", "1f92d", "1f973",
+    "1f60b", "1f92f", "1f975", "1f976", "1f44d", "1f44e", "1f44f", "1f64f",
+    "1f4aa", "1f44c", "1f91d", "270c", "2764", "1f494", "1f495", "1f525",
+    "2728", "1f389", "1f382", "1f339", "2615", "1f35c", "1f37b", "26bd",
+    "1f3b5", "1f4af", "1f436", "1f431", "1f43c", "1f984", "1f308", "1f31f",
+)
+// When the first three stickers cannot be fetched from anywhere, the rest
+// are not tried, so a build without network is not slowed down.
+var stickerFailures = 0
+var stickerSuccesses = 0
+stickerCodes.forEach { code ->
+    val target = File(stickerFolder, "emoji_u$code.png")
+    if (!target.exists() && (stickerSuccesses > 0 || stickerFailures < 3)) {
+        val addresses = listOf(
+            "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u$code.png",
+            "https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/png/512/emoji_u$code.png",
+        )
+        var done = false
+        for (address in addresses) {
+            if (done) break
+            try {
+                stickerFolder.mkdirs()
+                val connection = URI(address).toURL().openConnection()
+                connection.connectTimeout = 10000
+                connection.readTimeout = 20000
+                connection.getInputStream().use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                // Keep the file only if it really is a PNG picture.
+                val head = target.inputStream().use { it.readNBytes(4) }
+                done = target.length() > 2000 && head.size == 4 &&
+                    head[0].toInt() == -119 && head[1].toInt() == 80 && head[2].toInt() == 78 && head[3].toInt() == 71
+                if (!done) target.delete()
+            } catch (e: Exception) {
+                target.delete()
+            }
+        }
+        if (done) {
+            stickerSuccesses++
+        } else {
+            stickerFailures++
+            println("MayChat: could not download sticker $code, the app will show it as an emoji.")
+        }
+    }
+}
+
 val supabaseUrl: String = secret("SUPABASE_URL")
 val supabaseKey: String = secret("SUPABASE_KEY")
 
@@ -126,8 +182,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 54
-        versionName = "0.27.1"
+        versionCode = 55
+        versionName = "0.28.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -228,6 +284,12 @@ dependencies {
 
     // Draws and reads QR codes (used for "add a friend by QR code").
     implementation("com.google.zxing:core:3.5.3")
+
+    // CameraX: the live camera picture for scanning a QR code.
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

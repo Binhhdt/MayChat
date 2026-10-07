@@ -19,6 +19,13 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!-- Location: only for "send my location" in a chat. The phone asks the
+         user the first time; the position is read once, at that moment. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
     <!-- Keep a call alive while the app is not on screen (shows a permanent
          "in a call" notification), and switch the display off when the phone
          is held to the ear. None of these shows a popup. -->

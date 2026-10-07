@@ -87,7 +87,12 @@ import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
+import com.maychat.app.ui.chat.AttachMenuButton
 import com.maychat.app.ui.chat.CameraCapture
+import com.maychat.app.ui.chat.ContactPickerDialog
+import com.maychat.app.ui.chat.contactText
+import com.maychat.app.ui.chat.rememberLocationSender
+import com.maychat.app.ui.chat.stickerText
 import com.maychat.app.ui.chat.ChatWallpaperLayer
 import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
@@ -126,6 +131,8 @@ fun GroupChatScreen(
     initialName: String,
     friends: List<Profile>,
     onBack: () -> Unit,
+    // Opens a chat with another person (used by a tapped contact card).
+    onOpenChat: (Profile) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -434,6 +441,25 @@ fun GroupChatScreen(
     BackHandler(enabled = searchMode) {
         searchMode = false
         searchQuery = ""
+    }
+
+    // ----- Location and contact cards ----------------------------------
+    val sendLocation = rememberLocationSender(
+        onLocation = { state.sendSpecial("location", "📍 Vị trí", it) },
+        onProgress = { notice = it },
+        onError = { state.showError(it) },
+    )
+    var contactPickerOpen by remember(groupId) { mutableStateOf(false) }
+    // A contact card was tapped: open a chat with that person.
+    val openContact: (String) -> Unit = { userId ->
+        if (userId == myId) {
+            state.showError("Đây là danh thiếp của chính bạn.")
+        } else {
+            scope.launch {
+                val person = attempt { ChatRepository.loadProfile(userId) }.getOrNull()
+                if (person == null) state.showError("Không tìm thấy người dùng này.") else onOpenChat(person)
+            }
+        }
     }
 
     // Small pictures under the messages: each member's picture sits under
@@ -806,6 +832,7 @@ fun GroupChatScreen(
                                     },
                                     seenAvatars = seenMarks[message.key] ?: emptyList(),
                                     onSeenClick = { seenFor = message },
+                                    onOpenContact = openContact,
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -1107,23 +1134,19 @@ fun GroupChatScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (draft.isBlank()) {
-                        IconButton(
-                            onClick = {
+                        // Paper clip: a file, my location, or a contact card.
+                        AttachMenuButton(
+                            enabled = true,
+                            onFile = {
                                 try {
                                     pickFile.launch(arrayOf("*/*"))
                                 } catch (e: Exception) {
                                     state.showError("Không mở được trình chọn file trên điện thoại này.")
                                 }
                             },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_attach),
-                                contentDescription = "Gửi file",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
+                            onLocation = sendLocation,
+                            onContact = { contactPickerOpen = true },
+                        )
                         IconButton(
                             onClick = {
                                 val cameraGranted = ContextCompat.checkSelfPermission(
@@ -1203,6 +1226,7 @@ fun GroupChatScreen(
                             val text = draft + it
                             draftValue = TextFieldValue(text, TextRange(text.length))
                         },
+                        onSticker = { code -> state.sendSpecial("sticker", stickerText(code), code) },
                     )
                 }
             }
@@ -1225,6 +1249,7 @@ fun GroupChatScreen(
                 nameOf = { nameOf(it) },
                 avatarOf = { personOf(it)?.avatarPath },
                 onReact = { emoji -> state.react(key, emoji) },
+                onRemove = { state.unreact(key) },
                 onClose = { reactionsFor = null },
             )
         }
@@ -1304,6 +1329,17 @@ fun GroupChatScreen(
                     failure?.let { state.showError(it) }
                 }
             },
+        )
+    }
+
+    if (contactPickerOpen) {
+        ContactPickerDialog(
+            friends = friends,
+            onPick = { person ->
+                contactPickerOpen = false
+                state.sendSpecial("contact", contactText(person), person.id)
+            },
+            onClose = { contactPickerOpen = false },
         )
     }
 

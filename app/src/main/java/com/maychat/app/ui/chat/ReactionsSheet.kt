@@ -41,7 +41,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.maychat.app.ui.common.Avatar
 
 // Who put which emoji on one message.
-data class Reactor(val userId: String, val emoji: String)
+// count: how many times they tapped it.
+data class Reactor(val userId: String, val emoji: String, val count: Int = 1)
 
 // Sheet that slides over the bottom of the chat when the reactions of a
 // message are tapped, like in Zalo: the quick reactions on top, then tabs
@@ -53,11 +54,14 @@ fun ReactionsSheet(
     nameOf: (String) -> String,
     avatarOf: (String) -> String?,
     onReact: (String) -> Unit,
+    onRemove: () -> Unit,
     onClose: () -> Unit,
 ) {
     // null = "Tất cả"; otherwise only the people who chose this emoji.
     var tab by remember { mutableStateOf<String?>(null) }
-    val counts = reactors.groupBy { it.emoji }.map { it.key to it.value.size }.sortedByDescending { it.second }
+    val counts = reactors.groupBy { it.emoji }
+        .map { it.key to it.value.sumOf { r -> r.count } }
+        .sortedByDescending { it.second }
     val activeTab = tab?.takeIf { wanted -> counts.any { it.first == wanted } }
     val shown = (if (activeTab == null) reactors else reactors.filter { it.emoji == activeTab })
         // Me first, then the others.
@@ -85,7 +89,8 @@ fun ReactionsSheet(
                         onClick = {},
                     ),
             ) {
-                // Quick reactions: tap to set mine, tap mine again to remove it.
+                // Quick reactions: tap one to react; tapping my current one
+                // again counts one more, like in Zalo.
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.surface,
@@ -126,7 +131,7 @@ fun ReactionsSheet(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            SheetTab("Tất cả ${reactors.size}", activeTab == null) { tab = null }
+                            SheetTab("Tất cả ${reactors.sumOf { it.count }}", activeTab == null) { tab = null }
                             counts.forEach { (emoji, count) ->
                                 SheetTab("$emoji $count", activeTab == emoji) { tab = emoji }
                             }
@@ -139,7 +144,7 @@ fun ReactionsSheet(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         // My own line: tap to take my reaction back.
-                                        .clickable(enabled = isMe) { onReact(reactor.emoji) }
+                                        .clickable(enabled = isMe) { onRemove() }
                                         .padding(horizontal = 16.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -165,7 +170,10 @@ fun ReactionsSheet(
                                             )
                                         }
                                     }
-                                    Text(reactor.emoji, fontSize = 22.sp)
+                                    Text(
+                                        if (reactor.count > 1) "${reactor.emoji} ${reactor.count}" else reactor.emoji,
+                                        fontSize = 20.sp,
+                                    )
                                 }
                             }
                         }

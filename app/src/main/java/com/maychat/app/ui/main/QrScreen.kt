@@ -4,6 +4,25 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.zxing.PlanarYUVLuminanceSource
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,9 +91,9 @@ import java.io.File
 // What a MayChat QR code contains: this prefix followed by the username.
 private const val QR_PREFIX = "maychat:user:"
 
-// "Mã QR": shows my own code for others to scan, and reads a friend's code
-// from a photo taken now or from a picture in the gallery. Reading a code
-// from a still photo needs no camera permission.
+// "Mã QR": shows my own code for others to scan, and reads a friend's code:
+// live with the camera (point at the code, it is read by itself), from a
+// photo taken now, or from a picture in the gallery.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrScreen(
@@ -102,16 +121,16 @@ fun QrScreen(
         }
     }
 
-    // Reads the code in a picture and looks the person up.
-    fun readFrom(bytes: ByteArray?) {
-        if (bytes == null) {
-            error = "Không đọc được ảnh này."
-            return
-        }
+    // Whether the live scanner is open.
+    var scanning by remember { mutableStateOf(false) }
+
+    // Looks up the person a code belongs to. text: what the code contains,
+    // or null when no code was found.
+    fun lookUp(text: String?, decode: (suspend () -> String?)? = null) {
         busy = true
         error = null
         scope.launch {
-            val text = withContext(Dispatchers.Default) { decodeQr(bytes) }
+            val text = text ?: decode?.invoke()
             val username = text?.takeIf { it.startsWith(QR_PREFIX) }?.removePrefix(QR_PREFIX)?.trim()
             when {
                 text == null ->
@@ -128,6 +147,23 @@ fun QrScreen(
                     .onFailure { error = it.toUserMessage() }
             }
             busy = false
+        }
+    }
+
+    // Reads the code in a picture and looks the person up.
+    fun readFrom(bytes: ByteArray?) {
+        if (bytes == null) {
+            error = "Không đọc được ảnh này."
+            return
+        }
+        lookUp(null) { withContext(Dispatchers.Default) { decodeQr(bytes) } }
+    }
+
+    val askCameraForScan = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scanning = true
+        } else {
+            error = "Cần quyền camera để quét mã QR. Bạn vẫn có thể chọn ảnh có mã QR từ máy."
         }
     }
 
@@ -211,7 +247,22 @@ fun QrScreen(
             Spacer(Modifier.height(28.dp))
             Text("Quét mã của bạn bè", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
+            // Live: point the camera at the code.
             Button(
+                onClick = {
+                    error = null
+                    val cameraGranted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA,
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (cameraGranted) scanning = true else askCameraForScan.launch(Manifest.permission.CAMERA)
+                },
+                enabled = !busy,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text(if (busy) "Đang đọc mã…" else "Quét mã QR") }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
                 onClick = {
                     val cameraGranted = ContextCompat.checkSelfPermission(
                         context,
@@ -230,7 +281,7 @@ fun QrScreen(
                 enabled = !busy,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text(if (busy) "Đang đọc mã…" else "Chụp mã QR") }
+            ) { Text("Chụp ảnh mã QR") }
             Spacer(Modifier.height(10.dp))
             OutlinedButton(
                 onClick = {
@@ -246,6 +297,20 @@ fun QrScreen(
                 Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
             }
         }
+    }
+
+    if (scanning) {
+        QrLiveScanner(
+            onFound = { text ->
+                scanning = false
+                lookUp(text)
+            },
+            onFailed = {
+                scanning = false
+                error = "Không mở được camera để quét. Hãy thử \"Chụp ảnh mã QR\"."
+            },
+            onClose = { scanning = false },
+        )
     }
 
     // The person found by the code: add as friend, or open the chat.
@@ -342,4 +407,112 @@ private fun decodeQr(jpegBytes: ByteArray): String? {
         }
     }
     return null
+}
+
+// Full-screen live scanner: shows the camera picture and reads a MayChat
+// QR code as soon as one is in view. The camera permission has been
+// granted before this is shown.
+@Composable
+private fun QrLiveScanner(onFound: (String) -> Unit, onFailed: () -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    // The first code read ends the scan; later frames are ignored.
+    val done = remember { AtomicBoolean(false) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    val cameraController = remember {
+        LifecycleCameraController(context).apply {
+            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+        }
+    }
+
+    DisposableEffect(cameraController, lifecycleOwner) {
+        try {
+            cameraController.setImageAnalysisAnalyzer(executor) { image ->
+                try {
+                    if (!done.get()) {
+                        val text = decodeFrame(image)
+                        if (text != null && text.startsWith(QR_PREFIX) && done.compareAndSet(false, true)) {
+                            mainHandler.post { onFound(text) }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // A frame that cannot be read: wait for the next one.
+                } finally {
+                    image.close()
+                }
+            }
+            cameraController.bindToLifecycle(lifecycleOwner)
+        } catch (e: Exception) {
+            mainHandler.post { onFailed() }
+        }
+        onDispose {
+            runCatching { cameraController.clearImageAnalysisAnalyzer() }
+            runCatching { cameraController.unbind() }
+            executor.shutdown()
+        }
+    }
+
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView(
+                factory = { viewContext ->
+                    PreviewView(viewContext).apply {
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        controller = cameraController
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Frame that shows where to hold the code.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(250.dp)
+                    .border(3.dp, Color.White, RoundedCornerShape(24.dp)),
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .safeDrawingPadding()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Đưa mã QR MayChat của bạn bè vào khung",
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onClose, shape = RoundedCornerShape(16.dp)) { Text("Đóng") }
+            }
+        }
+    }
+}
+
+// Reads a QR code from one camera frame (its brightness plane), or null.
+private fun decodeFrame(image: ImageProxy): String? {
+    val plane = image.planes.firstOrNull() ?: return null
+    val width = image.width
+    val height = image.height
+    val rowStride = plane.rowStride
+    val buffer = plane.buffer
+    // Copy row by row: a row in the buffer can be longer than the picture.
+    val data = ByteArray(width * height)
+    for (row in 0 until height) {
+        val start = row * rowStride
+        if (start + width > buffer.limit()) return null
+        buffer.position(start)
+        buffer.get(data, row * width, width)
+    }
+    val source = PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, false)
+    return try {
+        QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source))).text
+    } catch (e: Exception) {
+        null
+    }
 }
