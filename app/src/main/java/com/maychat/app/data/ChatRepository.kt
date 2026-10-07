@@ -121,6 +121,8 @@ object ChatRepository {
         // is still closing must not write them back).
         ListCache.clear()
         ChatMemory.clear()
+        GroupFaces.clear()
+        com.maychat.app.push.Reminders.clear()
         conversationPrefsKnown = false
         groupPrefsKnown = false
         try {
@@ -692,6 +694,146 @@ object ChatRepository {
         )
     }
 
+    // Who is in each of these groups, oldest member first (for the group
+    // picture made of the members' pictures).
+    suspend fun loadGroupMemberIds(groupIds: List<String>): Map<String, List<String>> {
+        if (groupIds.isEmpty()) return emptyMap()
+        return supabase.postgrest.from("group_members")
+            .select {
+                filter { isIn("group_id", groupIds) }
+                order("joined_at", Order.ASCENDING)
+            }
+            .decodeList<GroupMember>()
+            .groupBy({ it.groupId }, { it.userId })
+    }
+
+    // ----- Group board: polls, notes, reminders (supabase_migration_29) -----
+
+    suspend fun loadGroupPolls(groupId: String): List<GroupPoll> =
+        supabase.postgrest.from("group_polls")
+            .select {
+                filter { eq("group_id", groupId) }
+                order("created_at", Order.DESCENDING)
+                limit(100L)
+            }
+            .decodeList<GroupPoll>()
+
+    suspend fun loadGroupPollVotes(pollIds: List<String>): List<GroupPollVote> {
+        if (pollIds.isEmpty()) return emptyList()
+        return supabase.postgrest.from("group_poll_votes")
+            .select { filter { isIn("poll_id", pollIds) } }
+            .decodeList<GroupPollVote>()
+    }
+
+    suspend fun createGroupPoll(groupId: String, question: String, options: List<String>, multiple: Boolean) {
+        supabase.postgrest.rpc(
+            "create_group_poll",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_question", question)
+                put("p_options", buildJsonArray { options.forEach { add(it) } })
+                put("p_multiple", multiple)
+            },
+        )
+    }
+
+    // options: what I tick now (replaces my earlier ticks; empty = none).
+    suspend fun voteGroupPoll(pollId: String, options: List<Int>) {
+        supabase.postgrest.rpc(
+            "vote_group_poll",
+            buildJsonObject {
+                put("p_poll", pollId)
+                put("p_options", buildJsonArray { options.forEach { add(it) } })
+            },
+        )
+    }
+
+    suspend fun closeGroupPoll(pollId: String) {
+        supabase.postgrest.rpc("close_group_poll", buildJsonObject { put("p_poll", pollId) })
+    }
+
+    suspend fun deleteGroupPoll(pollId: String) {
+        supabase.postgrest.rpc("delete_group_poll", buildJsonObject { put("p_poll", pollId) })
+    }
+
+    suspend fun loadGroupNotes(groupId: String): List<GroupNote> =
+        supabase.postgrest.from("group_notes")
+            .select {
+                filter { eq("group_id", groupId) }
+                order("updated_at", Order.DESCENDING)
+                limit(200L)
+            }
+            .decodeList<GroupNote>()
+
+    suspend fun createGroupNote(groupId: String, content: String) {
+        supabase.postgrest.rpc(
+            "create_group_note",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_content", content)
+            },
+        )
+    }
+
+    suspend fun updateGroupNote(noteId: String, content: String) {
+        supabase.postgrest.rpc(
+            "update_group_note",
+            buildJsonObject {
+                put("p_note", noteId)
+                put("p_content", content)
+            },
+        )
+    }
+
+    suspend fun deleteGroupNote(noteId: String) {
+        supabase.postgrest.rpc("delete_group_note", buildJsonObject { put("p_note", noteId) })
+    }
+
+    suspend fun loadGroupReminders(groupId: String): List<GroupReminder> =
+        supabase.postgrest.from("group_reminders")
+            .select {
+                filter { eq("group_id", groupId) }
+                order("remind_at", Order.ASCENDING)
+                limit(200L)
+            }
+            .decodeList<GroupReminder>()
+
+    // Every reminder of all my groups that is still to come (the security
+    // rules only return those of groups I am in).
+    suspend fun loadUpcomingReminders(): List<GroupReminder> =
+        supabase.postgrest.from("group_reminders")
+            .select {
+                filter { gt("remind_at", java.time.Instant.now().toString()) }
+                order("remind_at", Order.ASCENDING)
+                limit(100L)
+            }
+            .decodeList<GroupReminder>()
+
+    // null when it was deleted, or I am no longer in that group.
+    suspend fun loadReminder(id: String): GroupReminder? =
+        supabase.postgrest.from("group_reminders")
+            .select { filter { eq("id", id) } }
+            .decodeList<GroupReminder>()
+            .firstOrNull()
+
+    // at: the moment, with time zone. whenText: the same moment written
+    // for people ("20/10 08:00"), used in the message put into the group.
+    suspend fun createGroupReminder(groupId: String, title: String, at: OffsetDateTime, whenText: String) {
+        supabase.postgrest.rpc(
+            "create_group_reminder",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_title", title)
+                put("p_at", at.toString())
+                put("p_when_text", whenText)
+            },
+        )
+    }
+
+    suspend fun deleteGroupReminder(reminderId: String) {
+        supabase.postgrest.rpc("delete_group_reminder", buildJsonObject { put("p_reminder", reminderId) })
+    }
+
     // ----- Group picture, deputies, leadership (supabase_migration_24) -----
 
     // path: a file I uploaded into my own folder of the avatars storage;
@@ -881,6 +1023,20 @@ object ChatRepository {
             buildJsonObject {
                 put("p_display_name", displayName)
                 put("p_avatar_path", avatarPath)
+            },
+        )
+    }
+
+    // Cover picture, introduction and birthday (supabase_migration_29).
+    //   birthday: "YYYY-MM-DD", or "" for none.
+    //   coverPath: null keeps the current cover, "" removes it.
+    suspend fun updateMyProfileDetails(bio: String, birthday: String, coverPath: String?) {
+        supabase.postgrest.rpc(
+            "update_my_profile_details",
+            buildJsonObject {
+                put("p_bio", bio)
+                put("p_birthday", birthday)
+                put("p_cover_path", coverPath)
             },
         )
     }

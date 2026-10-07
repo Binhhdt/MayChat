@@ -29,6 +29,11 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Group reminders ("Nhắc hẹn"): ring on the minute, and set the
+         alarms again after the phone was restarted. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Location: only for "send my location" in a chat. The phone asks the
          user the first time; the position is read once, at that moment. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -106,6 +111,15 @@
         <receiver
             android:name=".call.CallActionReceiver"
             android:exported="false" />
+
+        <!-- The alarm of a group reminder, and "the phone has started". -->
+        <receiver
+            android:name=".push.ReminderReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Receives events from Firebase Cloud Messaging. -->
         <service

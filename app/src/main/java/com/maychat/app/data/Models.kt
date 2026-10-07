@@ -14,6 +14,11 @@ data class Profile(
     @SerialName("last_seen_at") val lastSeenAt: String? = null,
     // Where the avatar picture is in Storage (null = no avatar).
     @SerialName("avatar_path") val avatarPath: String? = null,
+    // Profile page (migration 29): cover picture, introduction, birthday
+    // ("YYYY-MM-DD"). All empty until the person fills them in.
+    @SerialName("cover_path") val coverPath: String? = null,
+    val bio: String? = null,
+    val birthday: String? = null,
 )
 
 @Serializable
@@ -340,3 +345,60 @@ data class NewGroupAlbumMessage(
     @SerialName("media_path") val mediaPath: String,
     val extra: String,
 )
+
+
+// ----- Group board: polls, notes, reminders (migration 29) ---------------
+
+@Serializable
+data class GroupPoll(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    @SerialName("creator_id") val creatorId: String,
+    val question: String,
+    val options: List<String> = emptyList(),
+    // True: a member may tick several options.
+    val multiple: Boolean = false,
+    // Not null: the voting is over.
+    @SerialName("closed_at") val closedAt: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+// One tick of one member on one option of a poll.
+@Serializable
+data class GroupPollVote(
+    @SerialName("poll_id") val pollId: String,
+    @SerialName("user_id") val userId: String,
+    @SerialName("option_index") val optionIndex: Int,
+)
+
+@Serializable
+data class GroupNote(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    @SerialName("author_id") val authorId: String,
+    val content: String,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+)
+
+@Serializable
+data class GroupReminder(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    @SerialName("creator_id") val creatorId: String,
+    val title: String,
+    @SerialName("remind_at") val remindAt: String,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+// What a text message of a group points to when it announces a poll, a
+// note or a reminder: its "extra" is "poll:<id>", "note:<id>" or
+// "remind:<id>". Returns the kind ("poll", "note", "remind") and the id.
+fun boardLink(kind: String, extra: String?): Pair<String, String>? {
+    if (kind != "text" || extra == null) return null
+    val at = extra.indexOf(':')
+    if (at <= 0) return null
+    val what = extra.substring(0, at)
+    val id = extra.substring(at + 1)
+    return if (what in setOf("poll", "note", "remind") && id.isNotBlank()) what to id else null
+}

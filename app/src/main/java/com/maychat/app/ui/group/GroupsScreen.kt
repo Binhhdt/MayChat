@@ -306,7 +306,7 @@ fun GroupListRow(
                 .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(name = group.name, online = false, size = 54.dp, avatarPath = group.avatarPath)
+                GroupAvatar(groupId = group.id, name = group.name, avatarPath = group.avatarPath, size = 54.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

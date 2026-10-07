@@ -64,6 +64,36 @@ fun Throwable.toUserMessage(): String {
         "only_leader" in text ->
             "Chỉ trưởng nhóm mới làm được việc này."
 
+        "poll_closed" in text ->
+            "Bình chọn này đã kết thúc."
+
+        "invalid_poll" in text ->
+            "Bình chọn cần một câu hỏi (tối đa 200 ký tự) và từ 2 đến 10 lựa chọn."
+
+        "invalid_note" in text ->
+            "Ghi chú cần từ 1 đến 2000 ký tự."
+
+        "invalid_reminder_time" in text ->
+            "Thời gian nhắc hẹn phải ở tương lai (tối đa 2 năm)."
+
+        "invalid_reminder" in text ->
+            "Nhắc hẹn cần nội dung từ 1 đến 200 ký tự."
+
+        "invalid_bio" in text ->
+            "Lời giới thiệu tối đa 300 ký tự."
+
+        "invalid_birthday" in text ->
+            "Ngày sinh không hợp lệ."
+
+        "not_allowed" in text ->
+            "Bạn không có quyền làm việc này."
+
+        ("group_polls" in text || "group_notes" in text || "group_reminders" in text ||
+            "create_group_" in text || "vote_group_poll" in text ||
+            "update_my_profile_details" in text) &&
+            ("does not exist" in text || "could not find" in text || "schema cache" in text) ->
+            "Máy chủ chưa có phần này. Hãy chạy file supabase_migration_29_profile_group_board.sql."
+
         "invalid_group_name" in text ->
             "Tên nhóm cần từ 1 đến 60 ký tự."
 

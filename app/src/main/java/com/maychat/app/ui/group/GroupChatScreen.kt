@@ -98,6 +98,8 @@ import com.maychat.app.ui.chat.ChatWallpaperLayer
 import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
+import com.maychat.app.data.GroupFaces
+import com.maychat.app.data.boardLink
 import com.maychat.app.ui.chat.GalleryPanel
 import com.maychat.app.ui.chat.MessageBubble
 import com.maychat.app.ui.chat.rememberGalleryOpener
@@ -201,6 +203,13 @@ fun GroupChatScreen(
     val canManage = group?.ownerId == myId || myId in state.deputies
     // The message whose "who has read it" window is open (null = none).
     var seenFor by remember(groupId) { mutableStateOf<UiMessage?>(null) }
+    // The board of the group (polls, reminders, notes) when it is open:
+    // which tab, which item to show first, and whether to start creating.
+    var board by remember(groupId) { mutableStateOf<Triple<BoardTab, String?, Boolean>?>(null) }
+    // The group picture made of members' pictures follows who is in the group.
+    LaunchedEffect(groupId, state.members.size) {
+        if (state.members.isNotEmpty()) GroupFaces.ensure(listOf(groupId), force = true)
+    }
     val groupName = group?.name ?: initialName
     val memberById = remember(state.members) { state.members.associateBy { it.id } }
 
@@ -695,7 +704,7 @@ fun GroupChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { infoOpen = true },
                         ) {
-                            Avatar(name = groupName, online = false, size = 36.dp, avatarPath = group?.avatarPath)
+                            GroupAvatar(groupId = groupId, name = groupName, avatarPath = group?.avatarPath, size = 36.dp)
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
@@ -903,6 +912,17 @@ fun GroupChatScreen(
                                 },
                                 onPlaced = { bubbleCenters[message.key] = it },
                                 showQuickReact = message.key == newestReactable,
+                                actionLabel = when (boardLink(message.kind, message.extra)?.first) {
+                                    "poll" -> "Xem bình chọn"
+                                    "note" -> "Xem ghi chú"
+                                    "remind" -> "Xem nhắc hẹn"
+                                    else -> null
+                                },
+                                onAction = {
+                                    boardLink(message.kind, message.extra)?.let { (what, id) ->
+                                        board = Triple(boardTabOf(what), id, false)
+                                    }
+                                },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -1217,6 +1237,11 @@ fun GroupChatScreen(
                             },
                             onLocation = sendLocation,
                             onContact = { contactPickerOpen = true },
+                            moreItems = listOf(
+                                "📊  Bình chọn" to { board = Triple(BoardTab.POLLS, null, true) },
+                                "⏰  Nhắc hẹn" to { board = Triple(BoardTab.REMINDERS, null, true) },
+                                "📝  Ghi chú" to { board = Triple(BoardTab.NOTES, null, true) },
+                            ),
                         )
                         IconButton(
                             onClick = {
@@ -1487,8 +1512,26 @@ fun GroupChatScreen(
         )
     }
 
+    board?.let { (tab, focus, create) ->
+        GroupBoardDialog(
+            groupId = groupId,
+            myId = myId,
+            canManage = canManage,
+            members = state.members,
+            startTab = tab,
+            focusId = focus,
+            createAtStart = create,
+            onDismiss = { board = null },
+        )
+    }
+
     if (infoOpen && group != null) {
         GroupInfoScreen(
+            onOpenBoard = { board = Triple(it, null, false) },
+            onMessage = { userId ->
+                infoOpen = false
+                openContact(userId)
+            },
             myId = myId,
             group = group,
             members = state.members,

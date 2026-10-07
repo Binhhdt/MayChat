@@ -57,6 +57,7 @@ import com.maychat.app.data.attempt
 import com.maychat.app.data.picturePaths
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
+import com.maychat.app.ui.main.ProfileViewDialog
 import com.maychat.app.ui.common.BackButton
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.Relation
@@ -87,6 +88,10 @@ fun ChatOptionsScreen(
     var muted by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var profileOpen by remember { mutableStateOf(false) }
+    if (profileOpen) {
+        ProfileViewDialog(userId = other.id, known = other, onDismiss = { profileOpen = false })
+    }
     LaunchedEffect(conversationId) {
         attempt { ChatRepository.loadConversationPrefs() }
             .onSuccess { muted = it[conversationId]?.muted == true }
@@ -121,12 +126,15 @@ fun ChatOptionsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Spacer(Modifier.height(12.dp))
-                    Avatar(
-                        name = other.displayName,
-                        online = false,
-                        size = 96.dp,
-                        avatarPath = other.avatarPath,
-                    )
+                    // Tapping the picture opens the person's profile page.
+                    Box(modifier = Modifier.clip(CircleShape).clickable { profileOpen = true }) {
+                        Avatar(
+                            name = other.displayName,
+                            online = false,
+                            size = 96.dp,
+                            avatarPath = other.avatarPath,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(other.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
@@ -134,6 +142,7 @@ fun ChatOptionsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    TextButton(onClick = { profileOpen = true }) { Text("Xem trang cá nhân") }
                     if (statusText.isNotEmpty()) {
                         Text(
                             statusText,

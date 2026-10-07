@@ -86,6 +86,12 @@ class PushService : FirebaseMessagingService() {
 
                 attempt { Push.showMessage(applicationContext, data) }
 
+                // A new group reminder was announced: set this phone's alarm
+                // for it now, so it rings even if the app is never opened.
+                if (data["is_group"] == "1" && (data["text"] ?: data["body"] ?: "").startsWith("⏰")) {
+                    attempt { Reminders.sync(force = true) }
+                }
+
                 // "Đã nhận" for the sender (one-to-one messages).
                 if (data["is_group"] != "1") {
                     attempt {

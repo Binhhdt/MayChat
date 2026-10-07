@@ -69,6 +69,7 @@ import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.FileBubbleContent
 import com.maychat.app.ui.chat.compressImage
 import com.maychat.app.ui.common.Avatar
+import com.maychat.app.ui.main.ProfileViewDialog
 import com.maychat.app.ui.common.BackButton
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -94,7 +95,13 @@ fun GroupInfoScreen(
     onOpenImage: (String) -> Unit,
     onCleared: () -> Unit,
     onClose: () -> Unit,
+    // Opens the board of the group on one of its tabs.
+    onOpenBoard: (BoardTab) -> Unit = {},
+    // "Nhắn tin" on a member's profile page: open a chat with that person.
+    onMessage: (String) -> Unit = {},
 ) {
+    // The member whose profile page is open (null = none).
+    var profileOf by remember { mutableStateOf<Profile?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val iAmLeader = group.ownerId == myId
@@ -193,7 +200,7 @@ fun GroupInfoScreen(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Avatar(name = group.name, online = false, size = 80.dp, avatarPath = group.avatarPath)
+                            GroupAvatar(groupId = group.id, name = group.name, avatarPath = group.avatarPath, size = 80.dp)
                             if (canManage) {
                                 TextButton(
                                     enabled = !busy,
@@ -287,6 +294,26 @@ fun GroupInfoScreen(
                         HorizontalDivider()
                     }
 
+                    // Polls, reminders and notes of the group.
+                    item(key = "board") {
+                        SectionTitle("Bảng tin nhóm")
+                        listOf(
+                            "📊  Bình chọn" to BoardTab.POLLS,
+                            "⏰  Nhắc hẹn" to BoardTab.REMINDERS,
+                            "📝  Ghi chú" to BoardTab.NOTES,
+                        ).forEach { (label, tab) ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenBoard(tab) }
+                                    .padding(horizontal = 20.dp, vertical = 13.dp),
+                            )
+                        }
+                        HorizontalDivider()
+                    }
+
                     item(key = "images") {
                         SectionTitle("Ảnh đã gửi")
                         if (images.isEmpty()) {
@@ -343,7 +370,13 @@ fun GroupInfoScreen(
                                 avatarPath = person.avatarPath,
                             )
                             Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
+                            // Tapping the name opens that member's profile page.
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { profileOf = person },
+                            ) {
                                 Text(
                                     if (person.id == myId) "${person.displayName} (bạn)" else person.displayName,
                                     style = MaterialTheme.typography.titleMedium,
@@ -643,6 +676,15 @@ fun GroupInfoScreen(
                 dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Không") } },
             )
         }
+    }
+
+    profileOf?.let { person ->
+        ProfileViewDialog(
+            userId = person.id,
+            known = person,
+            onMessage = if (person.id == myId) null else { _ -> profileOf = null; onMessage(person.id) },
+            onDismiss = { profileOf = null },
+        )
     }
 }
 

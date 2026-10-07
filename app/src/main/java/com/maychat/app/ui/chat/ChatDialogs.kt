@@ -44,6 +44,7 @@ import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
+import com.maychat.app.ui.group.GroupAvatar
 
 // One person a message can be forwarded to. conversationId is null when
 // there is no conversation with them yet (it is created when sending).
@@ -156,12 +157,22 @@ fun ForwardScreen(
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Avatar(
-                                    name = target.profile.displayName,
-                                    online = false,
-                                    size = 44.dp,
-                                    avatarPath = target.profile.avatarPath,
-                                )
+                                val targetGroup = target.groupId
+                                if (targetGroup != null) {
+                                    GroupAvatar(
+                                        groupId = targetGroup,
+                                        name = target.profile.displayName,
+                                        avatarPath = target.profile.avatarPath,
+                                        size = 44.dp,
+                                    )
+                                } else {
+                                    Avatar(
+                                        name = target.profile.displayName,
+                                        online = false,
+                                        size = 44.dp,
+                                        avatarPath = target.profile.avatarPath,
+                                    )
+                                }
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(

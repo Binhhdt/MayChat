@@ -1680,6 +1680,10 @@ internal fun MessageBubble(
     // True for the newest message of the chat: the quick reaction button is
     // shown under it even while it has no reaction yet (like Zalo).
     showQuickReact: Boolean = false,
+    // Group chats only: a button inside a text message that announces a
+    // poll, a note or a reminder ("Xem bình chọn"...). null = no button.
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -2020,6 +2024,20 @@ internal fun MessageBubble(
                         if (message.kind == "text") {
                             val link = remember(message.text) { firstLink(message.text) }
                             if (link != null) LinkPreviewCard(url = link, textColor = textColor)
+                        }
+                        if (actionLabel != null && !message.recalled) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                actionLabel,
+                                color = textColor,
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(textColor.copy(alpha = 0.16f))
+                                    .clickable(onClick = onAction)
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                            )
                         }
                     }
                 }

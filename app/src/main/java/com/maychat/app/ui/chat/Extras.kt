@@ -192,6 +192,9 @@ fun AttachMenuButton(
     onFile: () -> Unit,
     onLocation: () -> Unit,
     onContact: () -> Unit,
+    // More lines under the three above (label, what it does). Used by
+    // group chats for polls, reminders and notes.
+    moreItems: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -225,6 +228,15 @@ fun AttachMenuButton(
                     onContact()
                 },
             )
+            moreItems.forEach { (label, action) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        open = false
+                        action()
+                    },
+                )
+            }
         }
     }
 }

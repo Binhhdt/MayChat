@@ -45,6 +45,7 @@ import com.maychat.app.data.SupabaseProvider
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.push.ChatToOpen
+import com.maychat.app.push.Reminders
 import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
@@ -419,8 +420,12 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         ChatRepository.groupEvents.collectLatest {
             delay(400)
             reloadUnreadTotals()
+            // A group message may announce a new reminder: set its alarm.
+            Reminders.requestSync()
         }
     }
+    // Group reminders: read them and set this phone's alarms at start.
+    LaunchedEffect(myId) { Reminders.requestSync(force = true) }
     LaunchedEffect(myId, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
