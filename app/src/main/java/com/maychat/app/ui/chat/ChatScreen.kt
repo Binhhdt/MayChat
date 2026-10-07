@@ -267,6 +267,21 @@ fun ChatScreen(
         labels
     }
 
+    // ----- Choosing several messages at once ---------------------------
+    var selecting by remember(conversationId) { mutableStateOf(false) }
+    var selectedKeys by remember(conversationId) { mutableStateOf<Set<String>>(emptySet()) }
+    // Keys of the chosen messages being forwarded together (null = none).
+    var forwardingMany by remember(conversationId) { mutableStateOf<List<String>?>(null) }
+    var confirmDeleteMany by remember(conversationId) { mutableStateOf(false) }
+    val leaveSelecting: () -> Unit = {
+        selecting = false
+        selectedKeys = emptySet()
+    }
+    // The chosen messages, oldest first.
+    fun chosenMessages(): List<UiMessage> =
+        state.messages.filter { it.key in selectedKeys }.reversed()
+    BackHandler(enabled = selecting) { leaveSelecting() }
+
     // Forwarding: the message being forwarded (null = none).
     var forwarding by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
     // Short confirmation line, for example after forwarding.
@@ -505,7 +520,13 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            if (searchMode) {
+            if (selecting) {
+                // Bar shown while several messages are being chosen.
+                TopAppBar(
+                    title = { Text("Đã chọn ${selectedKeys.size}") },
+                    navigationIcon = { BackButton(onClick = leaveSelecting) },
+                )
+            } else if (searchMode) {
                 // Search bar instead of the normal title bar.
                 TopAppBar(
                     title = {
@@ -795,7 +816,12 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(state.messages, key = { it.key }) { message ->
+                            Box {
                             MessageBubble(
+                                onSelectMany = {
+                                    selecting = true
+                                    selectedKeys = setOf(message.key)
+                                },
                                 highlightQuery = when {
                                     message.key == currentResult?.id -> searchQuery.trim()
                                     message.key == flashKey -> ""
@@ -819,6 +845,34 @@ fun ChatScreen(
                                 onReply = { replyingTo = message },
                                 onReact = { emoji -> state.react(message.key, emoji) },
                             )
+                            // While choosing several messages: a layer over the
+                            // message catches the tap and ticks it on or off.
+                            // Notices and messages still being sent cannot be chosen.
+                            val canChoose = message.kind != "system" &&
+                                message.state != SendState.SENDING &&
+                                message.state != SendState.FAILED
+                            if (selecting && canChoose) {
+                                val picked = message.key in selectedKeys
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            if (picked) {
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                            } else {
+                                                Color.Transparent
+                                            },
+                                        )
+                                        .clickable {
+                                            selectedKeys = if (picked) {
+                                                selectedKeys - message.key
+                                            } else {
+                                                selectedKeys + message.key
+                                            }
+                                        },
+                                )
+                            }
+                            }
                         }
                         if (state.hasOlder) {
                             item(key = "load-older") {
@@ -913,7 +967,30 @@ fun ChatScreen(
                 )
             }
 
-            if (searchMode) {
+            if (selecting) {
+                // What to do with the chosen messages.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = {
+                            forwardingMany = chosenMessages().filter { !it.recalled }.map { it.key }
+                        },
+                        enabled = selectedKeys.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Chuyển tiếp") }
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedButton(
+                        onClick = { confirmDeleteMany = true },
+                        enabled = selectedKeys.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Xóa phía tôi", color = MaterialTheme.colorScheme.error) }
+                }
+            } else if (searchMode) {
                 // "Result 3/5" with buttons to the older and the newer match.
                 Row(
                     modifier = Modifier
@@ -1169,6 +1246,57 @@ fun ChatScreen(
         )
     }
 
+    forwardingMany?.let { keys ->
+        ForwardScreen(
+            myId = myId,
+            friends = friends.friends,
+            previewText = "${keys.size} tin nhắn",
+            onClose = { forwardingMany = null },
+            onSend = { targets, note ->
+                forwardingMany = null
+                leaveSelecting()
+                scope.launch {
+                    var sent = 0
+                    var failure: String? = null
+                    for (destination in targets) {
+                        attempt {
+                            // Create the conversation first if there is none yet.
+                            val id = destination.conversationId
+                                ?: ChatRepository.openConversation(destination.profile.id)
+                            // One after the other, so they arrive in the same order.
+                            for (key in keys) state.forwardTo(id, key)
+                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                        }
+                            .onSuccess { sent++ }
+                            .onFailure { failure = it.toUserMessage() }
+                    }
+                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent người."
+                    failure?.let { state.showError(it) }
+                }
+            },
+        )
+    }
+
+    if (confirmDeleteMany) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteMany = false },
+            title = { Text("Xóa ${selectedKeys.size} tin nhắn?") },
+            text = { Text("Các tin này sẽ biến mất trên máy bạn. Người kia vẫn thấy chúng.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteMany = false
+                        chosenMessages().forEach { state.hide(it.key) }
+                        leaveSelecting()
+                    },
+                ) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteMany = false }) { Text("Không") }
+            },
+        )
+    }
+
     if (optionsOpen) {
         ChatOptionsScreen(
             conversationId = conversationId,
@@ -1240,6 +1368,7 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    onSelectMany: () -> Unit,
     markQuery: String?,
     isPinned: Boolean,
     onTogglePin: () -> Unit,
@@ -1417,6 +1546,10 @@ private fun MessageBubble(
                     }
                 }
 
+                // A video: preview picture with a play button, played in the app.
+                message.kind == "file" && path != null && !failed && isVideoFile(message.fileName) ->
+                    VideoBubbleContent(path = path, onLongPress = openMenu)
+
                 // A file that is already on the server.
                 message.kind == "file" && path != null && !failed -> Surface(
                     color = bubbleColor,
@@ -1524,6 +1657,7 @@ private fun MessageBubble(
                         add(MenuAction(if (isPinned) "Bỏ ghim" else "Ghim", R.drawable.ic_pin, onTogglePin))
                         if (message.mine) add(MenuAction("Thu hồi", R.drawable.ic_undo, onRecall))
                     }
+                    add(MenuAction("Chọn nhiều", R.drawable.ic_check, onSelectMany))
                     add(MenuAction("Xóa phía tôi", R.drawable.ic_delete, onHide, danger = true))
                 }
 
@@ -1693,21 +1827,37 @@ private fun highlighted(text: String, query: String?): AnnotatedString {
     if (query.isNullOrEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
-        val lowerText = text.lowercase()
-        val lowerQuery = query.lowercase()
-        // Only mark when lower-casing did not change the length, so the
-        // positions still match the original text.
-        if (lowerText.length != text.length || lowerQuery.isEmpty()) return@buildAnnotatedString
-        var from = lowerText.indexOf(lowerQuery)
+        // Compared without accents, like the search itself. Folding keeps
+        // the length, so the positions still match the original text.
+        val foldedText = foldVi(text)
+        val foldedQuery = foldVi(query)
+        if (foldedQuery.isEmpty()) return@buildAnnotatedString
+        var from = foldedText.indexOf(foldedQuery)
         while (from >= 0) {
             addStyle(
                 SpanStyle(background = Color(0xFFFFE066), color = Color(0xFF1B1B1B)),
                 from,
-                from + lowerQuery.length,
+                from + foldedQuery.length,
             )
-            from = lowerText.indexOf(lowerQuery, from + lowerQuery.length)
+            from = foldedText.indexOf(foldedQuery, from + foldedQuery.length)
         }
     }
+}
+
+// Vietnamese letters with accents, and the plain letter each one becomes.
+private const val VN_ACCENTED = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+private const val VN_PLAIN = "aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd"
+
+// Lower case and without Vietnamese accents ("Ổn" -> "on"), one character
+// for each character of the input.
+private fun foldVi(text: String): String {
+    val out = StringBuilder(text.length)
+    for (ch in text) {
+        val lower = ch.lowercaseChar()
+        val at = VN_ACCENTED.indexOf(lower)
+        out.append(if (at >= 0) VN_PLAIN[at] else lower)
+    }
+    return out.toString()
 }
 
 // The quoted message shown above a picture or voice message that is a reply.

@@ -60,6 +60,8 @@ fun AuthScreen() {
     val scope = rememberCoroutineScope()
 
     var registerMode by remember { mutableStateOf(false) }
+    // Whether the "forgot password" window is open.
+    var forgotOpen by remember { mutableStateOf(false) }
     // The last email typed on this phone is remembered, so it does not have
     // to be typed again after a failed or refused login. The password is
     // never stored.
@@ -270,5 +272,14 @@ fun AuthScreen() {
         ) {
             Text(if (registerMode) "Đã có tài khoản? Đăng nhập" else "Chưa có tài khoản? Đăng ký")
         }
+        if (!registerMode) {
+            TextButton(onClick = { forgotOpen = true }, enabled = !busy) {
+                Text("Quên mật khẩu?")
+            }
+        }
+    }
+
+    if (forgotOpen) {
+        ForgotPasswordDialog(initialEmail = email.trim(), onClose = { forgotOpen = false })
     }
 }

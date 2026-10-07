@@ -1,5 +1,18 @@
 package com.maychat.app.ui.chat
 
+import android.media.MediaMetadataRetriever
+import android.util.LruCache
+import android.widget.VideoView
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -474,6 +487,164 @@ fun FileBubbleContent(
                 color = textColor,
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Videos (sent as files, shown with a preview and played inside the app)
+// ---------------------------------------------------------------------
+
+fun isVideoFile(fileName: String?): Boolean =
+    (fileName ?: "").substringAfterLast('.', "").lowercase() in
+        setOf("mp4", "m4v", "3gp", "webm", "mkv", "mov")
+
+// First frame of each video already looked at, at most 20.
+private val videoThumbs = LruCache<String, Bitmap>(20)
+
+private suspend fun videoThumbnail(context: Context, path: String): Bitmap? {
+    videoThumbs.get(path)?.let { return it }
+    val file = MediaCache.file(context, path)
+    return withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            retriever.getFrameAtTime(0)?.also { videoThumbs.put(path, it) }
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+}
+
+// Shows one video message: its first frame with a play button.
+// Tap to play it inside the app, press and hold for the menu.
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun VideoBubbleContent(path: String, onLongPress: () -> Unit = {}) {
+    val context = LocalContext.current
+    var playing by remember(path) { mutableStateOf(false) }
+    val thumb by produceState(initialValue = videoThumbs.get(path), path) {
+        if (value == null) value = attempt { videoThumbnail(context, path) }.getOrNull()
+    }
+    val frame = thumb
+
+    Box(
+        modifier = Modifier
+            .size(width = 220.dp, height = 150.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black)
+            .combinedClickable(onLongClick = onLongPress, onClick = { playing = true }),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (frame != null) {
+            Image(
+                bitmap = frame.asImageBitmap(),
+                contentDescription = "Video",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("▶", color = Color.White, fontSize = 22.sp)
+        }
+    }
+
+    if (playing) {
+        VideoPlayerDialog(path = path, onClose = { playing = false })
+    }
+}
+
+// Plays one video on the whole screen. Tap the picture to pause or continue.
+@Composable
+private fun VideoPlayerDialog(path: String, onClose: () -> Unit) {
+    val context = LocalContext.current
+    // null = still downloading; the file is at most 5 MB.
+    var file by remember(path) { mutableStateOf<File?>(null) }
+    var failed by remember(path) { mutableStateOf(false) }
+    var paused by remember(path) { mutableStateOf(false) }
+    var player by remember(path) { mutableStateOf<VideoView?>(null) }
+
+    LaunchedEffect(path) {
+        attempt { MediaCache.file(context, path) }
+            .onSuccess { file = it }
+            .onFailure { failed = true }
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            val ready = file
+            when {
+                failed -> Text(
+                    "Không phát được video này.",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                ready == null -> Text(
+                    "Đang tải video…",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                else -> {
+                    AndroidView(
+                        factory = { viewContext ->
+                            VideoView(viewContext).apply {
+                                setVideoPath(ready.absolutePath)
+                                setOnPreparedListener { start() }
+                                setOnCompletionListener { paused = true }
+                                setOnErrorListener { _, _, _ ->
+                                    failed = true
+                                    true
+                                }
+                                player = this
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().align(Alignment.Center),
+                    )
+                    // Transparent layer on top: tap to pause or continue.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                val view = player ?: return@clickable
+                                if (view.isPlaying) {
+                                    view.pause()
+                                    paused = true
+                                } else {
+                                    view.start()
+                                    paused = false
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (paused) {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.55f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("▶", color = Color.White, fontSize = 30.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.align(Alignment.TopStart).safeDrawingPadding(),
+            ) { Text("‹ Đóng", color = Color.White) }
         }
     }
 }

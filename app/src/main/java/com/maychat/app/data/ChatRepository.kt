@@ -1,5 +1,6 @@
 package com.maychat.app.data
 
+import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -352,6 +353,21 @@ object ChatRepository {
         supabase.postgrest.rpc("set_mute_messages", buildJsonObject { put("p_muted", muted) })
     }
 
+    // "Forgot password", step 1: the server emails a code to this address.
+    suspend fun sendPasswordResetCode(email: String) {
+        supabase.auth.resetPasswordForEmail(email)
+    }
+
+    // Step 2: the code proves the email is mine (this also logs me in),
+    // then the new password is saved. Runs to the end even when the login
+    // screen disappears halfway because the login already succeeded.
+    suspend fun resetPasswordWithCode(email: String, code: String, newPassword: String) {
+        withContext(NonCancellable) {
+            supabase.auth.verifyEmailOtp(type = OtpType.Email.RECOVERY, email = email, token = code)
+            supabase.auth.updateUser { password = newPassword }
+        }
+    }
+
     suspend fun changePassword(newPassword: String) {
         supabase.auth.updateUser { password = newPassword }
     }
@@ -615,6 +631,22 @@ object ChatRepository {
         val clean = query.trim().replace("\\", "").replace("%", "").replace("_", " ")
         if (clean.length < 2) return emptyList()
         val cleared = clearedUtc(conversationId)
+
+        // First choice: the search on the server that ignores Vietnamese
+        // accents (supabase_migration_17_search.sql). If that function is
+        // not there, fall back to the exact search used before.
+        val folded = attempt {
+            supabase.postgrest.rpc(
+                "search_messages",
+                buildJsonObject {
+                    put("p_conversation", conversationId)
+                    put("p_query", clean)
+                    put("p_after", cleared)
+                },
+            ).decodeList<Message>()
+        }.getOrNull()
+        if (folded != null) return folded
+
         return supabase.postgrest.from("messages")
             .select {
                 filter {
