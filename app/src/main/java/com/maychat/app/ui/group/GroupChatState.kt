@@ -3,6 +3,7 @@ package com.maychat.app.ui.group
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.maychat.app.data.ChatMemory
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Group
 import com.maychat.app.data.GroupMember
@@ -20,6 +21,8 @@ import com.maychat.app.ui.chat.Reactor
 import com.maychat.app.ui.chat.SendState
 import com.maychat.app.ui.chat.UiMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -115,11 +118,34 @@ class GroupChatState(
         return if (seen > 0) "$seen người đã xem" else "Đã gửi"
     }
 
+    // Opened before since the app started: show what was there at once
+    // (no spinner); refresh() then brings the current state.
+    init {
+        ChatMemory.groupChats[groupId]?.let { remembered ->
+            remembered.messages.forEach { confirmed[it.id] = it }
+            hidden.addAll(remembered.hidden)
+            group = remembered.group
+            wallpaper = remembered.group?.wallpaper
+            members = remembered.members
+            if (confirmed.isNotEmpty()) {
+                publish()
+                loading = false
+            }
+        }
+    }
+
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
-        val sent = confirmed.values
-            .filter { it.id !in hidden }
+        val newestFirst = confirmed.values
             .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
+        ChatMemory.groupChats[groupId] = ChatMemory.GroupChat(
+            newestFirst.take(ChatRepository.PAGE_SIZE),
+            hidden.toSet(),
+            group,
+            members,
+        )
+        val sent = newestFirst
+            .filter { it.id !in hidden }
             .map { m ->
                 UiMessage(
                     key = m.id,
@@ -187,6 +213,8 @@ class GroupChatState(
                 attempt { ChatRepository.loadProfiles(wanted) }.onSuccess { members = it }
             }
         }
+        // Also remembers the group and its members for the next opening.
+        publish()
     }
 
     // Ids of the deputy leaders (migration 24; empty without it).
@@ -219,16 +247,25 @@ class GroupChatState(
     }
 
     // Loads the newest page. Also used to catch up after being offline.
-    suspend fun refresh() {
+    suspend fun refresh() = coroutineScope {
         // Know up to where I deleted this group's history on my side before
-        // asking for messages.
-        attempt { ChatRepository.loadGroupPrefs() }
-        attempt { ChatRepository.loadHiddenGroupMessageIds(groupId) }.onSuccess {
+        // asking for messages. (Waited for only when it was never read since
+        // login; otherwise it is refreshed alongside.)
+        if (ChatRepository.groupPrefsKnown) {
+            launch { attempt { ChatRepository.loadGroupPrefs() } }
+        } else {
+            attempt { ChatRepository.loadGroupPrefs() }
+        }
+        // Everything else is asked for AT THE SAME TIME (before: six
+        // questions one after the other, which made opening a group slow).
+        launch { reloadGroup() }
+        val hiddenAnswer = async { attempt { ChatRepository.loadHiddenGroupMessageIds(groupId) } }
+        val pageAnswer = async { attempt { ChatRepository.loadGroupMessages(groupId) } }
+        hiddenAnswer.await().onSuccess {
             hidden.clear()
             hidden.addAll(it)
         }
-        reloadGroup()
-        attempt { ChatRepository.loadGroupMessages(groupId) }
+        pageAnswer.await()
             .onSuccess { page ->
                 page.forEach { confirmed[it.id] = it }
                 if (!firstLoadDone) {
@@ -241,8 +278,9 @@ class GroupChatState(
             }
             .onFailure { error = it.toUserMessage() }
         loading = false
-        reloadReactions()
-        reloadPin()
+        launch { reloadReactions() }
+        launch { reloadPin() }
+        Unit
     }
 
     // Every 3 seconds while the screen shows: the newest few messages (this

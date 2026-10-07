@@ -281,9 +281,13 @@ fun ChatScreen(
     }
 
     // Only mark messages as read while the chat is really on screen.
+    // (The very first time the screen is already being loaded by the
+    // effect above, so it is not loaded twice.)
+    var resumedBefore by remember(conversationId) { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         state.visible = true
-        scope.launch { state.refresh() }
+        if (resumedBefore) scope.launch { state.refresh() }
+        resumedBefore = true
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
         state.visible = false

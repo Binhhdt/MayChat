@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.maychat.app.R
 import com.maychat.app.call.CallManager
 import com.maychat.app.data.CallItem
+import com.maychat.app.data.ChatMemory
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
@@ -66,14 +67,17 @@ fun CallsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var calls by remember { mutableStateOf<List<CallItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    // The list as last shown is there at once; the spinner only appears
+    // the first time after the app started.
+    var calls by remember { mutableStateOf(ChatMemory.calls ?: emptyList()) }
+    var loading by remember { mutableStateOf(ChatMemory.calls == null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload() {
         attempt { ChatRepository.loadCalls(myId) }
             .onSuccess {
                 calls = it
+                ChatMemory.calls = it
                 error = null
             }
             .onFailure { error = it.toUserMessage() }

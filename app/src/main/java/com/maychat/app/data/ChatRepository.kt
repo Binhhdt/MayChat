@@ -117,6 +117,9 @@ object ChatRepository {
         stopRealtime()
         // The lists remembered for a fast start belong to this account.
         ListCache.clear()
+        ChatMemory.clear()
+        conversationPrefsKnown = false
+        groupPrefsKnown = false
         supabase.auth.signOut()
     }
 
@@ -313,10 +316,21 @@ object ChatRepository {
             runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
         }
 
+    // True once the settings above were read at least once since login, so
+    // a chat does not have to wait for them again before showing messages.
+    @Volatile
+    var conversationPrefsKnown = false
+        private set
+
+    @Volatile
+    var groupPrefsKnown = false
+        private set
+
     suspend fun loadConversationPrefs(): Map<String, ConversationPref> {
         val list = supabase.postgrest.from("conversation_prefs")
             .select()
             .decodeList<ConversationPref>()
+        conversationPrefsKnown = true
         clearedAt = list.mapNotNull { pref -> pref.clearedAt?.let { pref.conversationId to it } }.toMap()
         return list.associateBy { it.conversationId }
     }
@@ -338,6 +352,7 @@ object ChatRepository {
                 put("p_clear", clear)
             },
         )
+        if (clear) ChatMemory.chats.remove(conversationId)
         attempt { loadConversationPrefs() }
     }
 
@@ -557,6 +572,7 @@ object ChatRepository {
         val list = supabase.postgrest.from("group_prefs")
             .select()
             .decodeList<GroupPref>()
+        groupPrefsKnown = true
         groupClearedAt = list.mapNotNull { pref -> pref.clearedAt?.let { pref.groupId to it } }.toMap()
         return list.associateBy { it.groupId }
     }
@@ -578,6 +594,7 @@ object ChatRepository {
                 put("p_clear", clear)
             },
         )
+        if (clear) ChatMemory.groupChats.remove(groupId)
         attempt { loadGroupPrefs() }
     }
 

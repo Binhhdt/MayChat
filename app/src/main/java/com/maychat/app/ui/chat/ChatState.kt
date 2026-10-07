@@ -3,6 +3,7 @@ package com.maychat.app.ui.chat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.maychat.app.data.ChatMemory
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
@@ -11,6 +12,8 @@ import com.maychat.app.data.Reaction
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -105,11 +108,26 @@ class ChatState(
         error = message
     }
 
+    // Opened before since the app started: show what was there at once
+    // (no spinner); refresh() then brings the current state.
+    init {
+        ChatMemory.chats[conversationId]?.let { remembered ->
+            remembered.messages.forEach { confirmed[it.id] = it }
+            hidden.addAll(remembered.hidden)
+            if (confirmed.isNotEmpty()) {
+                publish()
+                loading = false
+            }
+        }
+    }
+
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
-        val sent = confirmed.values
-            .filter { it.id !in hidden }
+        val newestFirst = confirmed.values
             .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
+        ChatMemory.chats[conversationId] = ChatMemory.Chat(newestFirst.take(ChatRepository.PAGE_SIZE), hidden.toSet())
+        val sent = newestFirst
+            .filter { it.id !in hidden }
             .map { m ->
                 val mine = m.senderId == myId
                 UiMessage(
@@ -268,18 +286,28 @@ class ChatState(
     }
 
     // Loads the newest page. Also used to catch up after being offline.
-    suspend fun refresh() {
+    suspend fun refresh() = coroutineScope {
         // Know up to where I deleted this conversation on my side before
         // asking for messages. If this fails (for example migration 16 was
         // not run) nothing is left out, exactly as before.
-        attempt { ChatRepository.loadConversationPrefs() }
-        // Which messages I have hidden. If this fails (for example migration
+        // (Waited for only when it was never read since login; otherwise it
+        // is refreshed alongside, so the messages are not held up.)
+        if (ChatRepository.conversationPrefsKnown) {
+            launch { attempt { ChatRepository.loadConversationPrefs() } }
+        } else {
+            attempt { ChatRepository.loadConversationPrefs() }
+        }
+        // The hidden messages and the newest page are asked for AT THE SAME
+        // TIME (before: one after the other).
+        // Which messages I have hidden: if this fails (for example migration
         // 09 was not run) nothing is hidden, exactly as before.
-        attempt { ChatRepository.loadHiddenMessageIds(conversationId) }.onSuccess {
+        val hiddenAnswer = async { attempt { ChatRepository.loadHiddenMessageIds(conversationId) } }
+        val pageAnswer = async { attempt { ChatRepository.loadMessages(conversationId) } }
+        hiddenAnswer.await().onSuccess {
             hidden.clear()
             hidden.addAll(it)
         }
-        attempt { ChatRepository.loadMessages(conversationId) }
+        pageAnswer.await()
             .onSuccess { page ->
                 page.forEach { confirmed[it.id] = it }
                 if (!firstLoadDone) {
@@ -292,9 +320,10 @@ class ChatState(
             }
             .onFailure { error = it.toUserMessage() }
         loading = false
-        reloadReactions()
-        reloadPin()
-        reloadWallpaper()
+        launch { reloadReactions() }
+        launch { reloadPin() }
+        launch { reloadWallpaper() }
+        Unit
     }
 
     // Safety net for when the live connection silently stops: quietly fetch
