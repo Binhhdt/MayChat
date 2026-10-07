@@ -2,6 +2,7 @@ package com.maychat.app.push
 
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.DeviceId
 import com.maychat.app.data.SupabaseProvider
@@ -42,8 +43,12 @@ class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
         if (data["type"] != "call") return
-        // App already on screen: the live connection shows the call itself.
-        if (Push.appVisible) return
+        // App already on screen: the call shows up by itself. Fetch the
+        // waiting call messages right away instead of at the next check.
+        if (Push.appVisible) {
+            CallManager.pokeSignals()
+            return
+        }
 
         val conversationId = data["conversation_id"] ?: return
         val senderId = data["sender_id"] ?: return

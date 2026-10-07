@@ -8,6 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -872,7 +873,44 @@ fun ChatScreen(
                                                 selectedKeys + message.key
                                             }
                                         },
-                                )
+                                ) {
+                                    // Round tick mark on the free side of the row:
+                                    // filled with a check when chosen, an empty
+                                    // ring when not.
+                                    Box(
+                                        modifier = Modifier
+                                            .align(if (message.mine) Alignment.CenterStart else Alignment.CenterEnd)
+                                            .padding(horizontal = 6.dp)
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (picked) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.surface
+                                                },
+                                            )
+                                            .border(
+                                                2.dp,
+                                                if (picked) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.outline
+                                                },
+                                                CircleShape,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (picked) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_check),
+                                                contentDescription = "Đã chọn",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             }
                         }

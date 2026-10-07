@@ -299,8 +299,10 @@ class ChatState(
         if (pollCount % 3 == 0) {
             reloadReactions()
             reloadPin()
-            reloadWallpaper()
         }
+        // Every time (about every 4 seconds): the background the other
+        // person may just have changed. One tiny request.
+        reloadWallpaper()
         val page = attempt { ChatRepository.loadMessages(conversationId, limit = 15) }.getOrNull() ?: return
         var changed = false
         page.forEach {

@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -95,8 +96,40 @@ object CallSignaling {
         closeOutboxLocked()
     }
 
-    // Send one call message to another user. Throws if it cannot be sent.
+    // How the last message went out, for the diagnosis line:
+    // "trực tiếp+CSDL", "trực tiếp", "CSDL" or "KHÔNG GỬI ĐƯỢC".
+    @Volatile
+    var lastSend: String = "-"
+        private set
+
+    // Send one call message to another user, over BOTH paths at the same
+    // time: the live connection (fast) and the database (dependable, the
+    // other phone fetches it about once a second). Throws only when neither
+    // path worked.
     suspend fun send(peerId: String, payload: JsonObject) {
+        val viaDatabase = scope.async {
+            runCatching { ChatRepository.sendCallSignal(peerId, payload) }.isSuccess
+        }
+        val live = try {
+            sendLive(peerId, payload)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            false
+        }
+        val stored = viaDatabase.await()
+        lastSend = when {
+            live && stored -> "trực tiếp+CSDL"
+            live -> "trực tiếp"
+            stored -> "CSDL"
+            else -> "KHÔNG GỬI ĐƯỢC"
+        }
+        if (!live && !stored) throw IllegalStateException("call message not sent")
+    }
+
+    // The live path: Realtime Broadcast on the other person's channel.
+    private suspend fun sendLive(peerId: String, payload: JsonObject) {
         val channel = mutex.withLock {
             if (outboxPeer != peerId) closeOutboxLocked()
             outbox ?: supabase.channel("call-$peerId").also {

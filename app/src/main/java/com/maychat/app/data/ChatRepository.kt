@@ -376,6 +376,22 @@ object ChatRepository {
     // Call history
     // ------------------------------------------------------------------
 
+    // Second path for the "set up a call" messages, through the database
+    // (supabase_migration_20_call_signals.sql).
+    suspend fun sendCallSignal(toUserId: String, payload: JsonObject) {
+        supabase.postgrest.rpc(
+            "send_call_signal",
+            buildJsonObject {
+                put("p_to", toUserId)
+                put("p_payload", payload)
+            },
+        )
+    }
+
+    // Fetches and removes the call messages waiting for me.
+    suspend fun takeCallSignals(): List<JsonObject> =
+        supabase.postgrest.rpc("take_call_signals").decodeList<JsonObject>()
+
     // Relay servers for calls (supabase_migration_19_call_servers.sql).
     // An empty list means "direct connection only", as before.
     suspend fun loadCallServers(): List<CallServer> =

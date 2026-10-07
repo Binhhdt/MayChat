@@ -15,6 +15,7 @@ import com.maychat.app.data.CallSignaling
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import com.maychat.app.push.Push
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -26,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -123,7 +125,8 @@ object CallManager {
             debugLine = "Chẩn đoán · bước: $dbgStep · kênh: ${CallSignaling.inboxStatus()} · " +
                 "máy này ${dbgMine[0]}/${dbgMine[1]}/${dbgMine[2]} · " +
                 "máy kia ${dbgTheirs[0]}/${dbgTheirs[1]}/${dbgTheirs[2]} · " +
-                "ICE $dbgIce · trung chuyển: ${if (relayServers.isEmpty()) "không" else "có"}"
+                "ICE $dbgIce · gửi: ${CallSignaling.lastSend} · " +
+                "trung chuyển: ${if (relayServers.isEmpty()) "không" else "có"}"
         }
     }
 
@@ -182,6 +185,31 @@ object CallManager {
         listenJob?.cancel()
         listenJob = main.launch {
             launch { CallSignaling.incoming.collect { onSignal(it) } }
+            // Second path for call messages: fetch them from the database.
+            // About once a second while a call is being set up, every few
+            // seconds otherwise. This is what makes calls get through when
+            // the live connection of this phone is not healthy.
+            launch {
+                while (isActive) {
+                    val current = ui
+                    val settingUp = current != null &&
+                        current.phase != CallPhase.CONNECTED && current.phase != CallPhase.ENDED
+                    delay(
+                        when {
+                            settingUp -> 1_000L
+                            current != null -> 3_000L
+                            else -> 4_000L
+                        },
+                    )
+                    // Nothing going on and the app is not on screen: a
+                    // notification wakes the app for a call, no need to ask.
+                    if (ui == null && !Push.appVisible) continue
+                    val fetched = attempt { ChatRepository.takeCallSignals() }
+                    fetched.onSuccess { list -> list.forEach { onSignal(it) } }
+                    // Function missing (migration 20 not run) or offline: ask less often.
+                    if (fetched.isFailure) delay(8_000)
+                }
+            }
             // Relay servers, if any were set up (table may not exist: then none).
             launch { attempt { ChatRepository.loadCallServers() }.onSuccess { relayServers = it } }
             attempt { CallSignaling.start(userId) }
@@ -453,11 +481,24 @@ object CallManager {
     private fun text(json: JsonObject, key: String): String? =
         json[key]?.jsonPrimitive?.contentOrNull
 
+    // Ids of calls that are over. Their late copies (every call message now
+    // arrives over two paths) must not make the phone ring again.
+    private val recentlyEnded = LinkedHashSet<String>()
+
+    // Fetch waiting call messages right now (used when a call notification
+    // arrives while the app is on screen).
+    fun pokeSignals() {
+        main.launch {
+            attempt { ChatRepository.takeCallSignals() }.onSuccess { list -> list.forEach { onSignal(it) } }
+        }
+    }
+
     private fun onSignal(json: JsonObject) {
         val type = text(json, "type") ?: return
         val id = text(json, "call_id") ?: return
         val from = text(json, "from") ?: return
         if (from == myId) return
+        if (type == "offer" && id in recentlyEnded) return
 
         when (type) {
             "offer" -> {
@@ -729,6 +770,10 @@ object CallManager {
         val current = ui ?: return
         if (current.phase == CallPhase.ENDED) return
         val endedId = callId
+        if (endedId != null) {
+            recentlyEnded.add(endedId)
+            if (recentlyEnded.size > 30) recentlyEnded.remove(recentlyEnded.first())
+        }
 
         // Complete the call history row (only the caller's phone writes it).
         val logJob = callLogJob
