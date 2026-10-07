@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -77,6 +78,13 @@ fun ChatWallpaperLayer(wallpaper: String?) {
     if (!wallpaper.startsWith("img:")) return
 
     val path = wallpaper.removePrefix("img:")
+    // key(path): everything below starts completely fresh for a new picture,
+    // so nothing of the previous background can stay on screen.
+    key(path) { WallpaperPicture(path) }
+}
+
+@Composable
+private fun WallpaperPicture(path: String) {
     val picture by produceState(initialValue = MediaCache.cachedBitmap(path), path) {
         // Always set for the CURRENT path. Keeping the old value here is
         // what made a newly chosen picture appear only after leaving and

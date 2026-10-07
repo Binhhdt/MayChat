@@ -26,8 +26,8 @@ import kotlinx.serialization.json.JsonObject
 //
 // Every logged-in phone listens on its own channel "call-<my user id>".
 // To reach someone, a phone joins THAT person's channel and sends there.
-// The channels are private: the server checks who may listen and who may
-// send (rules in supabase_migration_18_security.sql).
+// (Private channels were tried in 0.19.0 and taken back in 0.19.4: joining
+// them was unreliable. The rules in supabase_migration_18 stay unused.)
 object CallSignaling {
     private val supabase get() = SupabaseProvider.client
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -57,9 +57,9 @@ object CallSignaling {
     // Start listening for calls to this account.
     suspend fun start(myId: String) = mutex.withLock {
         stopLocked()
-        // Private channel: the server lets only me listen here
-        // (see supabase_migration_18_security.sql).
-        val channel = supabase.channel("call-$myId") { isPrivate = true }
+        // An ordinary channel again. The private channel tried in 0.19.0
+        // often stayed in "joining" and calls stopped getting through.
+        val channel = supabase.channel("call-$myId")
         inbox = channel
         inboxJob = scope.launch {
             val signals = channel.broadcastFlow<JsonObject>(event = "signal")
@@ -99,9 +99,7 @@ object CallSignaling {
     suspend fun send(peerId: String, payload: JsonObject) {
         val channel = mutex.withLock {
             if (outboxPeer != peerId) closeOutboxLocked()
-            // Private too: the server lets me send here only when I have a
-            // conversation with this person.
-            outbox ?: supabase.channel("call-$peerId") { isPrivate = true }.also {
+            outbox ?: supabase.channel("call-$peerId").also {
                 outbox = it
                 outboxPeer = peerId
             }

@@ -201,6 +201,9 @@ class ChatState(
                 val path = "$conversationId/wallpaper-${UUID.randomUUID()}.jpg"
                 ChatRepository.uploadMedia(path, jpegBytes)
                 MediaCache.put(path, jpegBytes)
+                // Show the new picture on this phone at once; the server
+                // call below then makes it official for both people.
+                wallpaper = "img:$path"
                 ChatRepository.setWallpaper(conversationId, "img:$path")
                 deleteOldWallpaperPicture(before, "img:$path")
             }.onFailure { error = it.toUserMessage() }
