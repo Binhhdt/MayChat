@@ -116,12 +116,19 @@ object ChatRepository {
             supabase.postgrest.rpc("unregister_push_token", buildJsonObject { put("p_device", deviceId) })
         }
         stopRealtime()
-        // The lists remembered for a fast start belong to this account.
+        // The lists and messages remembered for a fast start belong to this
+        // account: erase them, before AND after the sign-out (a screen that
+        // is still closing must not write them back).
         ListCache.clear()
         ChatMemory.clear()
         conversationPrefsKnown = false
         groupPrefsKnown = false
-        supabase.auth.signOut()
+        try {
+            supabase.auth.signOut()
+        } finally {
+            ListCache.clear()
+            ChatMemory.clear()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -147,7 +154,9 @@ object ChatRepository {
             "claim_session",
             buildJsonObject { put("p_device", deviceId) },
         )
-        return result.data.trim() == "true"
+        val mine = result.data.trim() == "true"
+        if (mine) currentUserId()?.let { ListCache.markSessionConfirmed(it) } else ListCache.markSessionLost()
+        return mine
     }
 
     // Tells the server where to send this account's notifications
@@ -353,7 +362,7 @@ object ChatRepository {
                 put("p_clear", clear)
             },
         )
-        if (clear) ChatMemory.chats.remove(conversationId)
+        if (clear) ChatMemory.forgetChat(conversationId)
         attempt { loadConversationPrefs() }
     }
 
@@ -513,6 +522,14 @@ object ChatRepository {
 
     suspend fun leaveGroup(groupId: String) {
         supabase.postgrest.rpc("leave_group", buildJsonObject { put("p_group", groupId) })
+        ChatMemory.forgetGroupChat(groupId)
+    }
+
+    // The leader deletes the whole group for everyone
+    // (supabase_migration_26_disband_group.sql).
+    suspend fun disbandGroup(groupId: String) {
+        supabase.postgrest.rpc("disband_group", buildJsonObject { put("p_group", groupId) })
+        ChatMemory.forgetGroupChat(groupId)
     }
 
     suspend fun renameGroup(groupId: String, name: String) {
@@ -595,7 +612,7 @@ object ChatRepository {
                 put("p_clear", clear)
             },
         )
-        if (clear) ChatMemory.groupChats.remove(groupId)
+        if (clear) ChatMemory.forgetGroupChat(groupId)
         attempt { loadGroupPrefs() }
     }
 
@@ -1340,7 +1357,15 @@ object ChatRepository {
 
     // Same as listenTyping, for a GROUP: tells WHO is typing (their user
     // id). channelId is the id of the group.
-    suspend fun listenTypingWho(channelId: String, myId: String, onTyping: (String) -> Unit) {
+    // onChanged: another member's phone says "something other than a
+    // message changed here" (a reaction, who has read, the pin), so this
+    // phone can fetch it at once instead of at its next check.
+    suspend fun listenTypingWho(
+        channelId: String,
+        myId: String,
+        onChanged: () -> Unit = {},
+        onTyping: (String) -> Unit,
+    ) {
         val channel = supabase.channel("typing-$channelId")
         synchronized(typingChannels) { typingChannels[channelId] = channel }
         try {
@@ -1350,6 +1375,13 @@ object ChatRepository {
                     events.collect { payload ->
                         val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
                         if (from != null && from != myId) onTyping(from)
+                    }
+                }
+                val changes = channel.broadcastFlow<JsonObject>(event = "changed")
+                launch {
+                    changes.collect { payload ->
+                        val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
+                        if (from != null && from != myId) onChanged()
                     }
                 }
                 delay(300)
@@ -1362,6 +1394,21 @@ object ChatRepository {
             withContext(NonCancellable) {
                 runCatching { supabase.realtime.removeChannel(channel) }
             }
+        }
+    }
+
+    // Tells the other members' open phones "a reaction / who has read / the
+    // pin changed in this group". Does nothing when offline or when the
+    // group is not open here; the others then see it at their next check.
+    suspend fun sendGroupChanged(groupId: String, myId: String) {
+        val channel = synchronized(typingChannels) { typingChannels[groupId] } ?: return
+        if (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) return
+        try {
+            channel.broadcast(event = "changed", message = buildJsonObject { put("user_id", myId) })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Not important enough to show an error.
         }
     }
 

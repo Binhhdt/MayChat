@@ -110,24 +110,31 @@ class ChatState(
         error = message
     }
 
-    // Opened before since the app started: show what was there at once
-    // (no spinner); refresh() then brings the current state.
-    init {
-        ChatMemory.chats[conversationId]?.let { remembered ->
-            remembered.messages.forEach { confirmed[it.id] = it }
-            hidden.addAll(remembered.hidden)
-            if (confirmed.isNotEmpty()) {
-                publish()
-                loading = false
-            }
-        }
+    // Remembers the newest page (with reactions, pin and background) for
+    // the next time this chat is opened, also after the app was closed.
+    private fun keep(
+        newestFirst: List<Message> = confirmed.values
+            .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) },
+    ) {
+        val page = newestFirst.take(ChatRepository.PAGE_SIZE)
+        val ids = page.map { it.id }.toSet()
+        ChatMemory.saveChat(
+            conversationId,
+            ChatMemory.Chat(
+                messages = page,
+                hidden = hidden.toSet(),
+                reactions = reactions.filterKeys { it in ids }.values.flatten(),
+                wallpaper = wallpaper,
+                pinned = pinned,
+            ),
+        )
     }
 
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
         val newestFirst = confirmed.values
             .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
-        ChatMemory.chats[conversationId] = ChatMemory.Chat(newestFirst.take(ChatRepository.PAGE_SIZE), hidden.toSet())
+        keep(newestFirst)
         val sent = newestFirst
             .filter { it.id !in hidden }
             .map { m ->
@@ -183,8 +190,12 @@ class ChatState(
     // migration 10 was not run) no reactions are shown, exactly as before.
     suspend fun reloadReactions() {
         attempt { ChatRepository.loadReactions(conversationId) }.onSuccess { all ->
-            reactions = all.groupBy { it.messageId }
-            publish()
+            val next = all.groupBy { it.messageId }
+            // Only when something really changed (this runs every few seconds).
+            if (next != reactions) {
+                reactions = next
+                publish()
+            }
         }
     }
 
@@ -196,7 +207,12 @@ class ChatState(
     // If this fails (for example migration 13 was not run) there is simply
     // no background.
     suspend fun reloadWallpaper() {
-        attempt { ChatRepository.loadWallpaper(conversationId) }.onSuccess { wallpaper = it }
+        attempt { ChatRepository.loadWallpaper(conversationId) }.onSuccess {
+            if (wallpaper != it) {
+                wallpaper = it
+                keep()
+            }
+        }
     }
 
     // The picture of the background that was just replaced is not used
@@ -241,7 +257,12 @@ class ChatState(
     // Reads the pinned message. If this fails (for example migration 11 was
     // not run) nothing is pinned, exactly as before.
     suspend fun reloadPin() {
-        attempt { ChatRepository.loadPinnedMessage(conversationId) }.onSuccess { pinned = it }
+        attempt { ChatRepository.loadPinnedMessage(conversationId) }.onSuccess {
+            if (pinned != it) {
+                pinned = it
+                keep()
+            }
+        }
     }
 
     fun pin(messageId: String) {
@@ -628,6 +649,24 @@ class ChatState(
                     error = it.toUserMessage()
                 }
             publish()
+        }
+    }
+
+    // Opened before (even before the app was last closed): show what was
+    // there at once, without a spinner; refresh() then brings the current
+    // state. This block is at the END of the class on purpose: everything
+    // above must exist before it runs.
+    init {
+        ChatMemory.chat(conversationId)?.let { remembered ->
+            remembered.messages.forEach { confirmed[it.id] = it }
+            hidden.addAll(remembered.hidden)
+            reactions = remembered.reactions.groupBy { it.messageId }
+            wallpaper = remembered.wallpaper
+            pinned = remembered.pinned
+            if (confirmed.isNotEmpty()) {
+                publish()
+                loading = false
+            }
         }
     }
 }

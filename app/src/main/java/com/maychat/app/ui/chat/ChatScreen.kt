@@ -453,6 +453,12 @@ fun ChatScreen(
         keys
     }
 
+    // The newest of my messages the other person has read: their small
+    // picture is shown under it.
+    val seenKey = remember(state.messages) {
+        state.messages.firstOrNull { it.mine && it.state == SendState.READ && !it.recalled }?.key
+    }
+
     // True when a message from the other person arrived while I was reading
     // older messages further up. Shows the "Tin nhắn mới" button.
     var newBelow by remember(conversationId) { mutableStateOf(false) }
@@ -915,6 +921,7 @@ fun ChatScreen(
                                 onReply = { replyingTo = message },
                                 onReact = { emoji -> state.react(message.key, emoji) },
                                 onShowReactions = { reactionsFor = message.key },
+                                seenAvatars = if (message.key == seenKey) listOf(other) else emptyList(),
                             )
                             // While choosing several messages: a layer over the
                             // message catches the tap and ticks it on or off.
@@ -1510,6 +1517,10 @@ internal fun MessageBubble(
     // Group chats only: tapping the line under my message ("2 người đã
     // xem") shows who has read it. null = the line cannot be tapped.
     onMetaClick: (() -> Unit)? = null,
+    // People whose reading stopped at this message: their small pictures
+    // are shown under it, like in Zalo. Tapping them calls onSeenClick.
+    seenAvatars: List<Profile> = emptyList(),
+    onSeenClick: (() -> Unit)? = null,
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1930,6 +1941,38 @@ internal fun MessageBubble(
                 .then(if (onMetaClick != null) Modifier.clickable(onClick = onMetaClick) else Modifier)
                 .padding(horizontal = 4.dp, vertical = 2.dp),
         )
+        // "Seen by": small round pictures at the right edge.
+        if (seenAvatars.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 1.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .then(if (onSeenClick != null) Modifier.clickable(onClick = onSeenClick) else Modifier)
+                        .padding(horizontal = 2.dp, vertical = 1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    seenAvatars.take(6).forEach { person ->
+                        Avatar(
+                            name = person.displayName,
+                            online = false,
+                            size = 16.dp,
+                            avatarPath = person.avatarPath,
+                        )
+                    }
+                    if (seenAvatars.size > 6) {
+                        Text(
+                            "+${seenAvatars.size - 6}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
     }
     }
     }

@@ -108,6 +108,7 @@ fun GroupInfoScreen(
     var confirmClear by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Profile?>(null) }
     var confirmTransfer by remember { mutableStateOf<Profile?>(null) }
+    var confirmDisband by remember { mutableStateOf(false) }
 
     // My own settings for this group. If reading them fails (for example
     // migration 22 was not run) both are simply shown as "off".
@@ -136,6 +137,8 @@ fun GroupInfoScreen(
         scope.launch {
             attempt { action() }
                 .onSuccess {
+                    // The other members' open phones follow at once.
+                    ChatRepository.sendGroupChanged(group.id, myId)
                     onChanged()
                     after()
                 }
@@ -414,6 +417,18 @@ fun GroupInfoScreen(
                                 .clickable(enabled = !busy) { confirmClear = true }
                                 .padding(horizontal = 20.dp, vertical = 14.dp),
                         )
+                        // Only the leader: delete the whole group for everyone.
+                        if (iAmLeader) {
+                            Text(
+                                "Giải tán nhóm",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !busy) { confirmDisband = true }
+                                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                            )
+                        }
                         Text(
                             "Rời nhóm",
                             style = MaterialTheme.typography.bodyLarge,
@@ -548,6 +563,28 @@ fun GroupInfoScreen(
                     ) { Text("Chuyển") }
                 },
                 dismissButton = { TextButton(onClick = { confirmTransfer = null }) { Text("Không") } },
+            )
+        }
+
+        if (confirmDisband) {
+            AlertDialog(
+                onDismissRequest = { confirmDisband = false },
+                title = { Text("Giải tán nhóm \"${group.name}\"?") },
+                text = {
+                    Text(
+                        "Nhóm sẽ biến mất với TẤT CẢ ${members.size} thành viên, cùng toàn bộ tin nhắn của nhóm. " +
+                            "Việc này không khôi phục được.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmDisband = false
+                            perform({ ChatRepository.disbandGroup(group.id) }, after = onLeft)
+                        },
+                    ) { Text("Giải tán", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { confirmDisband = false }) { Text("Không") } },
             )
         }
 

@@ -1,6 +1,7 @@
 package com.maychat.app
 
 import android.app.Application
+import com.maychat.app.data.ChatMemory
 import com.maychat.app.data.ListCache
 import com.maychat.app.push.Push
 
@@ -10,5 +11,6 @@ class MayChatApplication : Application() {
         super.onCreate()
         Push.init(this)
         ListCache.init(this)
+        ChatMemory.init(this)
     }
 }

@@ -47,6 +47,7 @@ import com.maychat.app.call.CallManager
 import com.maychat.app.data.CallItem
 import com.maychat.app.data.ChatMemory
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.ListCache
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -69,8 +70,9 @@ fun CallsScreen(
 
     // The list as last shown is there at once; the spinner only appears
     // the first time after the app started.
-    var calls by remember { mutableStateOf(ChatMemory.calls ?: emptyList()) }
-    var loading by remember { mutableStateOf(ChatMemory.calls == null) }
+    val rememberedCalls = remember { if (ListCache.trusted(myId)) ChatMemory.calls else null }
+    var calls by remember { mutableStateOf(rememberedCalls ?: emptyList()) }
+    var loading by remember { mutableStateOf(rememberedCalls == null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload() {

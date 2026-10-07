@@ -181,7 +181,12 @@ fun GroupChatScreen(
     var typingAt by remember(groupId) { mutableStateOf<Map<String, Long>>(emptyMap()) }
     var myTypingSentAt by remember(groupId) { mutableLongStateOf(0L) }
     LaunchedEffect(groupId) {
-        ChatRepository.listenTypingWho(groupId, myId) { who ->
+        ChatRepository.listenTypingWho(
+            groupId,
+            myId,
+            // Someone reacted, read or pinned: fetch it at once.
+            onChanged = { scope.launch { state.syncExtras() } },
+        ) { who ->
             typingAt = typingAt + (who to System.currentTimeMillis())
         }
     }
@@ -429,6 +434,27 @@ fun GroupChatScreen(
     BackHandler(enabled = searchMode) {
         searchMode = false
         searchQuery = ""
+    }
+
+    // Small pictures under the messages: each member's picture sits under
+    // the newest message (of someone else) they have read.
+    val readTimes = state.readTimes()
+    val seenMarks = remember(state.messages, readTimes, state.members) {
+        val list = state.messages
+        val times = list.map { ChatRepository.toEpochMillis(it.createdAt) }
+        val marks = HashMap<String, MutableList<Profile>>()
+        for (person in state.members) {
+            if (person.id == myId) continue
+            val readAt = readTimes[person.id] ?: continue
+            for (i in list.indices) {
+                val m = list[i]
+                if (times[i] == 0L || times[i] > readAt) continue
+                if (m.kind == "system" || m.senderId == person.id) continue
+                marks.getOrPut(m.key) { ArrayList() }.add(person)
+                break
+            }
+        }
+        marks
     }
 
     // True when a message from someone else arrived while I was reading
@@ -778,6 +804,8 @@ fun GroupChatScreen(
                                     } else {
                                         null
                                     },
+                                    seenAvatars = seenMarks[message.key] ?: emptyList(),
+                                    onSeenClick = { seenFor = message },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.

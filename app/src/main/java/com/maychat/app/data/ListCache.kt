@@ -27,7 +27,10 @@ object ListCache {
     }
 
     // Any problem with the saved copy just means "nothing saved".
+    // Nothing is handed out before the server has confirmed that this phone
+    // holds the account (see trusted below).
     private fun <T> read(myId: String, name: String, serializer: KSerializer<T>): T? {
+        if (!trusted(myId)) return null
         val text = prefs?.getString("$myId/$name", null) ?: return null
         return runCatching { json.decodeFromString(serializer, text) }.getOrNull()
     }
@@ -86,8 +89,48 @@ object ListCache {
     fun me(myId: String): Profile? = read(myId, "me", Profile.serializer())
     fun saveMe(myId: String, value: Profile) = write(myId, "me", Profile.serializer(), value)
 
+    // ----- "One device at a time" ---------------------------------------
+    // When the server last confirmed that THIS phone holds the account.
+    // Another phone can only take the account after this one has been
+    // silent for 90 seconds, so for one minute after a confirmation the
+    // start-up check does not have to be waited for.
+
+    // When the server last said "this phone holds the account", in this
+    // run of the app (0 = not yet).
+    @Volatile
+    private var confirmedAtMs = 0L
+
+    // The rule for EVERYTHING remembered on the phone (lists and messages):
+    // it is shown only while the server's last confirmation of this phone
+    // is at most 75 seconds old. Another phone can take the account only
+    // after this one was silent for 90 seconds, and while the app is in use
+    // it is confirmed again every 30 seconds. So a phone that cannot reach
+    // the server (no network) shows nothing remembered, and a phone that
+    // lost the account to another one never shows old conversations.
+    fun trusted(myId: String): Boolean {
+        val now = System.currentTimeMillis()
+        return (confirmedAtMs > 0L && now - confirmedAtMs in 0..75_000) || sessionConfirmedRecently(myId)
+    }
+
+    // The server said another phone holds the account.
+    fun markSessionLost() {
+        confirmedAtMs = 0L
+    }
+
+    fun markSessionConfirmed(myId: String) {
+        confirmedAtMs = System.currentTimeMillis()
+        runCatching { prefs?.edit()?.putLong("$myId/session-ok", System.currentTimeMillis())?.apply() }
+    }
+
+    fun sessionConfirmedRecently(myId: String): Boolean {
+        val at = prefs?.getLong("$myId/session-ok", 0L) ?: 0L
+        val age = System.currentTimeMillis() - at
+        return at > 0L && age in 0..60_000
+    }
+
     // Signing out: nothing of the account stays on the phone.
     fun clear() {
+        confirmedAtMs = 0L
         runCatching { prefs?.edit()?.clear()?.apply() }
     }
 }

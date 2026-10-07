@@ -164,7 +164,12 @@ fun MayChatApp() {
 // everything (see MayChatApp).
 @Composable
 private fun SessionGate(myId: String) {
-    var allowed by remember(myId) { mutableStateOf(false) }
+    // Exception that keeps the same guarantee: the server confirmed less
+    // than a minute ago that THIS phone holds the account. Another phone can
+    // only take it after 90 seconds of silence from this one, so nobody else
+    // can be using it yet; the start-up screen is skipped and the check
+    // below runs alongside (and still signs out if it ever says no).
+    var allowed by remember(myId) { mutableStateOf(ListCache.sessionConfirmedRecently(myId)) }
 
     LaunchedEffect(myId) {
         // null = the check itself failed (offline, or migration 05 not run).

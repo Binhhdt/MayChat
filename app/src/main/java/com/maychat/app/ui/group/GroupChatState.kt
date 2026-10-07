@@ -127,32 +127,37 @@ class GroupChatState(
         return if (seen > 0) "$seen người đã xem" else "Đã gửi"
     }
 
-    // Opened before since the app started: show what was there at once
-    // (no spinner); refresh() then brings the current state.
-    init {
-        ChatMemory.groupChats[groupId]?.let { remembered ->
-            remembered.messages.forEach { confirmed[it.id] = it }
-            hidden.addAll(remembered.hidden)
-            group = remembered.group
-            wallpaper = remembered.group?.wallpaper
-            members = remembered.members
-            if (confirmed.isNotEmpty()) {
-                publish()
-                loading = false
-            }
-        }
+    // The rows of the member list as last read (role, read up to when).
+    private var memberRows: List<GroupMember> = emptyList()
+
+    // Remembers the newest page (with reactions, pin, members) for the next
+    // time this group is opened, also after the app was closed.
+    private fun keep(
+        newestFirst: List<GroupMessage> = confirmed.values
+            .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) },
+    ) {
+        if (gone) return
+        val page = newestFirst.take(ChatRepository.PAGE_SIZE)
+        val ids = page.map { it.id }.toSet()
+        ChatMemory.saveGroupChat(
+            groupId,
+            ChatMemory.GroupChat(
+                messages = page,
+                hidden = hidden.toSet(),
+                group = group,
+                members = members,
+                reactions = reactions.filterKeys { it in ids }.values.flatten(),
+                pinned = pinned,
+                memberRows = memberRows,
+            ),
+        )
     }
 
     // Rebuilds the list shown on screen: newest first.
     private fun publish() {
         val newestFirst = confirmed.values
             .sortedByDescending { ChatRepository.toEpochMillis(it.createdAt) }
-        ChatMemory.groupChats[groupId] = ChatMemory.GroupChat(
-            newestFirst.take(ChatRepository.PAGE_SIZE),
-            hidden.toSet(),
-            group,
-            members,
-        )
+        keep(newestFirst)
         val sent = newestFirst
             .filter { it.id !in hidden }
             .map { m ->
@@ -209,6 +214,8 @@ class GroupChatState(
         attempt { ChatRepository.loadGroup(groupId) }.onSuccess { loaded ->
             if (loaded == null) {
                 gone = true
+                // Nothing of a group I am no longer in stays on the phone.
+                ChatMemory.forgetGroupChat(groupId)
             } else {
                 group = loaded
                 wallpaper = loaded.wallpaper
@@ -231,6 +238,7 @@ class GroupChatState(
         private set
 
     private fun applyMemberRows(rows: List<GroupMember>) {
+        memberRows = rows
         val nextDeputies = rows.filter { it.role == "deputy" }.map { it.userId }.toSet()
         if (nextDeputies != deputies) deputies = nextDeputies
         val next = rows.associate { it.userId to ChatRepository.toEpochMillis(it.lastReadAt) }
@@ -241,19 +249,52 @@ class GroupChatState(
     // no reactions, no pin and no background, exactly as before.
     suspend fun reloadReactions() {
         attempt { ChatRepository.loadGroupReactions(groupId) }.onSuccess { all ->
-            reactions = all.groupBy { it.messageId }
-            publish()
+            val next = all.groupBy { it.messageId }
+            // Only when something really changed (this runs every few seconds).
+            if (next != reactions) {
+                reactions = next
+                publish()
+            }
         }
     }
 
     suspend fun reloadPin() {
-        attempt { ChatRepository.loadGroupPinnedMessage(groupId) }.onSuccess { pinned = it }
+        attempt { ChatRepository.loadGroupPinnedMessage(groupId) }.onSuccess {
+            if (pinned != it) {
+                pinned = it
+                keep()
+            }
+        }
     }
 
     private fun markReadIfVisible() {
         if (!visible) return
-        scope.launch { attempt { ChatRepository.markGroupRead(groupId) } }
+        scope.launch {
+            attempt { ChatRepository.markGroupRead(groupId) }
+                // The others see "đã xem" at once.
+                .onSuccess { tellOthers() }
+        }
     }
+
+    // Tells the other members' open phones that something other than a
+    // message changed (a reaction, who has read, the pin).
+    private suspend fun tellOthers() {
+        ChatRepository.sendGroupChanged(groupId, myId)
+    }
+
+    // Another member's phone said "something changed": fetch reactions,
+    // who has read and the pin right now instead of at the next check.
+    suspend fun syncExtras() {
+        if (loading) return
+        reloadReactions()
+        // Members, roles, who has read; also notices that the group is gone.
+        reloadGroup()
+        reloadPin()
+    }
+
+    // Who has read up to when, by user id (for the small pictures under
+    // the messages). Reading it in a screen makes the screen follow changes.
+    fun readTimes(): Map<String, Long> = readUpTo
 
     // Starts refresh() unless one is already running. Every trigger (screen
     // opened, connection came back, app returned to the front) goes through
@@ -427,6 +468,7 @@ class GroupChatState(
     fun pin(messageId: String) {
         scope.launch {
             attempt { ChatRepository.pinGroupMessage(messageId) }
+                .onSuccess { tellOthers() }
                 .onFailure { error = it.toUserMessage() }
             reloadPin()
         }
@@ -436,6 +478,7 @@ class GroupChatState(
         pinned = null
         scope.launch {
             attempt { ChatRepository.unpinGroupMessage(groupId) }
+                .onSuccess { tellOthers() }
                 .onFailure { error = it.toUserMessage() }
             reloadPin()
         }
@@ -454,6 +497,7 @@ class GroupChatState(
 
         scope.launch {
             attempt { ChatRepository.setGroupReaction(messageId, next) }
+                .onSuccess { tellOthers() }
                 .onFailure { error = it.toUserMessage() }
             reloadReactions()
         }
@@ -698,6 +742,27 @@ class GroupChatState(
                     error = it.toUserMessage()
                 }
             publish()
+        }
+    }
+
+    // Opened before (even before the app was last closed): show what was
+    // there at once, without a spinner; refresh() then brings the current
+    // state. This block is at the END of the class on purpose: everything
+    // above must exist before it runs.
+    init {
+        ChatMemory.groupChat(groupId)?.let { remembered ->
+            remembered.messages.forEach { confirmed[it.id] = it }
+            hidden.addAll(remembered.hidden)
+            reactions = remembered.reactions.groupBy { it.messageId }
+            group = remembered.group
+            wallpaper = remembered.group?.wallpaper
+            members = remembered.members
+            pinned = remembered.pinned
+            applyMemberRows(remembered.memberRows)
+            if (confirmed.isNotEmpty()) {
+                publish()
+                loading = false
+            }
         }
     }
 }
