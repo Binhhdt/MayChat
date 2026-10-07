@@ -285,17 +285,23 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     val chatToOpen by Push.chatToOpen.collectAsState()
     LaunchedEffect(chatToOpen) {
         val target = chatToOpen ?: return@LaunchedEffect
-        Push.clearOpenChat()
-        // The notification of a GROUP message carries the group's id in the
-        // same place: open the group in that case.
-        val group = attempt { ChatRepository.loadGroup(target.conversationId) }.getOrNull()
-        if (group != null) {
-            overlay = Overlay.GroupChat(group.id, group.name)
-            return@LaunchedEffect
+        // The work runs in the screen's own scope, NOT in this effect:
+        // clearing the request (last line) restarts the effect, and that
+        // used to cancel the work halfway, so the chat never opened.
+        scope.launch {
+            // The notification of a GROUP message carries the group's id in
+            // the same place: open the group in that case.
+            val group = attempt { ChatRepository.loadGroup(target.conversationId) }.getOrNull()
+            if (group != null) {
+                overlay = Overlay.GroupChat(group.id, group.name)
+            } else {
+                val person = attempt { ChatRepository.loadProfile(target.senderId) }.getOrNull()
+                    ?: Profile(id = target.senderId, username = "", displayName = target.senderName)
+                tab = MainTab.CHATS
+                overlay = Overlay.Chat(target.conversationId, person)
+            }
         }
-        val person = attempt { ChatRepository.loadProfile(target.senderId) }.getOrNull()
-            ?: Profile(id = target.senderId, username = "", displayName = target.senderName)
-        overlay = Overlay.Chat(target.conversationId, person)
+        Push.clearOpenChat()
     }
 
     // ----- "Offline for how long" --------------------------------------

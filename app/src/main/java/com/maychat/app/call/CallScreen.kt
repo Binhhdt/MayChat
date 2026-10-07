@@ -231,18 +231,6 @@ fun CallScreen(call: CallUi) {
 
             Spacer(Modifier.weight(1f))
 
-            // Small diagnosis line: where the call set-up is right now.
-            if (CallManager.debugLine.isNotEmpty() && call.phase != CallPhase.INCOMING) {
-                Text(
-                    CallManager.debugLine,
-                    color = Color.White.copy(alpha = 0.55f),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-            }
-
             when (call.phase) {
                 CallPhase.INCOMING -> Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -459,16 +447,6 @@ private fun VideoCallScreen(call: CallUi) {
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (CallManager.debugLine.isNotEmpty()) {
-                Text(
-                    CallManager.debugLine,
-                    color = Color.White.copy(alpha = 0.55f),
-                    fontSize = 10.sp,
-                    lineHeight = 13.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,

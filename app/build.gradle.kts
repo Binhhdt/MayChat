@@ -126,8 +126,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 46
-        versionName = "0.22.0"
+        versionCode = 47
+        versionName = "0.22.1"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
