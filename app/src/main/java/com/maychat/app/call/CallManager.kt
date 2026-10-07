@@ -100,6 +100,20 @@ object CallManager {
 
     var ui by mutableStateOf<CallUi?>(null)
         private set
+
+    // True while the call screen is put aside so the rest of the app can be
+    // used (read and write messages); the call itself goes on. A small bar
+    // then leads back to the call screen.
+    var minimized by mutableStateOf(false)
+        private set
+
+    fun minimize() {
+        minimized = true
+    }
+
+    fun restore() {
+        minimized = false
+    }
     var muted by mutableStateOf(false)
         private set
     var speakerOn by mutableStateOf(false)

@@ -105,6 +105,7 @@ import com.maychat.app.data.Message
 import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import com.maychat.app.data.picturePaths
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.BackButton
@@ -140,6 +141,26 @@ fun ChatScreen(
     val online by ChatRepository.onlineUsers.collectAsState()
     val connectionCount by ChatRepository.connectionCount.collectAsState()
     val listState = rememberLazyListState()
+
+    // Emojis flying up after a reaction was tapped.
+    val bursts = remember { mutableStateListOf<ReactionBurst>() }
+
+    // Pictures chosen to send, waiting for the "send?" window (null = none),
+    // and whether "HD" is ticked (remembered while the chat is open).
+    var pickedPhotos by remember(conversationId) { mutableStateOf<List<android.net.Uri>?>(null) }
+    var sendHd by remember(conversationId) { mutableStateOf(false) }
+
+    // Where each message bubble is on the screen (not a state: only read
+    // when a reaction from someone else arrives).
+    val bubbleCenters = remember(conversationId) { HashMap<String, Offset>() }
+    // Someone else tapped a reaction: let it fly up here too, when that
+    // message is on screen.
+    val showRemoteBurst: (String, String) -> Unit = { messageId, emoji ->
+        val onScreen = listState.layoutInfo.visibleItemsInfo.any { it.key == messageId }
+        val from = bubbleCenters[messageId]
+        if (onScreen && from != null) bursts.fly(emoji, from)
+    }
+
 
     var draft by remember(conversationId) { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
@@ -257,7 +278,11 @@ fun ChatScreen(
 
     // Receive "the other person is typing" signals.
     LaunchedEffect(conversationId) {
-        ChatRepository.listenTyping(conversationId, myId) {
+        ChatRepository.listenTyping(
+            conversationId,
+            myId,
+            onBurst = { messageId, emoji -> showRemoteBurst(messageId, emoji) },
+        ) {
             otherTypingAt = System.currentTimeMillis()
         }
     }
@@ -458,9 +483,6 @@ fun ChatScreen(
         keys
     }
 
-    // Emojis flying up after a reaction was tapped.
-    val bursts = remember { mutableStateListOf<ReactionBurst>() }
-
     // ----- Location and contact cards ----------------------------------
     val sendLocation = rememberLocationSender(
         onLocation = { state.sendSpecial("location", "📍 Vị trí", it) },
@@ -519,22 +541,8 @@ fun ChatScreen(
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(10),
     ) { uris ->
-        if (uris.isNotEmpty()) {
-            // If I am answering a message, the first picture carries the quote.
-            var replyKey = replyingTo?.key
-            replyingTo = null
-            scope.launch {
-                for (uri in uris) {
-                    val bytes = compressImage(context, uri)
-                    if (bytes == null) {
-                        state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
-                    } else {
-                        state.sendImage(bytes, replyToKey = replyKey)
-                        replyKey = null
-                    }
-                }
-            }
-        }
+        // Chosen: ask how to send them (normal or HD) before sending.
+        if (uris.isNotEmpty()) pickedPhotos = uris
     }
 
     // ----- Sending a file --------------------------------------------------
@@ -952,7 +960,12 @@ fun ChatScreen(
                                 onShowReactions = { reactionsFor = message.key },
                                 seenAvatars = if (message.key == seenKey) listOf(other) else emptyList(),
                                 onOpenContact = openContact,
-                                onReactBurst = { emoji, from -> bursts.fly(emoji, from) },
+                                onReactBurst = { emoji, from ->
+                                    bursts.fly(emoji, from)
+                                    // The others who have this chat open see it too.
+                                    scope.launch { ChatRepository.sendBurst(conversationId, myId, message.key, emoji) }
+                                },
+                                onPlaced = { bubbleCenters[message.key] = it },
                             )
                             // While choosing several messages: a layer over the
                             // message catches the tap and ticks it on or off.
@@ -1341,6 +1354,34 @@ fun ChatScreen(
         }
     }
 
+    // Pictures were chosen: confirm, with the choice of HD. One picture is
+    // sent as a picture (it can carry a quote); several go as one album.
+    pickedPhotos?.let { uris ->
+        SendPhotosDialog(
+            count = uris.size,
+            hd = sendHd,
+            onHdChange = { sendHd = it },
+            onClose = { pickedPhotos = null },
+            onSend = {
+                pickedPhotos = null
+                val replyKey = replyingTo?.key
+                val hd = sendHd
+                notice = "Đang chuẩn bị ảnh…"
+                scope.launch {
+                    val pictures = preparePhotos(context, uris, hd)
+                    notice = null
+                    if (pictures.size < uris.size) state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
+                    if (pictures.size == 1) {
+                        state.sendImage(pictures[0], replyToKey = replyKey)
+                        replyingTo = null
+                    } else if (pictures.size > 1) {
+                        state.sendAlbum(pictures)
+                    }
+                }
+            },
+        )
+    }
+
     // Flying reactions lie above the chat.
     ReactionBurstLayer(bursts)
 
@@ -1565,6 +1606,9 @@ internal fun MessageBubble(
     // Called together with onReact: where on the screen the reaction was
     // given, so the screen can let the emoji fly up from there.
     onReactBurst: (String, Offset) -> Unit = { _, _ -> },
+    // Told where the bubble is on the screen each time it is laid out, so
+    // the screen can let a reaction from someone else fly up from it.
+    onPlaced: ((Offset) -> Unit)? = null,
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1618,6 +1662,7 @@ internal fun MessageBubble(
     }
 
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     var menuOpen by remember(message.key) { mutableStateOf(false) }
 
     // Where a flying reaction starts: the middle of the bubble, or of the
@@ -1726,7 +1771,12 @@ internal fun MessageBubble(
             SelectTick(selectMark)
             Spacer(Modifier.width(6.dp))
         }
-        Box(modifier = Modifier.onGloballyPositioned { bubbleCenter = it.boundsInRoot().center }) {
+        Box(
+            modifier = Modifier.onGloballyPositioned {
+                bubbleCenter = it.boundsInRoot().center
+                onPlaced?.invoke(bubbleCenter)
+            },
+        ) {
             when {
                 // Taken back by the sender: a quiet grey note for both people.
                 message.recalled -> Surface(
@@ -1796,6 +1846,13 @@ internal fun MessageBubble(
                     }
                 }
 
+                // An album: its pictures as a grid. Tap one to view it.
+                message.kind == "album" && path != null -> AlbumGrid(
+                    paths = picturePaths(message.kind, path, message.extra),
+                    onOpen = { onOpenImage(it) },
+                    onLongPress = openMenu,
+                )
+
                 // A sticker: its picture, without a bubble.
                 message.kind == "sticker" -> Box(
                     modifier = Modifier.combinedClickable(
@@ -1842,7 +1899,15 @@ internal fun MessageBubble(
                         .widthIn(max = 300.dp)
                         .combinedClickable(
                             onLongClick = openMenu,
-                            onClick = { if (failed) onRetry() },
+                            onClick = {
+                                // A failed message is sent again; a message
+                                // with a web address opens that address.
+                                if (failed) {
+                                    onRetry()
+                                } else if (message.kind == "text") {
+                                    firstLink(message.text)?.let { openLink(context, it) }
+                                }
+                            },
                         ),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -1873,6 +1938,11 @@ internal fun MessageBubble(
                         // While searching, the words are marked in every message
                         // that contains them, not only in the current result.
                         Text(highlighted(message.text, markQuery, mentionNames), color = textColor)
+                        // A web address in the text: title and picture of the page.
+                        if (message.kind == "text") {
+                            val link = remember(message.text) { firstLink(message.text) }
+                            if (link != null) LinkPreviewCard(url = link, textColor = textColor)
+                        }
                     }
                 }
             }
@@ -2144,9 +2214,15 @@ private fun isEmojiOnly(text: String): Boolean {
 // yellow (upper and lower case do not matter). Without a query: plain text.
 private fun highlighted(text: String, query: String?, mentionNames: List<String> = emptyList()): AnnotatedString {
     val hasMentions = mentionNames.isNotEmpty() && text.contains('@')
-    if (query.isNullOrEmpty() && !hasMentions) return AnnotatedString(text)
+    val link = firstLink(text)
+    if (query.isNullOrEmpty() && !hasMentions && link == null) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
+        // A web address is underlined (tapping the message opens it).
+        if (link != null) {
+            val at = text.indexOf(link)
+            if (at >= 0) addStyle(SpanStyle(textDecoration = TextDecoration.Underline), at, at + link.length)
+        }
         // Mentions ("@Tên") in bold and underlined.
         if (hasMentions) {
             for (name in mentionNames) {

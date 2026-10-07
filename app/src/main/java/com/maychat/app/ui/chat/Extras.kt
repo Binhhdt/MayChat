@@ -505,3 +505,95 @@ fun ContactPickerDialog(friends: List<Profile>, onPick: (Profile) -> Unit, onClo
         confirmButton = { TextButton(onClick = onClose) { Text("Đóng") } },
     )
 }
+
+// =====================================================================
+// Albums: several pictures in one message, shown as a grid
+// =====================================================================
+
+// One square picture of an album.
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AlbumTile(path: String, size: Dp, onOpen: () -> Unit, onLongPress: () -> Unit) {
+    val bitmap by produceState(initialValue = com.maychat.app.data.MediaCache.cachedBitmap(path), path) {
+        if (value == null) value = attempt { com.maychat.app.data.MediaCache.bitmap(path) }.getOrNull()
+    }
+    val picture = bitmap
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onLongClick = onLongPress, onClick = onOpen),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (picture != null) {
+            Image(
+                bitmap = picture.asImageBitmap(),
+                contentDescription = "Ảnh",
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+// The pictures of an album: two per row for 2 or 4 pictures, otherwise
+// three per row. Tap one to see it on the whole screen.
+@Composable
+fun AlbumGrid(paths: List<String>, onOpen: (String) -> Unit, onLongPress: () -> Unit) {
+    val perRow = if (paths.size == 2 || paths.size == 4) 2 else 3
+    val tile = if (perRow == 2) 118.dp else 78.dp
+    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(3.dp)) {
+        paths.chunked(perRow).forEach { row ->
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(3.dp)) {
+                row.forEach { path ->
+                    AlbumTile(path = path, size = tile, onOpen = { onOpen(path) }, onLongPress = onLongPress)
+                }
+            }
+        }
+    }
+}
+
+// Asked after pictures were chosen: send them, in normal or in high (HD)
+// quality. Several pictures go as one album.
+@Composable
+fun SendPhotosDialog(
+    count: Int,
+    hd: Boolean,
+    onHdChange: (Boolean) -> Unit,
+    onSend: () -> Unit,
+    onClose: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(if (count == 1) "Gửi 1 ảnh?" else "Gửi $count ảnh thành một album?") },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { onHdChange(!hd) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Checkbox(checked = hd, onCheckedChange = onHdChange)
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text("Chất lượng cao (HD)")
+                    Text(
+                        "Ảnh nét hơn, nặng hơn khoảng 3-4 lần và gửi lâu hơn.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onSend) { Text("Gửi") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("Hủy") } },
+    )
+}
+
+// Shrinks the chosen pictures for sending: normal quality (longest side
+// 1280) or HD (longest side 2560, less compression). Pictures that cannot
+// be read are left out.
+suspend fun preparePhotos(context: Context, uris: List<Uri>, hd: Boolean): List<ByteArray> =
+    uris.mapNotNull { uri ->
+        if (hd) compressImage(context, uri, maxSide = 2560, quality = 92) else compressImage(context, uri)
+    }

@@ -742,6 +742,10 @@ object ChatRepository {
             sendGroupSpecial(groupId, kind, content, extra)
             return
         }
+        if (kind == "album") {
+            forwardAlbum(groupId, toGroup = true, paths = picturePaths(kind, mediaPath, extra))
+            return
+        }
         if (kind == "text" || mediaPath == null) {
             sendGroupMessage(NewGroupMessage(groupId = groupId, content = content))
             return
@@ -792,7 +796,7 @@ object ChatRepository {
             .select {
                 filter {
                     eq("group_id", groupId)
-                    eq("kind", kind)
+                    if (kind == "image") isIn("kind", listOf("image", "album")) else eq("kind", kind)
                     if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
@@ -1121,7 +1125,8 @@ object ChatRepository {
             .select {
                 filter {
                     eq("conversation_id", conversationId)
-                    eq("kind", kind)
+                    // Pictures include those sent as an album.
+                    if (kind == "image") isIn("kind", listOf("image", "album")) else eq("kind", kind)
                     if (cleared != null) gt("created_at", cleared)
                 }
                 order("created_at", Order.DESCENDING)
@@ -1385,7 +1390,14 @@ object ChatRepository {
 
     // Listens for "the other person is typing" in one conversation and calls
     // onTyping each time. Runs until the caller is cancelled (chat closed).
-    suspend fun listenTyping(conversationId: String, myId: String, onTyping: () -> Unit) {
+    // onBurst: the other person just tapped a reaction (message id, emoji),
+    // so this phone can let the same emoji fly up.
+    suspend fun listenTyping(
+        conversationId: String,
+        myId: String,
+        onBurst: (String, String) -> Unit = { _, _ -> },
+        onTyping: () -> Unit,
+    ) {
         val channel = supabase.channel("typing-$conversationId")
         synchronized(typingChannels) { typingChannels[conversationId] = channel }
         try {
@@ -1395,6 +1407,17 @@ object ChatRepository {
                     events.collect { payload ->
                         val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
                         if (from != null && from != myId) onTyping()
+                    }
+                }
+                val bursts = channel.broadcastFlow<JsonObject>(event = "burst")
+                launch {
+                    bursts.collect { payload ->
+                        val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
+                        val message = payload["message_id"]?.jsonPrimitive?.contentOrNull
+                        val emoji = payload["emoji"]?.jsonPrimitive?.contentOrNull
+                        if (from != null && from != myId && message != null && emoji != null) {
+                            onBurst(message, emoji)
+                        }
                     }
                 }
                 delay(300)
@@ -1419,6 +1442,7 @@ object ChatRepository {
         channelId: String,
         myId: String,
         onChanged: () -> Unit = {},
+        onBurst: (String, String) -> Unit = { _, _ -> },
         onTyping: (String) -> Unit,
     ) {
         val channel = supabase.channel("typing-$channelId")
@@ -1430,6 +1454,17 @@ object ChatRepository {
                     events.collect { payload ->
                         val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
                         if (from != null && from != myId) onTyping(from)
+                    }
+                }
+                val bursts = channel.broadcastFlow<JsonObject>(event = "burst")
+                launch {
+                    bursts.collect { payload ->
+                        val from = payload["user_id"]?.jsonPrimitive?.contentOrNull
+                        val message = payload["message_id"]?.jsonPrimitive?.contentOrNull
+                        val emoji = payload["emoji"]?.jsonPrimitive?.contentOrNull
+                        if (from != null && from != myId && message != null && emoji != null) {
+                            onBurst(message, emoji)
+                        }
                     }
                 }
                 val changes = channel.broadcastFlow<JsonObject>(event = "changed")
@@ -1450,6 +1485,69 @@ object ChatRepository {
                 runCatching { supabase.realtime.removeChannel(channel) }
             }
         }
+    }
+
+    // Tells the other phones that have this chat (or group) open: "I just
+    // tapped this reaction on this message", so the emoji flies up there
+    // too. Does nothing when offline.
+    suspend fun sendBurst(chatId: String, myId: String, messageId: String, emoji: String) {
+        val channel = synchronized(typingChannels) { typingChannels[chatId] } ?: return
+        if (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) return
+        try {
+            channel.broadcast(
+                event = "burst",
+                message = buildJsonObject {
+                    put("user_id", myId)
+                    put("message_id", messageId)
+                    put("emoji", emoji)
+                },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Not important enough to show an error.
+        }
+    }
+
+    // ----- Albums (supabase_migration_28) --------------------------------
+
+    // paths: the pictures, already uploaded into the conversation's folder.
+    suspend fun sendAlbum(conversationId: String, paths: List<String>): Message =
+        supabase.postgrest.from("messages")
+            .insert(
+                NewAlbumMessage(
+                    conversationId,
+                    "📷 ${paths.size} ảnh",
+                    "album",
+                    paths.first(),
+                    paths.drop(1).joinToString("\n"),
+                ),
+            ) { select() }
+            .decodeSingle<Message>()
+
+    suspend fun sendGroupAlbum(groupId: String, paths: List<String>) {
+        supabase.postgrest.from("group_messages").insert(
+            NewGroupAlbumMessage(
+                groupId,
+                "📷 ${paths.size} ảnh",
+                "album",
+                paths.first(),
+                paths.drop(1).joinToString("\n"),
+            ),
+        )
+    }
+
+    // Copies the pictures of an album into another conversation or group
+    // (each has its own private folder) and sends them there as an album.
+    suspend fun forwardAlbum(targetId: String, toGroup: Boolean, paths: List<String>) {
+        val copies = paths.map { path ->
+            val bytes = MediaCache.bytes(path)
+            val newPath = "$targetId/${java.util.UUID.randomUUID()}.jpg"
+            uploadMedia(newPath, bytes)
+            MediaCache.put(newPath, bytes)
+            newPath
+        }
+        if (toGroup) sendGroupAlbum(targetId, copies) else sendAlbum(targetId, copies)
     }
 
     // Tells the other members' open phones "a reaction / who has read / the

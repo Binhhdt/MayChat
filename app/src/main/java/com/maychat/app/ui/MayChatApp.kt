@@ -34,6 +34,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.call.CallManager
 import com.maychat.app.call.CallScreen
+import com.maychat.app.call.CallPhase
+import com.maychat.app.call.MinimizeCallButton
+import com.maychat.app.call.ReturnToCallBar
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.DeviceId
 import com.maychat.app.data.ListCache
@@ -154,7 +157,23 @@ fun MayChatApp() {
 
         // The call screen is drawn above everything else, including the
         // start-up screen, so an incoming call is visible at once.
-        CallManager.ui?.let { call -> CallScreen(call) }
+        // While a call is being set up or running, the call screen can be
+        // put aside ("‹ Tin nhắn" or the Back button) to use the rest of the
+        // app; a green bar then leads back to it.
+        val call = CallManager.ui
+        LaunchedEffect(call == null) {
+            // No call (any more): the next one starts with its full screen.
+            if (call == null) CallManager.restore()
+        }
+        if (call != null) {
+            val canPutAside = call.phase != CallPhase.INCOMING && call.phase != CallPhase.ENDED
+            if (CallManager.minimized && canPutAside) {
+                ReturnToCallBar(call)
+            } else {
+                CallScreen(call)
+                if (canPutAside) MinimizeCallButton(call)
+            }
+        }
     }
 }
 
@@ -361,6 +380,8 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     LaunchedEffect(myId) {
         val me = attempt { ChatRepository.loadProfile(myId) }.getOrNull()
         CallManager.attach(context, myId, me?.displayName ?: "MayChat")
+        // The notification code needs my name to recognise "@my name".
+        me?.displayName?.let { Push.rememberMyName(context, it) }
     }
 
     // The phone's Back button closes the chat or search screen.

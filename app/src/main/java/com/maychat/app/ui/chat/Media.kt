@@ -1,5 +1,10 @@
 package com.maychat.app.ui.chat
 
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.foundation.layout.height
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.aspectRatio
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import android.widget.VideoView
@@ -83,11 +88,12 @@ suspend fun compressImage(
     context: Context,
     uri: Uri,
     maxSide: Int = MAX_IMAGE_SIDE,
+    quality: Int = 80,
 ): ByteArray? = withContext(Dispatchers.IO) {
     try {
         val bitmap = loadScaledBitmap(context, uri, maxSide) ?: return@withContext null
         val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
         out.toByteArray()
     } catch (e: Exception) {
         null
@@ -267,9 +273,24 @@ object VoicePlayer {
     var playingPath by mutableStateOf<String?>(null)
         private set
 
+    // How fast voice messages are played: 1x, 1.5x or 2x. Kept for all
+    // messages until the app is closed.
+    var speed by mutableStateOf(1f)
+        private set
+
     private var player: MediaPlayer? = null
 
-    fun toggle(file: File, path: String) {
+    private fun applySpeed(p: MediaPlayer) {
+        try {
+            p.playbackParams = p.playbackParams.setSpeed(speed)
+        } catch (e: Exception) {
+            // This phone cannot change the speed: plays at normal speed.
+        }
+    }
+
+    // startAtMs: where to begin (used after dragging the line of a message
+    // that is not playing yet).
+    fun toggle(file: File, path: String, startAtMs: Int = 0) {
         if (playingPath == path) {
             stop()
             return
@@ -280,11 +301,49 @@ object VoicePlayer {
             p.setDataSource(file.absolutePath)
             p.setOnCompletionListener { stop() }
             p.prepare()
+            if (startAtMs > 0) p.seekTo(startAtMs)
             p.start()
+            applySpeed(p)
             player = p
             playingPath = path
         } catch (e: Exception) {
             stop()
+        }
+    }
+
+    // 1x -> 1.5x -> 2x -> 1x. Also changes the message that is playing.
+    fun nextSpeed() {
+        speed = when (speed) {
+            1f -> 1.5f
+            1.5f -> 2f
+            else -> 1f
+        }
+        val p = player ?: return
+        try {
+            if (p.isPlaying) applySpeed(p)
+        } catch (e: Exception) {
+            // Not playing any more.
+        }
+    }
+
+    // Where the playing message is now, and how long it is (0 when unknown).
+    fun positionMs(): Int = try {
+        player?.currentPosition ?: 0
+    } catch (e: Exception) {
+        0
+    }
+
+    fun lengthMs(): Int = try {
+        player?.duration ?: 0
+    } catch (e: Exception) {
+        0
+    }
+
+    fun seekTo(ms: Int) {
+        try {
+            player?.seekTo(ms)
+        } catch (e: Exception) {
+            // Not playing any more.
         }
     }
 
@@ -308,7 +367,8 @@ fun formatDuration(ms: Long): String {
     return "${totalSeconds / 60}:${(totalSeconds % 60).toString().padStart(2, '0')}"
 }
 
-// Shows one voice message: a play/stop button and the length.
+// Shows one voice message: a play/stop button, a line that fills while it
+// plays (drag it to jump), the time, and a button for the speed.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VoiceBubbleContent(
@@ -321,22 +381,41 @@ fun VoiceBubbleContent(
     val scope = rememberCoroutineScope()
     var loading by remember(path) { mutableStateOf(false) }
     val playing = VoicePlayer.playingPath == path
+    val totalMs = (durationMs ?: 0).coerceAtLeast(1)
+
+    // Where playback is (0..1). While the finger drags the line, "dragged"
+    // holds the place instead.
+    var position by remember(path) { mutableStateOf(0f) }
+    var dragged by remember(path) { mutableStateOf<Float?>(null) }
+    LaunchedEffect(playing) {
+        if (!playing) {
+            position = 0f
+            return@LaunchedEffect
+        }
+        while (true) {
+            val length = VoicePlayer.lengthMs().takeIf { it > 0 } ?: totalMs
+            position = (VoicePlayer.positionMs().toFloat() / length).coerceIn(0f, 1f)
+            delay(100)
+        }
+    }
+
+    fun play(fromFraction: Float) {
+        loading = true
+        scope.launch {
+            attempt { MediaCache.file(context, path) }
+                .onSuccess { VoicePlayer.toggle(it, path, startAtMs = (fromFraction * totalMs).toInt()) }
+            loading = false
+        }
+    }
 
     Row(
         modifier = Modifier
             .combinedClickable(
                 enabled = !loading,
                 onLongClick = onLongPress,
-                onClick = {
-                    loading = true
-                    scope.launch {
-                        attempt { MediaCache.file(context, path) }
-                            .onSuccess { VoicePlayer.toggle(it, path) }
-                        loading = false
-                    }
-                },
+                onClick = { play(0f) },
             )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -348,11 +427,53 @@ fun VoiceBubbleContent(
             color = textColor,
             style = MaterialTheme.typography.titleMedium,
         )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            "Tin nhắn thoại" + (durationMs?.let { " · " + formatDuration(it.toLong()) } ?: ""),
-            color = textColor,
-        )
+        Spacer(Modifier.width(6.dp))
+        Column(modifier = Modifier.width(150.dp)) {
+            Slider(
+                value = dragged ?: position,
+                onValueChange = { dragged = it },
+                onValueChangeFinished = {
+                    val target = dragged ?: return@Slider
+                    dragged = null
+                    if (playing) {
+                        val length = VoicePlayer.lengthMs().takeIf { it > 0 } ?: totalMs
+                        VoicePlayer.seekTo((target * length).toInt())
+                        position = target
+                    } else {
+                        // Not playing yet: start from the chosen place.
+                        play(target)
+                    }
+                },
+                colors = SliderDefaults.colors(
+                    thumbColor = textColor,
+                    activeTrackColor = textColor,
+                    inactiveTrackColor = textColor.copy(alpha = 0.3f),
+                ),
+                modifier = Modifier.fillMaxWidth().height(28.dp),
+            )
+            val shownMs = ((dragged ?: position) * totalMs).toLong()
+            Text(
+                if (playing || dragged != null) {
+                    formatDuration(shownMs) + " / " + formatDuration(totalMs.toLong())
+                } else {
+                    "Tin nhắn thoại" + (durationMs?.let { " · " + formatDuration(it.toLong()) } ?: "")
+                },
+                color = textColor,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        // Speed: 1x, 1.5x, 2x.
+        TextButton(onClick = { VoicePlayer.nextSpeed() }) {
+            Text(
+                when (VoicePlayer.speed) {
+                    1.5f -> "1.5x"
+                    2f -> "2x"
+                    else -> "1x"
+                },
+                color = textColor,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
     }
 }
 

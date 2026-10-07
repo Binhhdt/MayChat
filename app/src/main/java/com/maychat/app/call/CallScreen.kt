@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,8 +69,12 @@ fun CallScreen(call: CallUi) {
     val view = LocalView.current
     var micDenied by remember { mutableStateOf(false) }
 
-    // The Back button must not close the call screen by accident.
-    BackHandler(enabled = true) { }
+    // The Back button never ends the call. While a call is being set up or
+    // running it puts the call screen aside (the call goes on), so messages
+    // can be read; an incoming call that still rings stays on screen.
+    BackHandler(enabled = true) {
+        if (call.phase != CallPhase.INCOMING && call.phase != CallPhase.ENDED) CallManager.minimize()
+    }
 
     // Keep the display on while the call screen is showing.
     DisposableEffect(Unit) {
@@ -505,4 +510,70 @@ private fun CallVideoView(sink: ProxySink, mirror: Boolean, onTop: Boolean, modi
         update = { it.setMirror(mirror) },
         modifier = modifier,
     )
+}
+
+// Button over the call screen: put the call aside and go to the messages.
+// The call goes on. Not shown while an incoming call still rings.
+@Composable
+fun MinimizeCallButton(call: CallUi) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .safeDrawingPadding()
+                // On the video screen the name is in this corner: go below it.
+                .padding(start = 12.dp, top = if (call.video) 76.dp else 12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.18f))
+                .clickable { CallManager.minimize() }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("‹  Tin nhắn", color = Color.White, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+// Shown over the app while the call screen is put aside: who the call is
+// with, how long it has been running, and the way back to the call screen.
+@Composable
+fun ReturnToCallBar(call: CallUi) {
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(call.phase, call.connectedAtMs) {
+        while (call.phase == CallPhase.CONNECTED) {
+            elapsedMs = System.currentTimeMillis() - call.connectedAtMs
+            delay(500)
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .safeDrawingPadding()
+                // Just under the title bar of the screen below.
+                .padding(top = 60.dp)
+                .clip(RoundedCornerShape(50))
+                .background(AcceptGreen)
+                .clickable { CallManager.restore() }
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(if (call.video) R.drawable.ic_videocam else R.drawable.ic_call),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                call.peer.displayName.take(18) + " · " +
+                    (if (call.phase == CallPhase.CONNECTED) formatCallTime(elapsedMs) else "đang gọi…"),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("Trở lại cuộc gọi", color = Color.White, style = MaterialTheme.typography.labelMedium)
+        }
+    }
 }

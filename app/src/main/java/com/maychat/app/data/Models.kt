@@ -309,3 +309,34 @@ data class GroupPref(
     val muted: Boolean = false,
     @SerialName("cleared_at") val clearedAt: String? = null,
 )
+
+// ---------------------------------------------------------------------
+// Albums: several pictures in one message (supabase_migration_28)
+// ---------------------------------------------------------------------
+
+// Every picture of a message: one for kind "image", all of them for kind
+// "album" (the first is in media_path, the others in "extra", one storage
+// path per line).
+fun picturePaths(kind: String, mediaPath: String?, extra: String?): List<String> {
+    if (mediaPath == null) return emptyList()
+    if (kind != "album") return listOf(mediaPath)
+    return listOf(mediaPath) + (extra ?: "").lines().map { it.trim() }.filter { it.isNotEmpty() }
+}
+
+@Serializable
+data class NewAlbumMessage(
+    @SerialName("conversation_id") val conversationId: String,
+    val content: String,
+    val kind: String,
+    @SerialName("media_path") val mediaPath: String,
+    val extra: String,
+)
+
+@Serializable
+data class NewGroupAlbumMessage(
+    @SerialName("group_id") val groupId: String,
+    val content: String,
+    val kind: String,
+    @SerialName("media_path") val mediaPath: String,
+    val extra: String,
+)

@@ -50,7 +50,10 @@ fun ImageViewer(path: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     val bitmap by produceState(initialValue = MediaCache.cachedBitmap(path), path) {
+        // Shown at once in chat quality when already there, then replaced
+        // by the full-size picture (sharper when zoomed, for HD pictures).
         if (value == null) value = attempt { MediaCache.bitmap(path) }.getOrNull()
+        attempt { MediaCache.fullBitmap(path) }.getOrNull()?.let { value = it }
     }
     val loaded = bitmap
 

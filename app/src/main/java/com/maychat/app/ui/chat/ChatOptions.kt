@@ -54,6 +54,7 @@ import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
+import com.maychat.app.data.picturePaths
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.BackButton
@@ -189,9 +190,10 @@ fun ChatOptionsScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(images, key = { it.id }) { message ->
-                                val path = message.mediaPath
-                                if (path != null) Thumbnail(path = path, onClick = { onOpenImage(path) })
+                            // Every picture, also those sent together as an album.
+                            val paths = images.flatMap { picturePaths(it.kind, it.mediaPath, it.extra) }.distinct()
+                            items(paths, key = { it }) { path ->
+                                Thumbnail(path = path, onClick = { onOpenImage(path) })
                             }
                         }
                     }

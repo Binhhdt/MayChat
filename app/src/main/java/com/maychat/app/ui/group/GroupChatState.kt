@@ -16,6 +16,7 @@ import com.maychat.app.data.Profile
 import com.maychat.app.data.Reaction
 import com.maychat.app.data.SPECIAL_KINDS
 import com.maychat.app.data.attempt
+import com.maychat.app.data.picturePaths
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.ReactionChip
 import com.maychat.app.ui.chat.Reactor
@@ -43,8 +44,13 @@ private class PendingGroupMessage(
     val fileName: String? = null,
     // For a sticker, a location or a contact card.
     val extra: String? = null,
+    // For an album: the pictures (JPEG bytes), in order.
+    val album: List<ByteArray> = emptyList(),
 ) {
     var failed: Boolean = false
+
+    // Pictures of an album that are already uploaded (kept for a retry).
+    val albumPaths = ArrayList<String>()
 
     // Set once the file is uploaded, so a retry does not upload it twice.
     var uploadedPath: String? = null
@@ -192,7 +198,8 @@ class GroupChatState(
                 mine = true,
                 createdAt = null,
                 state = if (p.failed) SendState.FAILED else SendState.SENDING,
-                kind = p.kind,
+                // An album still on its way is shown as a line of text.
+                kind = if (p.kind == "album") "text" else p.kind,
                 mediaPath = p.uploadedPath,
                 durationMs = p.durationMs,
                 replyPreview = p.replyPreview,
@@ -541,11 +548,16 @@ class GroupChatState(
         // The file of a recalled picture, voice message or file is no
         // longer needed by anyone: remove it from the storage as well.
         val filePath = confirmed[messageId]?.mediaPath
+        // An album has more pictures than the first one.
+        val morePaths = confirmed[messageId]
+            ?.let { picturePaths(it.kind, it.mediaPath, it.extra) }
+            ?.drop(1) ?: emptyList()
         scope.launch {
             attempt { ChatRepository.recallGroupMessage(messageId) }
                 .onSuccess {
                     error = null
                     if (filePath != null) ChatRepository.deleteMedia(filePath)
+                    morePaths.forEach { ChatRepository.deleteMedia(it) }
                     // The recalled message may be older than what poll() reads.
                     confirmed[messageId]?.let { old ->
                         confirmed[messageId] = old.copy(
@@ -590,6 +602,14 @@ class GroupChatState(
         val special = original.extra
         if (original.kind in SPECIAL_KINDS && special != null) {
             ChatRepository.sendSpecial(targetConversationId, original.kind, original.content, special)
+            return
+        }
+        if (original.kind == "album") {
+            ChatRepository.forwardAlbum(
+                targetConversationId,
+                toGroup = false,
+                paths = picturePaths(original.kind, path, special),
+            )
             return
         }
         if (original.kind == "text" || path == null) {
@@ -663,6 +683,19 @@ class GroupChatState(
         )
     }
 
+    // Several pictures (JPEG bytes) as ONE message, shown as a grid.
+    fun sendAlbum(pictures: List<ByteArray>) {
+        if (pictures.isEmpty()) return
+        enqueue(
+            PendingGroupMessage(
+                UUID.randomUUID().toString(),
+                "📷 ${pictures.size} ảnh",
+                kind = "album",
+                album = pictures,
+            ),
+        )
+    }
+
     fun sendImage(jpegBytes: ByteArray, replyToKey: String? = null) {
         val original = replyToKey?.let { confirmed[it] }
         enqueue(
@@ -728,6 +761,16 @@ class GroupChatState(
                 if (item.kind in SPECIAL_KINDS && special != null) {
                     // A sticker, a location or a contact card: no file.
                     ChatRepository.sendGroupSpecial(groupId, item.kind, item.text, special)
+                } else if (item.kind == "album") {
+                    // Upload the pictures not uploaded yet, then one message.
+                    for (index in item.albumPaths.size until item.album.size) {
+                        val bytes = item.album[index]
+                        val newPath = "$groupId/${UUID.randomUUID()}.jpg"
+                        ChatRepository.uploadMedia(newPath, bytes)
+                        MediaCache.put(newPath, bytes)
+                        item.albumPaths.add(newPath)
+                    }
+                    ChatRepository.sendGroupAlbum(groupId, item.albumPaths.toList())
                 } else {
                 // Step 1: upload the file (skipped on retry if already done).
                 val path: String? = if (item.kind == "text" || data == null) {

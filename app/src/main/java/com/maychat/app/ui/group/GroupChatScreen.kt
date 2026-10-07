@@ -99,6 +99,8 @@ import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
 import com.maychat.app.ui.chat.MessageBubble
+import com.maychat.app.ui.chat.SendPhotosDialog
+import com.maychat.app.ui.chat.preparePhotos
 import com.maychat.app.ui.chat.ReactionBurst
 import com.maychat.app.ui.chat.ReactionBurstLayer
 import com.maychat.app.ui.chat.TypingLine
@@ -123,6 +125,9 @@ import kotlinx.coroutines.launch
 // Longest voice message: 2 minutes.
 private const val MAX_VOICE_MS = 120_000L
 
+// "@Tất cả" mentions every member of the group.
+private const val MENTION_ALL = "Tất cả"
+
 // Chat screen of one group. It has the features of a one-to-one chat:
 // reply, reactions, take back, delete on my side, pin, forward, choosing
 // several messages, search, background, photo from the camera. Each message
@@ -145,6 +150,26 @@ fun GroupChatScreen(
     val recorder = remember { VoiceRecorder(context.applicationContext) }
     val connectionCount by ChatRepository.connectionCount.collectAsState()
     val listState = rememberLazyListState()
+
+    // Emojis flying up after a reaction was tapped.
+    val bursts = remember { mutableStateListOf<ReactionBurst>() }
+
+    // Pictures chosen to send, waiting for the "send?" window (null = none),
+    // and whether "HD" is ticked (remembered while the chat is open).
+    var pickedPhotos by remember(groupId) { mutableStateOf<List<android.net.Uri>?>(null) }
+    var sendHd by remember(groupId) { mutableStateOf(false) }
+
+    // Where each message bubble is on the screen (not a state: only read
+    // when a reaction from someone else arrives).
+    val bubbleCenters = remember(groupId) { HashMap<String, Offset>() }
+    // Someone else tapped a reaction: let it fly up here too, when that
+    // message is on screen.
+    val showRemoteBurst: (String, String) -> Unit = { messageId, emoji ->
+        val onScreen = listState.layoutInfo.visibleItemsInfo.any { it.key == messageId }
+        val from = bubbleCenters[messageId]
+        if (onScreen && from != null) bursts.fly(emoji, from)
+    }
+
 
     // The text box keeps the cursor position too, so a picked "@name" can be
     // put in and the cursor placed right after it.
@@ -198,6 +223,7 @@ fun GroupChatScreen(
             myId,
             // Someone reacted, read or pinned: fetch it at once.
             onChanged = { scope.launch { state.syncExtras() } },
+            onBurst = { messageId, emoji -> showRemoteBurst(messageId, emoji) },
         ) { who ->
             typingAt = typingAt + (who to System.currentTimeMillis())
         }
@@ -222,7 +248,9 @@ fun GroupChatScreen(
     // Names shown in bold inside messages: every member's, longest first so
     // "@An Nguyễn" is not cut short by a member called "An".
     val mentionNames = remember(state.members) {
-        state.members.map { it.displayName }.filter { it.isNotBlank() }.sortedByDescending { it.length }
+        // "Tất cả" = everybody ("@Tất cả").
+        (state.members.map { it.displayName } + MENTION_ALL)
+            .filter { it.isNotBlank() }.sortedByDescending { it.length }
     }
     // The "@word" just before the cursor, as (start, end) in the text, or
     // null when the cursor is not in one.
@@ -238,9 +266,11 @@ fun GroupChatScreen(
         emptyList()
     } else {
         val typed = draft.substring(mentionToken.first + 1, mentionToken.second).trim().lowercase()
-        state.members
-            .filter { it.id != myId && it.displayName.lowercase().contains(typed) }
-            .take(6)
+        // First "Tất cả" (everybody), then the members whose name matches.
+        val everybody = Profile(id = "all", username = "", displayName = MENTION_ALL)
+        (listOf(everybody) + state.members.filter { it.id != myId })
+            .filter { it.displayName.lowercase().contains(typed) }
+            .take(7)
     }
 
     // Removed from the group, or the group no longer exists: leave the screen.
@@ -448,9 +478,6 @@ fun GroupChatScreen(
         searchQuery = ""
     }
 
-    // Emojis flying up after a reaction was tapped.
-    val bursts = remember { mutableStateListOf<ReactionBurst>() }
-
     // ----- Location and contact cards ----------------------------------
     val sendLocation = rememberLocationSender(
         onLocation = { state.sendSpecial("location", "📍 Vị trí", it) },
@@ -514,22 +541,8 @@ fun GroupChatScreen(
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(10),
     ) { uris ->
-        if (uris.isNotEmpty()) {
-            // If I am answering a message, the first picture carries the quote.
-            var replyKey = replyingTo?.key
-            replyingTo = null
-            scope.launch {
-                for (uri in uris) {
-                    val bytes = compressImage(context, uri)
-                    if (bytes == null) {
-                        state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
-                    } else {
-                        state.sendImage(bytes, replyToKey = replyKey)
-                        replyKey = null
-                    }
-                }
-            }
-        }
+        // Chosen: ask how to send them (normal or HD) before sending.
+        if (uris.isNotEmpty()) pickedPhotos = uris
     }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -841,7 +854,12 @@ fun GroupChatScreen(
                                     seenAvatars = seenMarks[message.key] ?: emptyList(),
                                     onSeenClick = { seenFor = message },
                                     onOpenContact = openContact,
-                                    onReactBurst = { emoji, from -> bursts.fly(emoji, from) },
+                                    onReactBurst = { emoji, from ->
+                                    bursts.fly(emoji, from)
+                                    // The others who have this chat open see it too.
+                                    scope.launch { ChatRepository.sendBurst(groupId, myId, message.key, emoji) }
+                                },
+                                onPlaced = { bubbleCenters[message.key] = it },
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -1257,6 +1275,34 @@ fun GroupChatScreen(
                 onClose = { reactionsFor = null },
             )
         }
+    }
+
+    // Pictures were chosen: confirm, with the choice of HD. One picture is
+    // sent as a picture (it can carry a quote); several go as one album.
+    pickedPhotos?.let { uris ->
+        SendPhotosDialog(
+            count = uris.size,
+            hd = sendHd,
+            onHdChange = { sendHd = it },
+            onClose = { pickedPhotos = null },
+            onSend = {
+                pickedPhotos = null
+                val replyKey = replyingTo?.key
+                val hd = sendHd
+                notice = "Đang chuẩn bị ảnh…"
+                scope.launch {
+                    val pictures = preparePhotos(context, uris, hd)
+                    notice = null
+                    if (pictures.size < uris.size) state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
+                    if (pictures.size == 1) {
+                        state.sendImage(pictures[0], replyToKey = replyKey)
+                        replyingTo = null
+                    } else if (pictures.size > 1) {
+                        state.sendAlbum(pictures)
+                    }
+                }
+            },
+        )
     }
 
     // Flying reactions lie above the chat.

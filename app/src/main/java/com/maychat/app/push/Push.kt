@@ -285,6 +285,27 @@ object Push {
         return output
     }
 
+    // My own display name, kept so a notification can tell "@my name" (a
+    // mention) also when the app was started just for that notification.
+    private const val PUSH_PREFS = "maychat_push"
+
+    fun rememberMyName(context: Context, name: String) {
+        runCatching {
+            context.applicationContext.getSharedPreferences(PUSH_PREFS, Context.MODE_PRIVATE)
+                .edit().putString("my_name", name).apply()
+        }
+    }
+
+    // True when a group message mentions me or everybody.
+    private fun mentionsMe(context: Context, text: String): Boolean {
+        if ("@Tất cả" in text) return true
+        val myName = runCatching {
+            context.applicationContext.getSharedPreferences(PUSH_PREFS, Context.MODE_PRIVATE)
+                .getString("my_name", null)
+        }.getOrNull()
+        return !myName.isNullOrBlank() && "@$myName" in text
+    }
+
     // Shows (or adds a line to) the notification of one conversation.
     // data: what the server sent, see fcmMessage in the notification function.
     suspend fun showMessage(context: Context, data: Map<String, String>) {
@@ -293,7 +314,9 @@ object Push {
         val title = data["title"] ?: data["sender_name"] ?: "MayChat"
         val isGroup = data["is_group"] == "1"
         val personName = (data["person_name"] ?: title).ifBlank { title }
-        val text = (data["text"] ?: data["body"] ?: "").ifBlank { "Tin nhắn mới" }
+        val plainText = (data["text"] ?: data["body"] ?: "").ifBlank { "Tin nhắn mới" }
+        // A mention is marked, so it stands out among the group's messages.
+        val text = if (isGroup && mentionsMe(context, plainText)) "📣 Nhắc đến bạn: $plainText" else plainText
         val unread = data["unread"]?.toIntOrNull() ?: 1
 
         val picture = roundAvatar(context, data["avatar_path"] ?: "") ?: letterAvatar(personName)

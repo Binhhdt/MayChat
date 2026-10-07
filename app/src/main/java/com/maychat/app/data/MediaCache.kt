@@ -34,14 +34,35 @@ object MediaCache {
         return downloaded
     }
 
+    // The picture for showing inside a chat. A picture sent in HD is
+    // decoded at half size here (still at least 1280 pixels), so a chat full
+    // of HD pictures does not fill the phone's memory. The full-size picture
+    // is only decoded by the full-screen viewer, see fullBitmap.
     suspend fun bitmap(path: String): Bitmap? {
         bitmapCache.get(path)?.let { return it }
         val data = bytes(path)
         val decoded = withContext(Dispatchers.Default) {
-            BitmapFactory.decodeByteArray(data, 0, data.size)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+            BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = sample })
         }
         if (decoded != null) bitmapCache.put(path, decoded)
         return decoded
+    }
+
+    // The picture in its full size (for the full-screen viewer, where one
+    // can zoom in). Not kept in memory: only one is on screen at a time.
+    suspend fun fullBitmap(path: String): Bitmap? {
+        val data = bytes(path)
+        return withContext(Dispatchers.Default) {
+            try {
+                BitmapFactory.decodeByteArray(data, 0, data.size)
+            } catch (e: OutOfMemoryError) {
+                null
+            }
+        } ?: bitmap(path)
     }
 
     // Avatars live in a different bucket, so they have their own cache.

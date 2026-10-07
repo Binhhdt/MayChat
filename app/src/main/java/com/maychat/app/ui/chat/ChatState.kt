@@ -11,6 +11,7 @@ import com.maychat.app.data.PinnedMessage
 import com.maychat.app.data.Reaction
 import com.maychat.app.data.SPECIAL_KINDS
 import com.maychat.app.data.attempt
+import com.maychat.app.data.picturePaths
 import com.maychat.app.data.toUserMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -67,8 +68,13 @@ private class PendingMessage(
     val fileName: String? = null,
     // For a sticker, a location or a contact card.
     val extra: String? = null,
+    // For an album: the pictures (JPEG bytes), in order.
+    val album: List<ByteArray> = emptyList(),
 ) {
     var failed: Boolean = false
+
+    // Pictures of an album that are already uploaded (kept for a retry).
+    val albumPaths = ArrayList<String>()
 
     // Set once the file is uploaded, so a retry does not upload it twice.
     var uploadedPath: String? = null
@@ -174,7 +180,8 @@ class ChatState(
                 mine = true,
                 createdAt = null,
                 state = if (p.failed) SendState.FAILED else SendState.SENDING,
-                kind = p.kind,
+                // An album still on its way is shown as a line of text.
+                kind = if (p.kind == "album") "text" else p.kind,
                 mediaPath = p.uploadedPath,
                 durationMs = p.durationMs,
                 replyPreview = p.replyPreview,
@@ -482,6 +489,12 @@ class ChatState(
         val extra = original.extra
         if (original.kind in SPECIAL_KINDS && extra != null) {
             ChatRepository.sendSpecial(targetConversationId, original.kind, original.content, extra)
+        } else if (original.kind == "album") {
+            ChatRepository.forwardAlbum(
+                targetConversationId,
+                toGroup = false,
+                paths = picturePaths(original.kind, path, extra),
+            )
         } else if (original.kind == "text" || path == null) {
             ChatRepository.sendMessage(targetConversationId, original.content)
         } else {
@@ -533,11 +546,16 @@ class ChatState(
         // The file of a recalled picture, voice message or file is no
         // longer needed by anyone: remove it from the storage as well.
         val filePath = confirmed[messageId]?.mediaPath
+        // An album has more pictures than the first one.
+        val morePaths = confirmed[messageId]
+            ?.let { picturePaths(it.kind, it.mediaPath, it.extra) }
+            ?.drop(1) ?: emptyList()
         scope.launch {
             attempt { ChatRepository.recallMessage(messageId) }
                 .onSuccess {
                     error = null
                     if (filePath != null) ChatRepository.deleteMedia(filePath)
+                    morePaths.forEach { ChatRepository.deleteMedia(it) }
                     poll()
                 }
                 .onFailure { error = it.toUserMessage() }
@@ -583,6 +601,19 @@ class ChatState(
                 ),
             )
         }
+    }
+
+    // Several pictures (JPEG bytes) as ONE message, shown as a grid.
+    fun sendAlbum(pictures: List<ByteArray>) {
+        if (pictures.isEmpty()) return
+        enqueue(
+            PendingMessage(
+                UUID.randomUUID().toString(),
+                "📷 ${pictures.size} ảnh",
+                kind = "album",
+                album = pictures,
+            ),
+        )
     }
 
     // replyToKey: the message being answered, or null for a normal picture.
@@ -653,6 +684,16 @@ class ChatState(
                 val extra = item.extra
                 if (item.kind in SPECIAL_KINDS && extra != null) {
                     ChatRepository.sendSpecial(conversationId, item.kind, item.text, extra)
+                } else if (item.kind == "album") {
+                    // Upload the pictures not uploaded yet, then one message.
+                    for (index in item.albumPaths.size until item.album.size) {
+                        val bytes = item.album[index]
+                        val newPath = "$conversationId/${UUID.randomUUID()}.jpg"
+                        ChatRepository.uploadMedia(newPath, bytes)
+                        MediaCache.put(newPath, bytes)
+                        item.albumPaths.add(newPath)
+                    }
+                    ChatRepository.sendAlbum(conversationId, item.albumPaths.toList())
                 } else if (item.kind == "text" && replyToId != null && replyPreview != null && replySenderId != null) {
                     ChatRepository.sendReply(conversationId, item.text, replyToId, replyPreview, replySenderId)
                 } else if (item.kind == "text" || data == null) {
