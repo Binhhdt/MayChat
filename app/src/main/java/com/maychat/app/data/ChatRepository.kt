@@ -376,6 +376,11 @@ object ChatRepository {
     // Call history
     // ------------------------------------------------------------------
 
+    // Relay servers for calls (supabase_migration_19_call_servers.sql).
+    // An empty list means "direct connection only", as before.
+    suspend fun loadCallServers(): List<CallServer> =
+        supabase.postgrest.from("call_servers").select().decodeList<CallServer>()
+
     // Written by the caller's phone when a call starts. Returns the id of
     // the new history row.
     suspend fun logCallStart(calleeId: String): String =

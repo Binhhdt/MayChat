@@ -78,7 +78,10 @@ fun ChatWallpaperLayer(wallpaper: String?) {
 
     val path = wallpaper.removePrefix("img:")
     val picture by produceState(initialValue = MediaCache.cachedBitmap(path), path) {
-        if (this.value == null) this.value = attempt { MediaCache.bitmap(path) }.getOrNull()
+        // Always set for the CURRENT path. Keeping the old value here is
+        // what made a newly chosen picture appear only after leaving and
+        // re-opening the chat.
+        this.value = MediaCache.cachedBitmap(path) ?: attempt { MediaCache.bitmap(path) }.getOrNull()
     }
     val loaded = picture ?: return
     Box(modifier = Modifier.fillMaxSize()) {

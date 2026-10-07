@@ -73,6 +73,18 @@ object CallSignaling {
         }
     }
 
+    // State of my own call channel, for the diagnosis line on the call screen.
+    fun inboxStatus(): String = inbox?.status?.value?.name ?: "NONE"
+
+    // Join my call channel right now if it is not joined (instead of waiting
+    // for the next check a few seconds later).
+    fun kick() {
+        val channel = inbox ?: return
+        if (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) {
+            scope.launch { runCatching { join(channel) } }
+        }
+    }
+
     suspend fun stop() = mutex.withLock { stopLocked() }
 
     private suspend fun stopLocked() {

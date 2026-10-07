@@ -182,3 +182,11 @@ data class CallLog(
 
 // A call of the history together with the other person's profile.
 data class CallItem(val call: CallLog, val other: Profile, val outgoing: Boolean)
+
+// One relay (TURN) server for calls, from the "call_servers" table.
+@Serializable
+data class CallServer(
+    val urls: String,
+    val username: String = "",
+    val credential: String = "",
+)

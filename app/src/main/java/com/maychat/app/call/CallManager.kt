@@ -10,6 +10,7 @@ import android.os.PowerManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.maychat.app.data.CallServer
 import com.maychat.app.data.CallSignaling
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Profile
@@ -88,6 +89,44 @@ object CallManager {
     private var audioTrack: AudioTrack? = null
     private var gatheringDone = CompletableDeferred<Unit>()
 
+    // ------------------------------------------------------------------
+    // Diagnosis line (small text on the call screen)
+    // Shows how far the call set-up got, so a screenshot tells where a call
+    // that does not connect is stuck.
+    // ------------------------------------------------------------------
+
+    var debugLine by mutableStateOf("")
+        private set
+
+    private var dbgStep = "-"
+    private var dbgIce = "-"
+    // Counts of addresses: [inside the local network, public, relay].
+    private val dbgMine = IntArray(3)
+    private var dbgTheirs = IntArray(3)
+
+    // Relay servers read from the database (empty = direct connection only).
+    private var relayServers: List<CallServer> = emptyList()
+
+    private fun countAddresses(sdp: String): IntArray = intArrayOf(
+        sdp.split(" typ host").size - 1,
+        (sdp.split(" typ srflx").size - 1) + (sdp.split(" typ prflx").size - 1),
+        sdp.split(" typ relay").size - 1,
+    )
+
+    private fun debugStep(step: String) {
+        dbgStep = step
+        refreshDebug()
+    }
+
+    private fun refreshDebug() {
+        main.launch {
+            debugLine = "Chẩn đoán · bước: $dbgStep · kênh: ${CallSignaling.inboxStatus()} · " +
+                "máy này ${dbgMine[0]}/${dbgMine[1]}/${dbgMine[2]} · " +
+                "máy kia ${dbgTheirs[0]}/${dbgTheirs[1]}/${dbgTheirs[2]} · " +
+                "ICE $dbgIce · trung chuyển: ${if (relayServers.isEmpty()) "không" else "có"}"
+        }
+    }
+
     // Completed when this phone has learned its PUBLIC address (the one the
     // other phone can reach it on from a different network).
     private var publicAddressFound = CompletableDeferred<Unit>()
@@ -143,6 +182,8 @@ object CallManager {
         listenJob?.cancel()
         listenJob = main.launch {
             launch { CallSignaling.incoming.collect { onSignal(it) } }
+            // Relay servers, if any were set up (table may not exist: then none).
+            launch { attempt { ChatRepository.loadCallServers() }.onSuccess { relayServers = it } }
             attempt { CallSignaling.start(userId) }
         }
     }
@@ -185,6 +226,7 @@ object CallManager {
                 pc.setLocalSuspend(offer)
                 // Wait until the phone has found its addresses, so the offer
                 // is complete and can simply be re-sent.
+                debugStep("đang tìm địa chỉ")
                 awaitAddresses()
 
                 // Keep offering for 45 seconds: the other phone may need time
@@ -194,7 +236,8 @@ object CallManager {
                     // Built again each time: addresses found a little
                     // later are included in the next repeat.
                     val sdp = pc.localDescription?.description ?: offer.description
-                    attempt { CallSignaling.send(peer.id, signal("offer", id, sdp)) }
+                    val sent = attempt { CallSignaling.send(peer.id, signal("offer", id, sdp)) }.isSuccess
+                    debugStep(if (sent) "đã gửi lời gọi (${waited / 3 + 1})" else "GỬI LỜI GỌI LỖI (${waited / 3 + 1})")
                     delay(3_000)
                     waited += 3
                 }
@@ -229,6 +272,8 @@ object CallManager {
         )
         startRingtone()
         loadPeerPicture(senderId)
+        debugStep("có thông báo, chờ dữ liệu cuộc gọi")
+        CallSignaling.kick()
         pendingTimeoutJob?.cancel()
         pendingTimeoutJob = main.launch {
             // The caller gives up after 45 seconds.
@@ -266,6 +311,8 @@ object CallManager {
             stopRingtone()
             acceptWhenOfferArrives = true
             ui = current.copy(phase = CallPhase.CONNECTING, message = "Đang kết nối…")
+            debugStep("đã bấm nghe, chờ dữ liệu cuộc gọi")
+            CallSignaling.kick()
             return
         }
         stopRingtone()
@@ -275,6 +322,8 @@ object CallManager {
             try {
                 val pc = createPeer()
                 onCallStarted()
+                dbgTheirs = countAddresses(offer)
+                debugStep("đang tìm địa chỉ")
                 pc.setRemoteSuspend(SessionDescription(SessionDescription.Type.OFFER, offer))
                 val answer = pc.createAnswerSuspend()
                 pc.setLocalSuspend(answer)
@@ -282,6 +331,7 @@ object CallManager {
                 val sdp = pc.localDescription?.description ?: answer.description
                 myAnswer = sdp
                 CallSignaling.send(peer, signal("answer", id, sdp))
+                debugStep("đã gửi trả lời")
                 startConnectWatchdog(id)
             } catch (e: CancellationException) {
                 throw e
@@ -471,6 +521,8 @@ object CallManager {
                 if (id == callId && iAmCaller && current?.phase == CallPhase.OUTGOING) {
                     stopRingback()
                     ui = current.copy(phase = CallPhase.CONNECTING, message = "Đang kết nối…")
+                    dbgTheirs = countAddresses(sdp)
+                    debugStep("đã nhận trả lời")
                     main.launch {
                         try {
                             peerConnection?.setRemoteSuspend(
@@ -531,6 +583,9 @@ object CallManager {
 
         gatheringDone = CompletableDeferred()
         publicAddressFound = CompletableDeferred()
+        dbgMine.fill(0)
+        dbgTheirs = IntArray(3)
+        dbgIce = "NEW"
         muted = false
         speakerOn = false
 
@@ -544,7 +599,21 @@ object CallManager {
             PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
             // A second, independent provider in case Google's does not answer.
             PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer(),
-        )
+        ) + relayServers.mapNotNull { server ->
+            // Relay servers from the database, used only when a direct
+            // connection between the two phones is not possible.
+            val urls = server.urls.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (urls.isEmpty()) {
+                null
+            } else {
+                runCatching {
+                    PeerConnection.IceServer.builder(urls)
+                        .setUsername(server.username)
+                        .setPassword(server.credential)
+                        .createIceServer()
+                }.getOrNull()
+            }
+        }
         val config = PeerConnection.RTCConfiguration(servers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
@@ -568,6 +637,8 @@ object CallManager {
         }
 
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+            dbgIce = state?.name ?: "-"
+            refreshDebug()
             main.launch { onConnectionState(state) }
         }
 
@@ -577,6 +648,12 @@ object CallManager {
             // "srflx" / "relay" = an address reachable from outside my network.
             val line = candidate?.sdp ?: return
             if (" typ srflx" in line || " typ relay" in line) publicAddressFound.complete(Unit)
+            when {
+                " typ host" in line -> dbgMine[0]++
+                " typ relay" in line -> dbgMine[2]++
+                else -> dbgMine[1]++
+            }
+            refreshDebug()
         }
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
         override fun onAddStream(stream: MediaStream?) {}
