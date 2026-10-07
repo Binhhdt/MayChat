@@ -88,6 +88,29 @@ object CallManager {
     private var audioTrack: AudioTrack? = null
     private var gatheringDone = CompletableDeferred<Unit>()
 
+    // Completed when this phone has learned its PUBLIC address (the one the
+    // other phone can reach it on from a different network).
+    private var publicAddressFound = CompletableDeferred<Unit>()
+
+    // Waits until this phone knows its addresses, so the call data sent to
+    // the other phone is complete. Sending too early (only the address
+    // inside the home Wi-Fi) is what makes a call hang on "Đang kết nối"
+    // when the two phones are on different networks. Waits at most 6 seconds.
+    private suspend fun awaitAddresses() {
+        val done = gatheringDone
+        val found = publicAddressFound
+        withTimeoutOrNull(6_000) {
+            while (!done.isCompleted) {
+                if (found.isCompleted) {
+                    // Public address known: a short moment for the rest.
+                    withTimeoutOrNull(700) { done.await() }
+                    break
+                }
+                delay(100)
+            }
+        }
+    }
+
     private var callId: String? = null
     private var peerId: String? = null
     private var iAmCaller = false
@@ -162,15 +185,16 @@ object CallManager {
                 pc.setLocalSuspend(offer)
                 // Wait until the phone has found its addresses, so the offer
                 // is complete and can simply be re-sent.
-                withTimeoutOrNull(2_500) { gatheringDone.await() }
-                val sdp = pc.localDescription?.description ?: offer.description
-                val payload = signal("offer", id, sdp)
+                awaitAddresses()
 
                 // Keep offering for 45 seconds: the other phone may need time
                 // to open the app from the notification.
                 var waited = 0
                 while (ui?.phase == CallPhase.OUTGOING && callId == id && waited < 45) {
-                    attempt { CallSignaling.send(peer.id, payload) }
+                    // Built again each time: addresses found a little
+                    // later are included in the next repeat.
+                    val sdp = pc.localDescription?.description ?: offer.description
+                    attempt { CallSignaling.send(peer.id, signal("offer", id, sdp)) }
                     delay(3_000)
                     waited += 3
                 }
@@ -254,7 +278,7 @@ object CallManager {
                 pc.setRemoteSuspend(SessionDescription(SessionDescription.Type.OFFER, offer))
                 val answer = pc.createAnswerSuspend()
                 pc.setLocalSuspend(answer)
-                withTimeoutOrNull(2_500) { gatheringDone.await() }
+                awaitAddresses()
                 val sdp = pc.localDescription?.description ?: answer.description
                 myAnswer = sdp
                 CallSignaling.send(peer, signal("answer", id, sdp))
@@ -422,7 +446,10 @@ object CallManager {
                     loadPeerPicture(from)
                     main.launch { attempt { CallSignaling.send(from, signal("ringing", id)) } }
                 } else if (id == callId && !iAmCaller) {
-                    // The caller repeats the offer; repeat my answer if I have one.
+                    // The caller repeats the offer. While I have not answered
+                    // yet, keep the newest copy: it may list more addresses.
+                    if (myAnswer == null && ui?.phase == CallPhase.INCOMING) offerFromPeer = sdp
+                    // Repeat my answer if I have one.
                     val answer = myAnswer
                     if (answer != null) {
                         main.launch { attempt { CallSignaling.send(from, signal("answer", id, answer)) } }
@@ -503,6 +530,7 @@ object CallManager {
         }
 
         gatheringDone = CompletableDeferred()
+        publicAddressFound = CompletableDeferred()
         muted = false
         speakerOn = false
 
@@ -514,6 +542,8 @@ object CallManager {
         val servers = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
             PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+            // A second, independent provider in case Google's does not answer.
+            PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer(),
         )
         val config = PeerConnection.RTCConfiguration(servers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -543,7 +573,11 @@ object CallManager {
 
         override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
         override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-        override fun onIceCandidate(candidate: IceCandidate?) {}
+        override fun onIceCandidate(candidate: IceCandidate?) {
+            // "srflx" / "relay" = an address reachable from outside my network.
+            val line = candidate?.sdp ?: return
+            if (" typ srflx" in line || " typ relay" in line) publicAddressFound.complete(Unit)
+        }
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
         override fun onAddStream(stream: MediaStream?) {}
         override fun onRemoveStream(stream: MediaStream?) {}
