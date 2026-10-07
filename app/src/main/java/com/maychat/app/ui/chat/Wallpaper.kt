@@ -110,6 +110,10 @@ fun WallpaperDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    // The tile ticked in this window. Nothing is changed for real until
+    // "Áp dụng" is pressed, so trying several colors makes only ONE change
+    // (and only one "đã thay đổi hình nền" line in the chat).
+    var picked by remember { mutableStateOf(current) }
 
     // The system photo picker needs no storage permission.
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -132,7 +136,7 @@ fun WallpaperDialog(
         text = {
             Column {
                 Text(
-                    "Hình nền áp dụng cho cuộc trò chuyện này và cả hai người cùng thấy.",
+                    "Chọn một màu rồi bấm Áp dụng. Hình nền áp dụng cho cuộc trò chuyện này và cả hai người cùng thấy.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -153,10 +157,10 @@ fun WallpaperDialog(
                             .background(MaterialTheme.colorScheme.background)
                             .border(
                                 2.dp,
-                                if (current == null) selectedBorder else normalBorder,
+                                if (picked == null) selectedBorder else normalBorder,
                                 RoundedCornerShape(12.dp),
                             )
-                            .clickable { onChoose(null) },
+                            .clickable { picked = null },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -169,10 +173,10 @@ fun WallpaperDialog(
                                 .background(presetBrush(preset))
                                 .border(
                                     2.dp,
-                                    if (current == preset.id) selectedBorder else normalBorder,
+                                    if (picked == preset.id) selectedBorder else normalBorder,
                                     RoundedCornerShape(12.dp),
                                 )
-                                .clickable { onChoose(preset.id) },
+                                .clickable { picked = preset.id },
                         )
                     }
                 }
@@ -193,6 +197,14 @@ fun WallpaperDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("Xong") } },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (picked != current) onChoose(picked)
+                    onClose()
+                },
+            ) { Text("Áp dụng") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Hủy") } },
     )
 }
