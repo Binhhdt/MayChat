@@ -206,6 +206,8 @@ data class Group(
     @SerialName("last_sender_id") val lastSenderId: String? = null,
     // Background shared by all members (null = none), see migration 22.
     val wallpaper: String? = null,
+    // Picture of the group, a file in the "avatars" storage (migration 24).
+    @SerialName("avatar_path") val avatarPath: String? = null,
 )
 
 @Serializable
@@ -215,6 +217,8 @@ data class GroupMember(
     @SerialName("joined_at") val joinedAt: String? = null,
     // Up to when this member has read the group (for "Đã xem").
     @SerialName("last_read_at") val lastReadAt: String? = null,
+    // "member" or "deputy" (migration 24). The leader is Group.ownerId.
+    val role: String = "member",
 )
 
 @Serializable

@@ -1,5 +1,8 @@
 package com.maychat.app.ui.group
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,20 +66,25 @@ import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.chat.FileBubbleContent
+import com.maychat.app.ui.chat.compressImage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.BackButton
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 // "Thông tin nhóm": shortcuts (search, background, notifications, pin),
 // the pictures and files sent in the group, the members, and the actions.
 //   * every member can add friends;
-//   * only the group leader can rename the group and remove a member;
+//   * the leader and the deputies can rename the group and change its picture;
+//   * the leader can remove anyone, a deputy can remove ordinary members;
+//   * only the leader appoints deputies and hands the leadership over;
 //   * everyone can leave.
 @Composable
 fun GroupInfoScreen(
     myId: String,
     group: Group,
     members: List<Profile>,
+    deputyIds: Set<String>,
     friends: List<Profile>,
     onChanged: () -> Unit,
     onLeft: () -> Unit,
@@ -84,7 +95,10 @@ fun GroupInfoScreen(
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val iAmLeader = group.ownerId == myId
+    // Leader or deputy: may rename the group and change its picture.
+    val canManage = iAmLeader || myId in deputyIds
 
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -93,6 +107,7 @@ fun GroupInfoScreen(
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Profile?>(null) }
+    var confirmTransfer by remember { mutableStateOf<Profile?>(null) }
 
     // My own settings for this group. If reading them fails (for example
     // migration 22 was not run) both are simply shown as "off".
@@ -129,6 +144,34 @@ fun GroupInfoScreen(
         }
     }
 
+    // Picture of the group: the photo is stored in MY folder of the avatars
+    // storage (the only place I may upload to), then set for the group.
+    val pickGroupPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            busy = true
+            error = null
+            scope.launch {
+                val bytes = compressImage(context, uri, maxSide = 512)
+                if (bytes == null) {
+                    error = "Không đọc được ảnh này. Hãy chọn ảnh khác."
+                } else {
+                    val old = group.avatarPath
+                    attempt {
+                        val path = "$myId/group-${UUID.randomUUID()}.jpg"
+                        ChatRepository.uploadAvatar(path, bytes)
+                        ChatRepository.setGroupAvatar(group.id, path)
+                        // The replaced picture is removed when it was mine
+                        // (otherwise the storage refuses, which is fine).
+                        if (old != null && old.startsWith("$myId/group-")) ChatRepository.deleteAvatar(old)
+                    }
+                        .onSuccess { onChanged() }
+                        .onFailure { error = it.toUserMessage() }
+                }
+                busy = false
+            }
+        }
+    }
+
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -146,8 +189,19 @@ fun GroupInfoScreen(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Avatar(name = group.name, online = false, size = 80.dp)
-                            Spacer(Modifier.height(8.dp))
+                            Avatar(name = group.name, online = false, size = 80.dp, avatarPath = group.avatarPath)
+                            if (canManage) {
+                                TextButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        pickGroupPicture.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                        )
+                                    },
+                                ) { Text("Đổi ảnh nhóm") }
+                            } else {
+                                Spacer(Modifier.height(8.dp))
+                            }
                             Text(
                                 group.name,
                                 style = MaterialTheme.typography.headlineSmall,
@@ -213,8 +267,8 @@ fun GroupInfoScreen(
                             TextButton(onClick = { adding = true }, enabled = !busy && members.size < 50) {
                                 Text("Thêm thành viên")
                             }
-                            // Only the group leader may rename the group.
-                            if (iAmLeader) {
+                            // Only the leader and the deputies may rename the group.
+                            if (canManage) {
                                 TextButton(onClick = { renaming = true }, enabled = !busy) { Text("Đổi tên nhóm") }
                             }
                         }
@@ -290,16 +344,57 @@ fun GroupInfoScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                val isDeputy = person.id in deputyIds
                                 if (person.id == group.ownerId) {
                                     Text(
                                         "Trưởng nhóm",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
+                                } else if (isDeputy) {
+                                    Text(
+                                        "Phó nhóm",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
                                 }
                             }
-                            // Only the leader sees "Xóa", and not next to themselves.
-                            if (iAmLeader && person.id != myId) {
+                            // What I may do with this member:
+                            //   leader: appoint / dismiss as deputy, hand over, remove;
+                            //   deputy: remove an ordinary member.
+                            val personIsDeputy = person.id in deputyIds
+                            val isOther = person.id != myId && person.id != group.ownerId
+                            if (iAmLeader && isOther) {
+                                var rowMenu by remember(person.id) { mutableStateOf(false) }
+                                Box {
+                                    TextButton(onClick = { rowMenu = true }, enabled = !busy) { Text("⋮") }
+                                    DropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (personIsDeputy) "Bãi nhiệm phó nhóm" else "Bổ nhiệm phó nhóm") },
+                                            onClick = {
+                                                rowMenu = false
+                                                perform({
+                                                    ChatRepository.setGroupDeputy(group.id, person.id, !personIsDeputy)
+                                                })
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Chuyển quyền trưởng nhóm") },
+                                            onClick = {
+                                                rowMenu = false
+                                                confirmTransfer = person
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Xóa khỏi nhóm", color = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                rowMenu = false
+                                                confirmRemove = person
+                                            },
+                                        )
+                                    }
+                                }
+                            } else if (!iAmLeader && myId in deputyIds && isOther && !personIsDeputy) {
                                 TextButton(onClick = { confirmRemove = person }, enabled = !busy) {
                                     Text("Xóa", color = MaterialTheme.colorScheme.error)
                                 }
@@ -430,6 +525,28 @@ fun GroupInfoScreen(
                     ) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Không") } },
+            )
+        }
+
+        confirmTransfer?.let { person ->
+            AlertDialog(
+                onDismissRequest = { confirmTransfer = null },
+                title = { Text("Chuyển quyền trưởng nhóm?") },
+                text = {
+                    Text(
+                        "${person.displayName} sẽ thành trưởng nhóm, còn bạn trở thành thành viên thường. " +
+                            "Sau đó chỉ ${person.displayName} mới chuyển lại được.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmTransfer = null
+                            perform({ ChatRepository.transferGroupLeader(group.id, person.id) })
+                        },
+                    ) { Text("Chuyển") }
+                },
+                dismissButton = { TextButton(onClick = { confirmTransfer = null }) { Text("Không") } },
             )
         }
 

@@ -115,6 +115,8 @@ object ChatRepository {
             supabase.postgrest.rpc("unregister_push_token", buildJsonObject { put("p_device", deviceId) })
         }
         stopRealtime()
+        // The lists remembered for a fast start belong to this account.
+        ListCache.clear()
         supabase.auth.signOut()
     }
 
@@ -650,6 +652,78 @@ object ChatRepository {
         )
     }
 
+    // ----- Group picture, deputies, leadership (supabase_migration_24) -----
+
+    // path: a file I uploaded into my own folder of the avatars storage;
+    // null removes the picture.
+    suspend fun setGroupAvatar(groupId: String, path: String?) {
+        supabase.postgrest.rpc(
+            "set_group_avatar",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_path", path ?: "")
+            },
+        )
+    }
+
+    suspend fun setGroupDeputy(groupId: String, userId: String, deputy: Boolean) {
+        supabase.postgrest.rpc(
+            "set_group_deputy",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_user", userId)
+                put("p_on", deputy)
+            },
+        )
+    }
+
+    suspend fun transferGroupLeader(groupId: String, userId: String) {
+        supabase.postgrest.rpc(
+            "transfer_group_leader",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_user", userId)
+            },
+        )
+    }
+
+    // Sends a COPY of a message (from any chat) into a group. A file is
+    // copied too, because each group has its own private folder.
+    suspend fun sendCopyToGroup(
+        groupId: String,
+        kind: String,
+        content: String,
+        mediaPath: String?,
+        durationMs: Int?,
+        fileName: String?,
+    ) {
+        if (kind == "text" || mediaPath == null) {
+            sendGroupMessage(NewGroupMessage(groupId = groupId, content = content))
+            return
+        }
+        val bytes = MediaCache.bytes(mediaPath)
+        val extension = when (kind) {
+            "image" -> "jpg"
+            "voice" -> "m4a"
+            else -> (fileName ?: "").substringAfterLast('.', "").lowercase()
+                .filter { it in 'a'..'z' || it in '0'..'9' }.take(8).ifEmpty { "bin" }
+        }
+        val newPath = "$groupId/${java.util.UUID.randomUUID()}.$extension"
+        uploadMedia(newPath, bytes)
+        MediaCache.put(newPath, bytes)
+        sendGroupMessage(
+            NewGroupMessage(
+                groupId = groupId,
+                content = content,
+                kind = kind,
+                mediaPath = newPath,
+                durationMs = durationMs,
+                fileName = if (kind == "file") fileName ?: "file" else null,
+                fileSize = if (kind == "file") bytes.size else null,
+            ),
+        )
+    }
+
     // Text messages of one group that contain the given words, accents and
     // upper/lower case ignored (newest first, at most SEARCH_LIMIT).
     suspend fun searchGroupMessages(groupId: String, query: String): List<GroupMessage> {
@@ -992,6 +1066,13 @@ object ChatRepository {
     // Fires when a reaction is added, changed or removed in one of my chats.
     val reactionEvents: SharedFlow<Unit> = _reactionEvents.asSharedFlow()
 
+    private val _groupEvents = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
+    // The id of a group in which a message was just added or changed
+    // (needs supabase_migration_24; without it nothing arrives here and
+    // the screens keep checking every few seconds, as before).
+    val groupEvents: SharedFlow<String> = _groupEvents.asSharedFlow()
+
     private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
 
     // Ids of users who currently have the app open.
@@ -1007,6 +1088,7 @@ object ChatRepository {
     private var realtimeJob: Job? = null
     private var dbChannel: RealtimeChannel? = null
     private var presenceChannel: RealtimeChannel? = null
+    private var groupChannel: RealtimeChannel? = null
     private val onlineCounts = HashMap<String, Int>()
 
     // Makes sure two restarts never run at the same time.
@@ -1030,8 +1112,27 @@ object ChatRepository {
         val presence = supabase.channel("online-users")
         dbChannel = db
         presenceChannel = presence
+        // Channel 3: group messages. Kept apart from channel 1 on purpose:
+        // whatever happens to it, one-to-one messages are not affected, and
+        // the watchdog below does not look at it.
+        val groupDb = supabase.channel("group-messages-$myId-${System.currentTimeMillis()}")
+        groupChannel = groupDb
 
         realtimeJob = scope.launch {
+            val groupChanges = groupDb.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "group_messages"
+            }
+            launch {
+                groupChanges.collect { action ->
+                    val record: JsonObject? = when (action) {
+                        is PostgresAction.Insert -> action.record
+                        is PostgresAction.Update -> action.record
+                        else -> null
+                    }
+                    record?.get("group_id")?.jsonPrimitive?.contentOrNull?.let { _groupEvents.emit(it) }
+                }
+            }
+
             val changes = db.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "messages"
             }
@@ -1102,6 +1203,7 @@ object ChatRepository {
             delay(300)
             launch { joinWithRetry(db) }
             launch { joinWithRetry(presence) }
+            launch { joinWithRetry(groupDb) }
 
             // Watchdog: phones often drop the live connection (screen off,
             // Wi-Fi to mobile data, battery saver). If a channel stays
@@ -1152,6 +1254,8 @@ object ChatRepository {
         realtimeJob = null
         dbChannel?.let { ch -> runCatching { supabase.realtime.removeChannel(ch) } }
         presenceChannel?.let { ch -> runCatching { supabase.realtime.removeChannel(ch) } }
+        groupChannel?.let { ch -> runCatching { supabase.realtime.removeChannel(ch) } }
+        groupChannel = null
         dbChannel = null
         presenceChannel = null
         synchronized(onlineCounts) { onlineCounts.clear() }

@@ -413,6 +413,19 @@ class ChatState(
         }
     }
 
+    // Sends a COPY of a message into a GROUP.
+    suspend fun forwardToGroup(targetGroupId: String, messageKey: String) {
+        val original = confirmed[messageKey] ?: throw IllegalStateException("message not found")
+        ChatRepository.sendCopyToGroup(
+            targetGroupId,
+            original.kind,
+            original.content,
+            original.mediaPath,
+            original.durationMs,
+            original.fileName,
+        )
+    }
+
     // Take back one of my own messages, for both people.
     fun recall(messageId: String) {
         // The file of a recalled picture, voice message or file is no

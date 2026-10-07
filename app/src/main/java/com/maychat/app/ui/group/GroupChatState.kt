@@ -189,7 +189,13 @@ class GroupChatState(
         }
     }
 
+    // Ids of the deputy leaders (migration 24; empty without it).
+    var deputies by mutableStateOf<Set<String>>(emptySet())
+        private set
+
     private fun applyMemberRows(rows: List<GroupMember>) {
+        val nextDeputies = rows.filter { it.role == "deputy" }.map { it.userId }.toSet()
+        if (nextDeputies != deputies) deputies = nextDeputies
         val next = rows.associate { it.userId to ChatRepository.toEpochMillis(it.lastReadAt) }
         if (next != readUpTo) readUpTo = next
     }
@@ -474,6 +480,19 @@ class GroupChatState(
                 original.durationMs,
             )
         }
+    }
+
+    // Sends a COPY of a message into a GROUP.
+    suspend fun forwardToGroup(targetGroupId: String, messageKey: String) {
+        val original = confirmed[messageKey] ?: throw IllegalStateException("message not found")
+        ChatRepository.sendCopyToGroup(
+            targetGroupId,
+            original.kind,
+            original.content,
+            original.mediaPath,
+            original.durationMs,
+            original.fileName,
+        )
     }
 
     // ----- Sending --------------------------------------------------------

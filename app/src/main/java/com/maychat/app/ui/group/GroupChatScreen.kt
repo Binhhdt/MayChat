@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -68,6 +71,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -78,6 +83,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.GroupMessage
+import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -128,7 +134,10 @@ fun GroupChatScreen(
     val connectionCount by ChatRepository.connectionCount.collectAsState()
     val listState = rememberLazyListState()
 
-    var draft by remember(groupId) { mutableStateOf("") }
+    // The text box keeps the cursor position too, so a picked "@name" can be
+    // put in and the cursor placed right after it.
+    var draftValue by remember(groupId) { mutableStateOf(TextFieldValue("")) }
+    val draft = draftValue.text
     var menuOpen by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
     var recordedMs by remember { mutableLongStateOf(0L) }
@@ -188,6 +197,31 @@ fun GroupChatScreen(
         if (who != null && who in typingAt) typingAt = typingAt - who
     }
 
+    // ----- Mentions ("@Tên") ------------------------------------------
+    // Names shown in bold inside messages: every member's, longest first so
+    // "@An Nguyễn" is not cut short by a member called "An".
+    val mentionNames = remember(state.members) {
+        state.members.map { it.displayName }.filter { it.isNotBlank() }.sortedByDescending { it.length }
+    }
+    // The "@word" just before the cursor, as (start, end) in the text, or
+    // null when the cursor is not in one.
+    val mentionToken: Pair<Int, Int>? = run {
+        val cursor = draftValue.selection.end.coerceIn(0, draft.length)
+        val at = draft.lastIndexOf('@', (cursor - 1).coerceAtLeast(0))
+        if (cursor == 0 || at < 0 || at >= cursor) return@run null
+        if (at > 0 && !draft[at - 1].isWhitespace()) return@run null
+        val word = draft.substring(at + 1, cursor)
+        if (word.length > 30 || word.contains('\n')) null else Pair(at, cursor)
+    }
+    val mentionChoices: List<Profile> = if (mentionToken == null) {
+        emptyList()
+    } else {
+        val typed = draft.substring(mentionToken.first + 1, mentionToken.second).trim().lowercase()
+        state.members
+            .filter { it.id != myId && it.displayName.lowercase().contains(typed) }
+            .take(6)
+    }
+
     // Removed from the group, or the group no longer exists: leave the screen.
     LaunchedEffect(state.gone) {
         if (state.gone) onBack()
@@ -196,7 +230,12 @@ fun GroupChatScreen(
     // Load at start, and again whenever the connection comes (back) up.
     LaunchedEffect(groupId, connectionCount) { state.refresh() }
 
-    // New messages, reactions and "đã xem" every 3 seconds while showing.
+    // A message was added or changed in this group: fetch it at once.
+    LaunchedEffect(groupId) {
+        ChatRepository.groupEvents.collect { if (it == groupId) state.poll() }
+    }
+
+    // Safety net (and reactions, "đã xem"): every 3 seconds while showing.
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(groupId, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -533,7 +572,7 @@ fun GroupChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { infoOpen = true },
                         ) {
-                            Avatar(name = groupName, online = false, size = 36.dp)
+                            Avatar(name = groupName, online = false, size = 36.dp, avatarPath = group?.avatarPath)
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
@@ -722,6 +761,7 @@ fun GroupChatScreen(
                                     quoteName = nameOf(message.replySenderId),
                                     sentMeta = state.sentMeta(message),
                                     onShowReactions = { reactionsFor = message.key },
+                                    mentionNames = mentionNames,
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -941,6 +981,46 @@ fun GroupChatScreen(
                     }
                 }
 
+                // Mentions: while the word being typed starts with "@", the
+                // members whose name matches are offered. Tap one to put the
+                // name in.
+                if (mentionToken != null && mentionChoices.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        mentionChoices.forEach { person ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val before = draft.substring(0, mentionToken.first)
+                                        val after = draft.substring(mentionToken.second)
+                                        val inserted = "@${person.displayName} "
+                                        draftValue = TextFieldValue(
+                                            before + inserted + after,
+                                            TextRange(before.length + inserted.length),
+                                        )
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Avatar(
+                                    name = person.displayName,
+                                    online = false,
+                                    size = 32.dp,
+                                    avatarPath = person.avatarPath,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(person.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+
                 // Text box row: emoji on the left; file, camera, microphone and
                 // picture on the right while the box is empty, the send button
                 // once there is text.
@@ -961,12 +1041,12 @@ fun GroupChatScreen(
                         )
                     }
                     OutlinedTextField(
-                        value = draft,
+                        value = draftValue,
                         onValueChange = {
-                            draft = it
+                            draftValue = it
                             // Tell the group "typing", at most once every 2.5 seconds.
                             val now = System.currentTimeMillis()
-                            if (it.isNotBlank() && now - myTypingSentAt > 2_500) {
+                            if (it.text.isNotBlank() && now - myTypingSentAt > 2_500) {
                                 myTypingSentAt = now
                                 scope.launch { ChatRepository.sendTyping(groupId, myId) }
                             }
@@ -1058,7 +1138,7 @@ fun GroupChatScreen(
                         FilledIconButton(
                             onClick = {
                                 state.send(draft, replyToKey = replyingTo?.key)
-                                draft = ""
+                                draftValue = TextFieldValue("")
                                 replyingTo = null
                             },
                         ) {
@@ -1074,7 +1154,12 @@ fun GroupChatScreen(
 
                 // Emoji panel: tap one to add it to the message.
                 if (emojiOpen) {
-                    EmojiPanel(onPick = { draft += it })
+                    EmojiPanel(
+                        onPick = {
+                            val text = draft + it
+                            draftValue = TextFieldValue(text, TextRange(text.length))
+                        },
+                    )
                 }
             }
         }
@@ -1101,8 +1186,7 @@ fun GroupChatScreen(
         }
     }
 
-    // Forwarding goes to PEOPLE (one-to-one conversations), like in a
-    // one-to-one chat.
+    // Forwarding goes to people and to my other groups.
     forwarding?.let { target ->
         ForwardScreen(
             myId = myId,
@@ -1116,16 +1200,24 @@ fun GroupChatScreen(
                     var failure: String? = null
                     for (destination in targets) {
                         attempt {
-                            // Create the conversation first if there is none yet.
-                            val id = destination.conversationId
-                                ?: ChatRepository.openConversation(destination.profile.id)
-                            state.forwardTo(id, target.key)
-                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            val toGroup = destination.groupId
+                            if (toGroup != null) {
+                                state.forwardToGroup(toGroup, target.key)
+                                if (note.isNotEmpty()) {
+                                    ChatRepository.sendGroupMessage(NewGroupMessage(groupId = toGroup, content = note))
+                                }
+                            } else {
+                                // Create the conversation first if there is none yet.
+                                val id = destination.conversationId
+                                    ?: ChatRepository.openConversation(destination.profile.id)
+                                state.forwardTo(id, target.key)
+                                if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            }
                         }
                             .onSuccess { sent++ }
                             .onFailure { failure = it.toUserMessage() }
                     }
-                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent người."
+                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent nơi nhận."
                     failure?.let { state.showError(it) }
                 }
             },
@@ -1146,16 +1238,25 @@ fun GroupChatScreen(
                     var failure: String? = null
                     for (destination in targets) {
                         attempt {
-                            val id = destination.conversationId
-                                ?: ChatRepository.openConversation(destination.profile.id)
-                            // One after the other, so they arrive in the same order.
-                            for (key in keys) state.forwardTo(id, key)
-                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            val toGroup = destination.groupId
+                            if (toGroup != null) {
+                                // One after the other, so they arrive in the same order.
+                                for (key in keys) state.forwardToGroup(toGroup, key)
+                                if (note.isNotEmpty()) {
+                                    ChatRepository.sendGroupMessage(NewGroupMessage(groupId = toGroup, content = note))
+                                }
+                            } else {
+                                // Create the conversation first if there is none yet.
+                                val id = destination.conversationId
+                                    ?: ChatRepository.openConversation(destination.profile.id)
+                                for (key in keys) state.forwardTo(id, key)
+                                if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            }
                         }
                             .onSuccess { sent++ }
                             .onFailure { failure = it.toUserMessage() }
                     }
-                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent người."
+                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent nơi nhận."
                     failure?.let { state.showError(it) }
                 }
             },
@@ -1187,6 +1288,7 @@ fun GroupChatScreen(
             myId = myId,
             group = group,
             members = state.members,
+            deputyIds = state.deputies,
             friends = friends,
             onChanged = {
                 scope.launch {

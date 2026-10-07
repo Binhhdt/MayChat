@@ -57,12 +57,15 @@ import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Group
 import com.maychat.app.data.GroupPref
+import com.maychat.app.data.ListCache
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
 import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 // The "Nhóm" tab: every group I am a member of, so it is easy to see
@@ -77,24 +80,41 @@ fun GroupsScreen(
     val scope = rememberCoroutineScope()
     val connectionCount by ChatRepository.connectionCount.collectAsState()
 
-    var groups by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var unread by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
-    var prefs by remember { mutableStateOf<Map<String, GroupPref>>(emptyMap()) }
-    var loading by remember { mutableStateOf(true) }
+    // Remembered from last time, so the list is there at once.
+    val cachedGroups = remember(myId) { ListCache.groups(myId) }
+    var groups by remember { mutableStateOf(cachedGroups ?: emptyList()) }
+    var unread by remember { mutableStateOf(ListCache.groupUnread(myId)) }
+    var prefs by remember { mutableStateOf(ListCache.groupPrefs(myId)) }
+    var loading by remember { mutableStateOf(cachedGroups == null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    suspend fun reload() {
-        attempt { ChatRepository.loadGroups() }
-            .onSuccess {
-                groups = it
-                error = null
+    // The three questions go to the server at the same time.
+    suspend fun reload() = coroutineScope {
+        launch {
+            attempt { ChatRepository.loadGroups() }
+                .onSuccess {
+                    groups = it
+                    error = null
+                    ListCache.saveGroups(myId, it)
+                }
+                .onFailure { error = it.toUserMessage() }
+            loading = false
+        }
+        launch {
+            attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess {
+                unread = it
+                ListCache.saveGroupUnread(myId, it)
             }
-            .onFailure { error = it.toUserMessage() }
-        attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess { unread = it }
+        }
         // If this fails (for example migration 22 was not run) nothing is
         // pinned or muted.
-        attempt { ChatRepository.loadGroupPrefs() }.onSuccess { prefs = it }
-        loading = false
+        launch {
+            attempt { ChatRepository.loadGroupPrefs() }.onSuccess {
+                prefs = it
+                ListCache.saveGroupPrefs(myId, it)
+            }
+        }
+        Unit
     }
 
     fun changePref(groupId: String, pinned: Boolean? = null, muted: Boolean? = null, clear: Boolean = false) {
@@ -107,8 +127,16 @@ fun GroupsScreen(
 
     LaunchedEffect(connectionCount) { reload() }
 
-    // There is no live connection for groups: refresh every 8 seconds
-    // while this tab is on screen.
+    // A message in one of my groups: refresh at once.
+    LaunchedEffect(Unit) {
+        ChatRepository.groupEvents.collectLatest {
+            delay(300)
+            reload()
+        }
+    }
+
+    // Safety net, in case the live connection has silently stopped:
+    // refresh every 8 seconds while this tab is on screen.
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -278,7 +306,7 @@ fun GroupListRow(
                 .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(name = group.name, online = false, size = 54.dp)
+                Avatar(name = group.name, online = false, size = 54.dp, avatarPath = group.avatarPath)
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -59,6 +59,7 @@ import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.ConversationPref
 import com.maychat.app.data.Group
 import com.maychat.app.data.GroupPref
+import com.maychat.app.data.ListCache
 import com.maychat.app.data.ConversationItem
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
@@ -67,6 +68,7 @@ import com.maychat.app.ui.common.Avatar
 import com.maychat.app.ui.common.LoadingScreen
 import com.maychat.app.ui.common.formatTime
 import com.maychat.app.ui.group.GroupListRow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -87,17 +89,23 @@ fun ConversationsScreen(
     val online by ChatRepository.onlineUsers.collectAsState()
     val connectionCount by ChatRepository.connectionCount.collectAsState()
 
-    var conversations by remember { mutableStateOf<List<ConversationItem>>(emptyList()) }
-    var me by remember { mutableStateOf<Profile?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    // What this screen showed last time is remembered on the phone, so the
+    // list is there at once; the fresh data from the server replaces it a
+    // moment later. The spinner only shows when nothing is remembered yet.
+    val cachedConversations = remember(myId) { ListCache.conversations(myId) }
+    val cachedGroups = remember(myId) { ListCache.groups(myId) }
+
+    var conversations by remember { mutableStateOf(cachedConversations ?: emptyList()) }
+    var me by remember { mutableStateOf(ListCache.me(myId)) }
+    var loading by remember { mutableStateOf(cachedConversations == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmSignOut by remember { mutableStateOf(false) }
 
     // Unread messages per conversation id (shown as a red number in the list).
-    var unreadCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var unreadCounts by remember { mutableStateOf(ListCache.unread(myId)) }
 
     // My own settings per conversation: pinned, muted, deleted on my side.
-    var prefs by remember { mutableStateOf<Map<String, ConversationPref>>(emptyMap()) }
+    var prefs by remember { mutableStateOf(ListCache.conversationPrefs(myId)) }
     // The conversation I am about to delete on my side (asks first).
     var confirmDelete by remember { mutableStateOf<ConversationItem?>(null) }
 
@@ -111,11 +119,11 @@ fun ConversationsScreen(
 
     // My groups and their unread numbers. If loading fails (for example
     // migration 21 was not run) the list simply shows no groups.
-    var groups by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var groupUnread by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var groups by remember { mutableStateOf(cachedGroups ?: emptyList()) }
+    var groupUnread by remember { mutableStateOf(ListCache.groupUnread(myId)) }
     // My own settings per group: pinned, muted, history deleted on my side.
     // If loading fails (for example migration 22 was not run) there are none.
-    var groupPrefs by remember { mutableStateOf<Map<String, GroupPref>>(emptyMap()) }
+    var groupPrefs by remember { mutableStateOf(ListCache.groupPrefs(myId)) }
 
     fun changeGroupPref(groupId: String, pinned: Boolean? = null, muted: Boolean? = null, clear: Boolean = false) {
         scope.launch {
@@ -126,30 +134,75 @@ fun ConversationsScreen(
         }
     }
 
-    suspend fun reload() {
-        attempt { ChatRepository.loadGroups() }.onSuccess { groups = it }
-        attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess { groupUnread = it }
-        attempt { ChatRepository.loadGroupPrefs() }.onSuccess { groupPrefs = it }
+    // All questions go to the server AT THE SAME TIME, and each answer is
+    // shown as soon as it arrives (before, they were asked one after the
+    // other and the list waited for the last one).
+    suspend fun reload() = coroutineScope {
+        launch {
+            attempt { ChatRepository.loadGroups() }.onSuccess {
+                groups = it
+                ListCache.saveGroups(myId, it)
+            }
+        }
+        launch {
+            attempt { ChatRepository.loadGroupUnreadCounts() }.onSuccess {
+                groupUnread = it
+                ListCache.saveGroupUnread(myId, it)
+            }
+        }
+        launch {
+            attempt { ChatRepository.loadGroupPrefs() }.onSuccess {
+                groupPrefs = it
+                ListCache.saveGroupPrefs(myId, it)
+            }
+        }
         // If this fails (for example migration 16 was not run) nothing is
         // pinned, muted or hidden, exactly as before.
-        attempt { ChatRepository.loadConversationPrefs() }.onSuccess { prefs = it }
-        attempt { ChatRepository.loadConversations(myId) }
-            .onSuccess {
-                conversations = it
-                error = null
+        launch {
+            attempt { ChatRepository.loadConversationPrefs() }.onSuccess {
+                prefs = it
+                ListCache.saveConversationPrefs(myId, it)
             }
-            .onFailure { error = it.toUserMessage() }
+        }
         // If this fails (for example migration 07 was not run), the list
         // simply shows no numbers, exactly as before.
-        attempt { ChatRepository.loadUnreadCounts() }.onSuccess { unreadCounts = it }
-        loading = false
+        launch {
+            attempt { ChatRepository.loadUnreadCounts() }.onSuccess {
+                unreadCounts = it
+                ListCache.saveUnread(myId, it)
+            }
+        }
+        launch {
+            attempt { ChatRepository.loadConversations(myId) }
+                .onSuccess {
+                    conversations = it
+                    error = null
+                    ListCache.saveConversations(myId, it)
+                }
+                .onFailure { error = it.toUserMessage() }
+            loading = false
+        }
+        Unit
     }
 
     // Load at start, and again whenever the live connection comes (back) up.
     LaunchedEffect(connectionCount) { reload() }
 
     LaunchedEffect(myId) {
-        attempt { ChatRepository.loadProfile(myId) }.onSuccess { me = it }
+        attempt { ChatRepository.loadProfile(myId) }.onSuccess { loaded ->
+            if (loaded != null) {
+                me = loaded
+                ListCache.saveMe(myId, loaded)
+            }
+        }
+    }
+
+    // A message in one of my groups: refresh the list at once.
+    LaunchedEffect(Unit) {
+        ChatRepository.groupEvents.collectLatest {
+            delay(300)
+            reload()
+        }
     }
 
     // A new message anywhere: refresh the list (waits a moment so that a

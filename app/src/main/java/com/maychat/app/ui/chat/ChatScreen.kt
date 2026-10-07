@@ -86,6 +86,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,6 +99,7 @@ import com.maychat.app.R
 import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.Message
+import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
 import com.maychat.app.data.attempt
 import com.maychat.app.data.toUserMessage
@@ -1316,16 +1318,24 @@ fun ChatScreen(
                     var failure: String? = null
                     for (destination in targets) {
                         attempt {
-                            // Create the conversation first if there is none yet.
-                            val id = destination.conversationId
-                                ?: ChatRepository.openConversation(destination.profile.id)
-                            state.forwardTo(id, target.key)
-                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            val toGroup = destination.groupId
+                            if (toGroup != null) {
+                                state.forwardToGroup(toGroup, target.key)
+                                if (note.isNotEmpty()) {
+                                    ChatRepository.sendGroupMessage(NewGroupMessage(groupId = toGroup, content = note))
+                                }
+                            } else {
+                                // Create the conversation first if there is none yet.
+                                val id = destination.conversationId
+                                    ?: ChatRepository.openConversation(destination.profile.id)
+                                state.forwardTo(id, target.key)
+                                if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            }
                         }
                             .onSuccess { sent++ }
                             .onFailure { failure = it.toUserMessage() }
                     }
-                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent người."
+                    if (sent > 0) notice = "Đã chuyển tiếp tới $sent nơi nhận."
                     failure?.let { state.showError(it) }
                 }
             },
@@ -1346,17 +1356,25 @@ fun ChatScreen(
                     var failure: String? = null
                     for (destination in targets) {
                         attempt {
-                            // Create the conversation first if there is none yet.
-                            val id = destination.conversationId
-                                ?: ChatRepository.openConversation(destination.profile.id)
-                            // One after the other, so they arrive in the same order.
-                            for (key in keys) state.forwardTo(id, key)
-                            if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            val toGroup = destination.groupId
+                            if (toGroup != null) {
+                                // One after the other, so they arrive in the same order.
+                                for (key in keys) state.forwardToGroup(toGroup, key)
+                                if (note.isNotEmpty()) {
+                                    ChatRepository.sendGroupMessage(NewGroupMessage(groupId = toGroup, content = note))
+                                }
+                            } else {
+                                // Create the conversation first if there is none yet.
+                                val id = destination.conversationId
+                                    ?: ChatRepository.openConversation(destination.profile.id)
+                                for (key in keys) state.forwardTo(id, key)
+                                if (note.isNotEmpty()) ChatRepository.sendMessage(id, note)
+                            }
                         }
                             .onSuccess { sent++ }
                             .onFailure { failure = it.toUserMessage() }
                     }
-                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent người."
+                    if (sent > 0) notice = "Đã chuyển tiếp ${keys.size} tin nhắn tới $sent nơi nhận."
                     failure?.let { state.showError(it) }
                 }
             },
@@ -1482,6 +1500,9 @@ internal fun MessageBubble(
     sentMeta: String? = null,
     // Tapping the reactions under the bubble: show who reacted.
     onShowReactions: () -> Unit = {},
+    // Group chats only: names that are shown in bold when the text
+    // contains "@name" (a mention).
+    mentionNames: List<String> = emptyList(),
 ) {
     // A notice written by the server, for example "đã thay đổi hình nền".
     // Shown as a centered line saying who did it; it is not a bubble and
@@ -1754,7 +1775,7 @@ internal fun MessageBubble(
                         }
                         // While searching, the words are marked in every message
                         // that contains them, not only in the current result.
-                        Text(highlighted(message.text, markQuery), color = textColor)
+                        Text(highlighted(message.text, markQuery, mentionNames), color = textColor)
                     }
                 }
             }
@@ -1968,10 +1989,27 @@ private fun isEmojiOnly(text: String): Boolean {
 
 // The message text with every occurrence of the searched words marked in
 // yellow (upper and lower case do not matter). Without a query: plain text.
-private fun highlighted(text: String, query: String?): AnnotatedString {
-    if (query.isNullOrEmpty()) return AnnotatedString(text)
+private fun highlighted(text: String, query: String?, mentionNames: List<String> = emptyList()): AnnotatedString {
+    val hasMentions = mentionNames.isNotEmpty() && text.contains('@')
+    if (query.isNullOrEmpty() && !hasMentions) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
+        // Mentions ("@Tên") in bold and underlined.
+        if (hasMentions) {
+            for (name in mentionNames) {
+                val needle = "@$name"
+                var at = text.indexOf(needle)
+                while (at >= 0) {
+                    addStyle(
+                        SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline),
+                        at,
+                        at + needle.length,
+                    )
+                    at = text.indexOf(needle, at + needle.length)
+                }
+            }
+        }
+        if (query.isNullOrEmpty()) return@buildAnnotatedString
         // Compared without accents, like the search itself. Folding keeps
         // the length, so the positions still match the original text.
         val foldedText = foldVi(text)

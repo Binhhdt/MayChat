@@ -47,7 +47,9 @@ import com.maychat.app.ui.common.Avatar
 
 // One person a message can be forwarded to. conversationId is null when
 // there is no conversation with them yet (it is created when sending).
-data class ForwardTarget(val profile: Profile, val conversationId: String?)
+// groupId is set when the target is a GROUP; profile then only carries the
+// group's name and picture for the list.
+data class ForwardTarget(val profile: Profile, val conversationId: String?, val groupId: String? = null)
 
 // Full-screen "Chia sẻ" screen: tick one or more people, optionally add a
 // message, then send. People I already chat with come first, then friends.
@@ -71,7 +73,21 @@ fun ForwardScreen(
                 val fromChats = conversations.map { ForwardTarget(it.other, it.conversation.id) }
                 val known = fromChats.map { it.profile.id }.toSet()
                 val fromFriends = friends.filter { it.id !in known }.map { ForwardTarget(it, null) }
-                people = fromChats + fromFriends
+                // My groups come after the people. If they cannot be read
+                // (for example migration 21 was not run) only people are shown.
+                val fromGroups = attempt { ChatRepository.loadGroups() }.getOrNull().orEmpty().map { group ->
+                    ForwardTarget(
+                        profile = Profile(
+                            id = "group-${group.id}",
+                            username = "",
+                            displayName = group.name,
+                            avatarPath = group.avatarPath,
+                        ),
+                        conversationId = null,
+                        groupId = group.id,
+                    )
+                }
+                people = fromChats + fromFriends + fromGroups
             }
             .onFailure { error = it.toUserMessage() }
     }
@@ -147,13 +163,21 @@ fun ForwardScreen(
                                     avatarPath = target.profile.avatarPath,
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                Text(
-                                    target.profile.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        target.profile.displayName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (target.groupId != null) {
+                                        Text(
+                                            "Nhóm",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                                 // Round tick mark, like in the share screen of Zalo.
                                 RadioButton(selected = ticked, onClick = null)
                             }
