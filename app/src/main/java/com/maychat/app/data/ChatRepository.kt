@@ -121,6 +121,7 @@ object ChatRepository {
         // is still closing must not write them back).
         ListCache.clear()
         ChatMemory.clear()
+        E2E.clear()
         GroupFaces.clear()
         com.maychat.app.push.Reminders.clear()
         conversationPrefsKnown = false
@@ -286,6 +287,7 @@ object ChatRepository {
             .select { limit(100L) }
             .decodeList<Conversation>()
         if (conversations.isEmpty()) return emptyList()
+        E2E.noteSwitches(conversations)
 
         val otherIds = conversations.map { if (it.userA == myId) it.userB else it.userA }.distinct()
         val profiles = supabase.postgrest.from("profiles")
@@ -296,7 +298,10 @@ object ChatRepository {
         return conversations
             .mapNotNull { c ->
                 val otherId = if (c.userA == myId) c.userB else c.userA
-                profiles[otherId]?.let { ConversationItem(c, it) }
+                // The last line of an encrypted conversation is opened here.
+                val shown = c.lastMessageText?.takeIf { E2E.isLocked(it) }?.let { E2E.open(c.id, it) }
+                val row = if (shown != null) c.copy(lastMessageText = shown) else c
+                profiles[otherId]?.let { ConversationItem(row, it) }
             }
             .sortedByDescending { toEpochMillis(it.conversation.lastMessageAt ?: it.conversation.createdAt) }
     }
@@ -982,12 +987,37 @@ object ChatRepository {
                 limit(limit.toLong())
             }
             .decodeList<Message>()
+            .map { E2E.open(it) }
     }
 
+    // In a conversation with end-to-end encryption a text is locked before
+    // it is sent (E2E.seal). When the server answers "this conversation is
+    // encrypted" (the other person switched it on a moment ago and this
+    // phone had not noticed), the switch is read again and the text is
+    // sent once more, locked.
+    private suspend fun <T> sealedSend(conversationId: String, send: suspend (force: Boolean) -> T): T =
+        try {
+            send(false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if ("e2e_required" in (e.message ?: "")) send(true) else throw e
+        }
+
     suspend fun sendMessage(conversationId: String, text: String): Message =
-        supabase.postgrest.from("messages")
-            .insert(NewMessage(conversationId, text)) { select() }
-            .decodeSingle<Message>()
+        sealedSend(conversationId) { force ->
+            supabase.postgrest.from("messages")
+                // The line of a call ("📞 ...") is never locked: the server
+                // reads it to make the other phone ring.
+                .insert(
+                    NewMessage(
+                        conversationId,
+                        if (text.startsWith("📞")) text else E2E.seal(conversationId, text, force),
+                    ),
+                ) { select() }
+                .decodeSingle<Message>()
+                .let { E2E.open(it) }
+        }
 
     // ------------------------------------------------------------------
     // Images and voice messages (Supabase Storage, private bucket)
@@ -996,12 +1026,14 @@ object ChatRepository {
     const val MEDIA_BUCKET = "chat-media"
 
     // path looks like "<conversation id>/<random name>.jpg"
+    // In a conversation with end-to-end encryption the file is locked
+    // before it leaves the phone, and opened after it is downloaded.
     suspend fun uploadMedia(path: String, bytes: ByteArray) {
-        supabase.storage.from(MEDIA_BUCKET).upload(path, bytes)
+        supabase.storage.from(MEDIA_BUCKET).upload(path, E2E.sealFile(path.substringBefore('/'), bytes))
     }
 
     suspend fun downloadMedia(path: String): ByteArray =
-        supabase.storage.from(MEDIA_BUCKET).downloadAuthenticated(path)
+        E2E.openFile(path.substringBefore('/'), supabase.storage.from(MEDIA_BUCKET).downloadAuthenticated(path))
 
     suspend fun sendMediaMessage(
         conversationId: String,
@@ -1092,9 +1124,20 @@ object ChatRepository {
         replyPreview: String,
         replySenderId: String,
     ): Message =
-        supabase.postgrest.from("messages")
-            .insert(NewReplyMessage(conversationId, text, replyToId, replyPreview, replySenderId)) { select() }
-            .decodeSingle<Message>()
+        sealedSend(conversationId) { force ->
+            supabase.postgrest.from("messages")
+                .insert(
+                    NewReplyMessage(
+                        conversationId,
+                        E2E.seal(conversationId, text, force),
+                        replyToId,
+                        E2E.sealShort(conversationId, replyPreview, 200),
+                        replySenderId,
+                    ),
+                ) { select() }
+                .decodeSingle<Message>()
+                .let { E2E.open(it) }
+        }
 
     // A message carrying any file (see supabase_migration_12_files.sql).
     suspend fun sendFileMessage(
@@ -1105,8 +1148,14 @@ object ChatRepository {
         fileSize: Int,
     ): Message =
         supabase.postgrest.from("messages")
-            .insert(NewFileMessage(conversationId, label, "file", mediaPath, fileName, fileSize)) { select() }
+            .insert(
+                NewFileMessage(
+                    conversationId, label, "file", mediaPath,
+                    E2E.sealShort(conversationId, fileName, 200), fileSize,
+                ),
+            ) { select() }
             .decodeSingle<Message>()
+            .let { E2E.open(it) }
 
     // A picture or voice message that answers another message.
     suspend fun sendMediaReply(
@@ -1123,10 +1172,11 @@ object ChatRepository {
             .insert(
                 NewMediaReplyMessage(
                     conversationId, label, kind, mediaPath, durationMs,
-                    replyToId, replyPreview, replySenderId,
+                    replyToId, E2E.sealShort(conversationId, replyPreview, 200), replySenderId,
                 ),
             ) { select() }
             .decodeSingle<Message>()
+            .let { E2E.open(it) }
 
     // ------------------------------------------------------------------
     // Chat background shared by both people (supabase_migration_13)
@@ -1165,6 +1215,7 @@ object ChatRepository {
                 val cleared = clearedAt[conversationId]
                 cleared == null || toEpochMillis(pin.createdAt) > toEpochMillis(cleared)
             }
+            ?.let { pin -> if (E2E.isLocked(pin.content)) pin.copy(content = E2E.open(conversationId, pin.content)) else pin }
 
     suspend fun pinMessage(messageId: String) {
         supabase.postgrest.rpc("pin_message", buildJsonObject { put("p_message", messageId) })
@@ -1206,8 +1257,10 @@ object ChatRepository {
     // A sticker, a location or a contact card (supabase_migration_27).
     suspend fun sendSpecial(conversationId: String, kind: String, content: String, extra: String): Message =
         supabase.postgrest.from("messages")
-            .insert(NewSpecialMessage(conversationId, content, kind, extra)) { select() }
+            // Which sticker, where, whose card: locked too when encryption is on.
+            .insert(NewSpecialMessage(conversationId, content, kind, E2E.seal(conversationId, extra))) { select() }
             .decodeSingle<Message>()
+            .let { E2E.open(it) }
 
     suspend fun sendGroupSpecial(groupId: String, kind: String, content: String, extra: String) {
         supabase.postgrest.from("group_messages").insert(NewGroupSpecialMessage(groupId, content, kind, extra))
@@ -1248,6 +1301,24 @@ object ChatRepository {
         if (clean.length < 2) return emptyList()
         val cleared = clearedUtc(conversationId)
 
+        // The server cannot search what it cannot read: in an encrypted
+        // conversation the newest 1000 messages are read, opened on the
+        // phone and searched here (ignoring upper/lower case and accents).
+        if (E2E.isOn(conversationId)) {
+            val wanted = foldForSearch(clean)
+            val found = ArrayList<Message>()
+            var before: String? = null
+            for (page in 0 until 10) {
+                val batch = loadMessages(conversationId, before, 100)
+                found += batch.filter {
+                    it.kind == "text" && it.recalledAt == null && wanted in foldForSearch(it.content)
+                }
+                if (batch.size < 100) break
+                before = batch.last().createdAt
+            }
+            return found
+        }
+
         // First choice: the search on the server that ignores Vietnamese
         // accents (supabase_migration_17_search.sql). If that function is
         // not there, fall back to the exact search used before.
@@ -1278,6 +1349,12 @@ object ChatRepository {
             .filter { it.recalledAt == null }
     }
 
+    // Lower case and without Vietnamese accents, for searching on the phone.
+    private fun foldForSearch(text: String): String =
+        java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .replace('đ', 'd')
+
     // Tells the server "my app has received everything sent to me so far",
     // which turns "Đã gửi" into "Đã nhận" on the senders' phones.
     // (see supabase_migration_15_delivered.sql)
@@ -1301,6 +1378,7 @@ object ChatRepository {
                 limit(limit.toLong())
             }
             .decodeList<Message>()
+            .map { E2E.open(it) }
     }
 
     suspend fun markConversationRead(conversationId: String) {
@@ -1408,7 +1486,14 @@ object ChatRepository {
                     }
                     if (record != null) {
                         runCatching { json.decodeFromJsonElement(Message.serializer(), record) }
-                            .onSuccess { _messageEvents.emit(it) }
+                            .onSuccess { message ->
+                                // A notice may be "encryption switched on/off".
+                                if (message.kind == "system") {
+                                    E2E.markStale(message.conversationId)
+                                    attempt { E2E.isOn(message.conversationId) }
+                                }
+                                _messageEvents.emit(E2E.open(message))
+                            }
                     }
                 }
             }
@@ -1684,6 +1769,7 @@ object ChatRepository {
         return supabase.postgrest.from("messages")
             .select { filter { isIn("id", ids) } }
             .decodeList<Message>()
+            .map { E2E.open(it) }
     }
 
     suspend fun loadGroupMessagesByIds(ids: List<String>): List<GroupMessage> {

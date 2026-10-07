@@ -41,6 +41,7 @@ import com.maychat.app.call.CallPhase
 import com.maychat.app.call.MinimizeCallButton
 import com.maychat.app.call.ReturnToCallBar
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.E2E
 import com.maychat.app.data.DeviceId
 import com.maychat.app.data.ListCache
 import com.maychat.app.data.Profile
@@ -443,6 +444,8 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     LaunchedEffect(myId) {
         ChatRepository.groupEvents.collect { groupId -> GroupCallManager.onGroupEvent(groupId) }
     }
+    // End-to-end encryption: this phone's key pair, its public half on the server.
+    LaunchedEffect(myId) { E2E.start(myId) }
     // Group reminders: read them and set this phone's alarms at start.
     LaunchedEffect(myId) { Reminders.requestSync(force = true) }
     LaunchedEffect(myId, lifecycleOwner) {

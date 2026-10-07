@@ -64,6 +64,19 @@ fun Throwable.toUserMessage(): String {
         "only_leader" in text ->
             "Chỉ trưởng nhóm mới làm được việc này."
 
+        "e2e_peer_not_ready" in text ->
+            "Chưa bật được: người kia chưa mở MayChat bản mới (bản có mã hóa). Hãy nhờ họ cập nhật và mở app một lần."
+
+        "e2e_no_key" in text ->
+            "Máy này chưa tạo được khóa mã hóa. Hãy đóng app, mở lại rồi thử lần nữa."
+
+        "e2e_required" in text ->
+            "Cuộc trò chuyện này đang bật mã hóa. Hãy gửi lại tin."
+
+        ("set_conversation_e2e" in text || "e2e_keys" in text || "set_my_e2e_key" in text) &&
+            ("does not exist" in text || "could not find" in text || "schema cache" in text) ->
+            "Máy chủ chưa có phần mã hóa. Hãy chạy file supabase_migration_30_e2e.sql."
+
         "poll_closed" in text ->
             "Bình chọn này đã kết thúc."
 

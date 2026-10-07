@@ -32,6 +32,8 @@ data class Conversation(
     @SerialName("created_at") val createdAt: String? = null,
     // Chat background shared by both members (null = none).
     val wallpaper: String? = null,
+    // End-to-end encryption is switched on (migration 30).
+    val e2e: Boolean = false,
 )
 
 @Serializable

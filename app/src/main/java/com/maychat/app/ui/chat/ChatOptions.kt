@@ -27,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.maychat.app.R
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.E2E
 import com.maychat.app.data.MediaCache
 import com.maychat.app.data.Message
 import com.maychat.app.data.Profile
@@ -89,6 +91,48 @@ fun ChatOptionsScreen(
     var actionError by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var profileOpen by remember { mutableStateOf(false) }
+
+    // End-to-end encryption: the question before switching (true = on,
+    // false = off, null = no question), and "working on it".
+    var e2eAsk by remember { mutableStateOf<Boolean?>(null) }
+    var e2eBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(conversationId) { attempt { E2E.isOn(conversationId, force = true) } }
+    e2eAsk?.let { wanted ->
+        AlertDialog(
+            onDismissRequest = { e2eAsk = null },
+            title = { Text(if (wanted) "Bật mã hóa đầu cuối?" else "Tắt mã hóa đầu cuối?") },
+            text = {
+                Text(
+                    if (wanted) {
+                        "Từ bây giờ tin nhắn, ảnh, ghi âm và file trong cuộc trò chuyện này được khóa ngay " +
+                            "trên máy, chỉ máy của hai bạn mở được.\n\n" +
+                            "Cần biết:\n" +
+                            "• Đổi điện thoại hoặc cài lại app thì KHÔNG đọc lại được các tin đã mã hóa.\n" +
+                            "• Tin nhắn gửi trước khi bật vẫn như cũ (không được mã hóa lại).\n" +
+                            "• Tìm kiếm chỉ tìm trong 1000 tin gần nhất.\n" +
+                            "• Cả hai người đều thấy thông báo đã bật."
+                    } else {
+                        "Tin nhắn mới sẽ không còn được mã hóa. Các tin đã mã hóa vẫn đọc được trên hai máy này."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        e2eAsk = null
+                        e2eBusy = true
+                        actionError = null
+                        scope.launch {
+                            attempt { E2E.setOn(conversationId, wanted) }
+                                .onFailure { actionError = it.toUserMessage() }
+                            e2eBusy = false
+                        }
+                    },
+                ) { Text(if (wanted) "Bật" else "Tắt") }
+            },
+            dismissButton = { TextButton(onClick = { e2eAsk = null }) { Text("Hủy") } },
+        )
+    }
     if (profileOpen) {
         ProfileViewDialog(userId = other.id, known = other, onDismiss = { profileOpen = false })
     }
@@ -227,6 +271,35 @@ fun ChatOptionsScreen(
                         }
                     }
                     Spacer(Modifier.height(16.dp))
+                    HorizontalDivider()
+
+                    // End-to-end encryption of this conversation.
+                    val encrypted = E2E.active[conversationId] == true
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !e2eBusy) { e2eAsk = !encrypted }
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("🔒  Mã hóa đầu cuối", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (encrypted) {
+                                    "Đang bật: chỉ máy của hai bạn đọc được tin nhắn, máy chủ không đọc được."
+                                } else {
+                                    "Đang tắt. Bật để chỉ máy của hai bạn đọc được tin nhắn."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = encrypted,
+                            enabled = !e2eBusy,
+                            onCheckedChange = { e2eAsk = it },
+                        )
+                    }
                     HorizontalDivider()
 
                     // Friendship, blocking, deleting.

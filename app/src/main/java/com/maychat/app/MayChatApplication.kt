@@ -2,6 +2,7 @@ package com.maychat.app
 
 import android.app.Application
 import com.maychat.app.data.ChatMemory
+import com.maychat.app.data.E2E
 import com.maychat.app.data.ListCache
 import com.maychat.app.push.Push
 import com.maychat.app.push.Reminders
@@ -13,6 +14,7 @@ class MayChatApplication : Application() {
         Push.init(this)
         ListCache.init(this)
         ChatMemory.init(this)
+        E2E.init(this)
         Reminders.init(this)
     }
 }

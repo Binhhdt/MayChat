@@ -11,6 +11,7 @@ import com.maychat.app.call.GROUP_CALL_VIDEO_TEXT
 import com.maychat.app.call.GROUP_CALL_VOICE_TEXT
 import com.maychat.app.call.GroupCallManager
 import com.maychat.app.call.groupCallLink
+import com.maychat.app.data.E2E
 import com.maychat.app.data.attempt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +93,16 @@ class PushService : FirebaseMessagingService() {
                 // A group call that just started rings instead of showing
                 // as a message. The server is asked first, so a message
                 // that arrives late does not ring for a call long over.
+                // A message of an encrypted conversation is opened here, on
+                // the phone, before it is shown.
+                @Suppress("NAME_SHADOWING")
+                var data = data
+                val rawText = data["text"] ?: data["body"] ?: ""
+                val conversation = data["conversation_id"]
+                if (data["is_group"] != "1" && conversation != null && E2E.isLocked(rawText)) {
+                    val opened = attempt { E2E.open(conversation, rawText) }.getOrNull() ?: E2E.UNREADABLE
+                    data = data + mapOf("text" to opened, "body" to opened)
+                }
                 val messageText = data["text"] ?: data["body"] ?: ""
                 val groupId = data["conversation_id"]
                 var rang = false

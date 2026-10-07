@@ -101,6 +101,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.R
 import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.E2E
 import com.maychat.app.data.Message
 import com.maychat.app.data.NewGroupMessage
 import com.maychat.app.data.Profile
@@ -189,6 +190,9 @@ fun ChatScreen(
 
     // The message I am answering (null = a normal message).
     var replyingTo by remember(conversationId) { mutableStateOf<UiMessage?>(null) }
+    // End-to-end encryption: read whether it is on here (also fetches the
+    // other person's current key), so the lock in the title is right.
+    LaunchedEffect(conversationId) { attempt { E2E.isOn(conversationId, force = true) } }
     // Whether the emoji panel under the text box is open.
     var emojiOpen by remember(conversationId) { mutableStateOf(false) }
 
@@ -708,7 +712,9 @@ fun ChatScreen(
                         Column {
                             Text(other.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                             Text(
-                                if (otherOnline) "Đang hoạt động" else offlineLabel(otherLastSeen, statusNowMs),
+                                // The lock shows that end-to-end encryption is on.
+                                (if (E2E.active[conversationId] == true) "🔒 Đã mã hóa · " else "") +
+                                    if (otherOnline) "Đang hoạt động" else offlineLabel(otherLastSeen, statusNowMs),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
