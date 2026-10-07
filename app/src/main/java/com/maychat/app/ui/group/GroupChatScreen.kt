@@ -98,7 +98,10 @@ import com.maychat.app.ui.chat.ChatWallpaperLayer
 import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
+import com.maychat.app.ui.chat.GalleryPanel
 import com.maychat.app.ui.chat.MessageBubble
+import com.maychat.app.ui.chat.rememberGalleryOpener
+import com.maychat.app.ui.chat.QuoteThumb
 import com.maychat.app.ui.chat.SendPhotosDialog
 import com.maychat.app.ui.chat.preparePhotos
 import com.maychat.app.ui.chat.ReactionBurst
@@ -150,6 +153,11 @@ fun GroupChatScreen(
     val recorder = remember { VoiceRecorder(context.applicationContext) }
     val connectionCount by ChatRepository.connectionCount.collectAsState()
     val listState = rememberLazyListState()
+
+    // The newest real message: it always offers the quick reaction button.
+    val newestReactable = state.messages.firstOrNull {
+        it.kind != "system" && !it.recalled && it.createdAt != null
+    }?.key
 
     // Emojis flying up after a reaction was tapped.
     val bursts = remember { mutableStateListOf<ReactionBurst>() }
@@ -613,6 +621,40 @@ fun GroupChatScreen(
         if (recording) finishRecording(send = false)
     }
 
+    // ----- The photo panel under the text box (like Zalo) -------------------
+    var galleryOpen by remember(groupId) { mutableStateOf(false) }
+    val systemPhotoPicker: () -> Unit = {
+        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+    val openGallery = rememberGalleryOpener(
+        onGranted = {
+            dismissKeyboard()
+            galleryOpen = true
+        },
+        // Not allowed to list the phone's pictures: the phone's own picker.
+        onDenied = systemPhotoPicker,
+    )
+    BackHandler(enabled = galleryOpen) { galleryOpen = false }
+    // Sends pictures ticked in the panel: one as a picture (it can carry a
+    // quote), several as one album.
+    val sendPicked: (List<android.net.Uri>) -> Unit = { uris ->
+        galleryOpen = false
+        val replyKey = replyingTo?.key
+        val hd = sendHd
+        notice = "Đang chuẩn bị ảnh…"
+        scope.launch {
+            val pictures = preparePhotos(context, uris, hd)
+            notice = null
+            if (pictures.size < uris.size) state.showError("Có ảnh không đọc được và đã bị bỏ qua.")
+            if (pictures.size == 1) {
+                state.sendImage(pictures[0], replyToKey = replyKey)
+                replyingTo = null
+            } else if (pictures.size > 1) {
+                state.sendAlbum(pictures)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             if (selecting) {
@@ -860,6 +902,7 @@ fun GroupChatScreen(
                                     scope.launch { ChatRepository.sendBurst(groupId, myId, message.key, emoji) }
                                 },
                                 onPlaced = { bubbleCenters[message.key] = it },
+                                showQuickReact = message.key == newestReactable,
                                 )
                                 // While choosing several messages: a layer over the
                                 // message catches the tap and ticks it on or off.
@@ -1056,6 +1099,12 @@ fun GroupChatScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
+                        // Answering a photo or a sticker: show it, small.
+                        QuoteThumb(
+                            imagePath = target.mediaPath.takeIf { target.kind == "image" || target.kind == "album" },
+                            stickerCode = target.extra.takeIf { target.kind == "sticker" },
+                            size = 36.dp,
+                        )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 if (target.mine) "Trả lời chính bạn" else "Trả lời ${nameOf(target.senderId)}",
@@ -1121,7 +1170,7 @@ fun GroupChatScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { emojiOpen = !emojiOpen }) {
+                    IconButton(onClick = { galleryOpen = false; emojiOpen = !emojiOpen }) {
                         Icon(
                             painter = painterResource(R.drawable.ic_emoji),
                             contentDescription = "Biểu tượng cảm xúc",
@@ -1208,11 +1257,7 @@ fun GroupChatScreen(
                             )
                         }
                         IconButton(
-                            onClick = {
-                                pickImage.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                )
-                            },
+                            onClick = { if (galleryOpen) galleryOpen = false else openGallery() },
                             modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
@@ -1241,8 +1286,34 @@ fun GroupChatScreen(
                     }
                 }
 
+                // Photo panel: recent pictures of the phone to tick and send.
+                if (galleryOpen) {
+                    GalleryPanel(
+                        hd = sendHd,
+                        onHdChange = { sendHd = it },
+                        onCamera = {
+                            galleryOpen = false
+                            val cameraGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (!cameraGranted) {
+                                askCameraForPhoto.launch(Manifest.permission.CAMERA)
+                            } else if (!CameraCapture.start(context, groupId, group = true)) {
+                                state.showError("Không mở được máy ảnh trên điện thoại này.")
+                            }
+                        },
+                        onSend = sendPicked,
+                        onOpenPicker = {
+                            galleryOpen = false
+                            systemPhotoPicker()
+                        },
+                        onClose = { galleryOpen = false },
+                    )
+                }
+
                 // Emoji panel: tap one to add it to the message.
-                if (emojiOpen) {
+                if (emojiOpen && !galleryOpen) {
                     EmojiPanel(
                         onPick = {
                             val text = draft + it

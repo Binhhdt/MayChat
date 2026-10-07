@@ -19,6 +19,16 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!-- Pictures of the phone: for the photo panel under the text box (the
+         grid of recent pictures to tick and send). The phone asks the user
+         the first time the picture button is pressed; when refused, the
+         phone's own photo picker is used instead. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- Location: only for "send my location" in a chat. The phone asks the
          user the first time; the position is read once, at that moment. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

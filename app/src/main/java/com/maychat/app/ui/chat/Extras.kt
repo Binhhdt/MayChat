@@ -597,3 +597,44 @@ suspend fun preparePhotos(context: Context, uris: List<Uri>, hd: Boolean): List<
     uris.mapNotNull { uri ->
         if (hd) compressImage(context, uri, maxSide = 2560, quality = 92) else compressImage(context, uri)
     }
+
+// =====================================================================
+// The small picture inside a quote ("replying to a photo")
+// =====================================================================
+
+// A small square picture from the chat storage.
+@Composable
+fun SmallPicture(path: String, size: Dp) {
+    val bitmap by produceState(initialValue = com.maychat.app.data.MediaCache.cachedBitmap(path), path) {
+        if (value == null) value = attempt { com.maychat.app.data.MediaCache.bitmap(path) }.getOrNull()
+    }
+    val picture = bitmap
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(6.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (picture != null) {
+            Image(
+                bitmap = picture.asImageBitmap(),
+                contentDescription = "Ảnh được trả lời",
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+// What a quote shows on its left when the quoted message is a picture, an
+// album or a sticker; nothing for other messages.
+@Composable
+fun QuoteThumb(imagePath: String?, stickerCode: String?, size: Dp = 40.dp) {
+    if (imagePath != null) {
+        SmallPicture(path = imagePath, size = size)
+        Spacer(Modifier.width(8.dp))
+    } else if (stickerCode != null) {
+        StickerImage(code = stickerCode, fallback = stickerEmoji(stickerCode), size = size)
+        Spacer(Modifier.width(8.dp))
+    }
+}

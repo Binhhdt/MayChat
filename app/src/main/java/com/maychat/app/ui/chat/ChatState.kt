@@ -49,6 +49,10 @@ data class UiMessage(
     val reactors: List<Reactor> = emptyList(),
     // Sticker / location / contact card data.
     val extra: String? = null,
+    // When this message answers a picture (or an album) or a sticker: what
+    // to show small inside the quote.
+    val replyImagePath: String? = null,
+    val replyStickerCode: String? = null,
 )
 
 // One emoji under a message: how many people chose it, and whether I did.
@@ -166,6 +170,8 @@ class ChatState(
                     recalled = m.recalledAt != null,
                     replyPreview = m.replyPreview,
                     replyToMine = m.replySenderId == myId,
+                    replyImagePath = quotedPicture(m.replyToId),
+                    replyStickerCode = quotedSticker(m.replyToId),
                     reactions = chipsFor(m.id),
                     fileName = m.fileName,
                     fileSize = m.fileSize,
@@ -186,10 +192,50 @@ class ChatState(
                 durationMs = p.durationMs,
                 replyPreview = p.replyPreview,
                 replyToMine = p.replySenderId == myId,
+                replyImagePath = quotedPicture(p.replyToId),
+                replyStickerCode = quotedSticker(p.replyToId),
                 extra = p.extra,
             )
         }
         messages = waiting + sent
+        fetchMissingQuotes()
+    }
+
+    // ----- The picture inside a quote -------------------------------------
+    // A reply stores only the text of the message it answers. To show the
+    // PICTURE of a quoted photo (or sticker), that message is looked up:
+    // among the loaded messages, or fetched once when it is older.
+    private val quotedOlder = HashMap<String, Message>()
+    private val quotedAsked = HashSet<String>()
+
+    private fun quotedMessage(id: String?): Message? = id?.let { confirmed[it] ?: quotedOlder[it] }
+
+    private fun quotedPicture(id: String?): String? {
+        val original = quotedMessage(id) ?: return null
+        if (original.recalledAt != null) return null
+        return if (original.kind == "image" || original.kind == "album") original.mediaPath else null
+    }
+
+    private fun quotedSticker(id: String?): String? {
+        val original = quotedMessage(id) ?: return null
+        return if (original.kind == "sticker" && original.recalledAt == null) original.extra else null
+    }
+
+    private fun fetchMissingQuotes() {
+        val missing = confirmed.values
+            .mapNotNull { it.replyToId }
+            .filter { it !in confirmed && it !in quotedOlder && it !in quotedAsked }
+            .distinct()
+        if (missing.isEmpty()) return
+        quotedAsked.addAll(missing)
+        scope.launch {
+            attempt { ChatRepository.loadMessagesByIds(missing) }.onSuccess { found ->
+                if (found.isNotEmpty()) {
+                    found.forEach { quotedOlder[it.id] = it }
+                    publish()
+                }
+            }
+        }
     }
 
     // Groups the reactions of one message: same emoji together, most used first.

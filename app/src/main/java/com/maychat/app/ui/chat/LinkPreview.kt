@@ -6,7 +6,12 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,7 +49,15 @@ import java.net.URL
 // kept while the app runs. Nothing is sent to the MayChat server.
 // =====================================================================
 
-class LinkInfo(val url: String, val site: String, val title: String, val description: String, val image: ImageBitmap?)
+// video: the link leads to a video (a play mark is drawn on the picture).
+class LinkInfo(
+    val url: String,
+    val site: String,
+    val title: String,
+    val description: String,
+    val image: ImageBitmap?,
+    val video: Boolean = false,
+)
 
 private val URL_PATTERN = Regex("https://[^\\s<>\"']+", RegexOption.IGNORE_CASE)
 
@@ -71,10 +84,13 @@ private fun open(address: String): HttpURLConnection {
     connection.connectTimeout = 6000
     connection.readTimeout = 8000
     connection.instanceFollowRedirects = true
-    // Many sites only give their preview data to something that looks like a browser.
+    // Sites give their preview data (title, picture) to the programs that
+    // fetch link previews for chat apps; asked like a phone browser, many
+    // answer with a login or cookie page instead. So this asks the way
+    // those preview programs do.
     connection.setRequestProperty(
         "User-Agent",
-        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
     )
     connection.setRequestProperty("Accept-Language", "vi,en;q=0.8")
     return connection
@@ -114,8 +130,60 @@ private fun plain(text: String): String =
         .replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
         .replace(Regex("\\s+"), " ").trim()
 
+// Downloads a picture (at most 1.5 MB) and decodes it small.
+private fun fetchPicture(address: String): ImageBitmap? =
+    runCatching {
+        val picture = open(address)
+        val data = readLimited(picture, 1_500_000)
+        picture.disconnect()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > 900) sample *= 2
+        BitmapFactory.decodeByteArray(
+            data, 0, data.size,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        )?.asImageBitmap()
+    }.getOrNull()
+
+// The id of a YouTube video from any of its usual addresses, or null.
+private fun youtubeId(url: String): String? {
+    val patterns = listOf(
+        Regex("https://youtu\\.be/([\\w-]{6,})", RegexOption.IGNORE_CASE),
+        Regex("https://(?:www\\.|m\\.|music\\.)?youtube\\.com/watch\\?(?:[^\\s#]*&)?v=([\\w-]{6,})", RegexOption.IGNORE_CASE),
+        Regex("https://(?:www\\.|m\\.)?youtube\\.com/(?:shorts|live|embed)/([\\w-]{6,})", RegexOption.IGNORE_CASE),
+    )
+    for (pattern in patterns) pattern.find(url)?.groupValues?.getOrNull(1)?.let { return it }
+    return null
+}
+
+// One text value out of a small JSON answer ("title":"...").
+private fun jsonText(json: String, name: String): String? {
+    val raw = Regex("\"" + Regex.escape(name) + "\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"").find(json)
+        ?.groupValues?.getOrNull(1) ?: return null
+    // Undo the JSON escapes that matter here.
+    val unicode = Regex("\\\\u([0-9a-fA-F]{4})").replace(raw) { it.groupValues[1].toInt(16).toChar().toString() }
+    return unicode.replace("\\\"", "\"").replace("\\/", "/").replace("\\\\", "\\")
+}
+
+// A YouTube video: its title and channel come from YouTube's own preview
+// service, its picture from YouTube's picture server.
+private fun fetchYoutube(url: String, id: String): LinkInfo? =
+    runCatching {
+        val connection = open("https://www.youtube.com/oembed?format=json&url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+        val answer = String(readLimited(connection, 60_000), Charsets.UTF_8)
+        connection.disconnect()
+        val title = jsonText(answer, "title")?.take(140) ?: return@runCatching null
+        val channel = jsonText(answer, "author_name") ?: ""
+        val image = fetchPicture("https://i.ytimg.com/vi/$id/hqdefault.jpg")
+        LinkInfo(url, "youtube.com", title, channel, image, video = true)
+    }.getOrNull()
+
 private suspend fun fetchPreview(url: String): LinkInfo = withContext(Dispatchers.IO) {
     try {
+        // Videos on YouTube get their real title and picture.
+        youtubeId(url)?.let { id -> fetchYoutube(url, id)?.let { return@withContext it } }
+
         val connection = open(url)
         val type = connection.contentType ?: ""
         // Only web pages have preview data (not a PDF, a video file...).
@@ -144,22 +212,11 @@ private suspend fun fetchPreview(url: String): LinkInfo = withContext(Dispatcher
         val imageAddress = meta(html, "og:image")?.let { plain(it) }?.let { address ->
             runCatching { URL(URL(finalUrl), address).toString() }.getOrNull()
         }?.takeIf { it.startsWith("https://") }
-        val image = imageAddress?.let { address ->
-            runCatching {
-                val picture = open(address)
-                val data = readLimited(picture, 1_500_000)
-                picture.disconnect()
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
-                var sample = 1
-                while (bounds.outWidth / sample > 900) sample *= 2
-                BitmapFactory.decodeByteArray(
-                    data, 0, data.size,
-                    BitmapFactory.Options().apply { inSampleSize = sample },
-                )?.asImageBitmap()
-            }.getOrNull()
-        }
-        LinkInfo(finalUrl, site, title, description, image)
+        val image = imageAddress?.let { fetchPicture(it) }
+        // A page that says it is a video gets the play mark.
+        val isVideo = (meta(html, "og:type") ?: "").startsWith("video", ignoreCase = true) ||
+            meta(html, "og:video") != null || meta(html, "og:video:url") != null
+        LinkInfo(finalUrl, site, title, description, image, isVideo)
     } catch (e: Exception) {
         EMPTY
     } catch (e: OutOfMemoryError) {
@@ -191,15 +248,29 @@ fun LinkPreviewCard(url: String, textColor: Color) {
     ) {
         Column {
             shown.image?.let { picture ->
-                Image(
-                    bitmap = picture,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 140.dp)
-                        .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Image(
+                        bitmap = picture,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 150.dp)
+                            .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+                    )
+                    // A video: a round play mark in the middle.
+                    if (shown.video) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("▶", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
             }
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 if (shown.site.isNotEmpty()) {

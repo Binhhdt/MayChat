@@ -1509,6 +1509,22 @@ object ChatRepository {
         }
     }
 
+    // Single messages by id (used to show the picture of a quoted message
+    // that is older than what the screen has loaded).
+    suspend fun loadMessagesByIds(ids: List<String>): List<Message> {
+        if (ids.isEmpty()) return emptyList()
+        return supabase.postgrest.from("messages")
+            .select { filter { isIn("id", ids) } }
+            .decodeList<Message>()
+    }
+
+    suspend fun loadGroupMessagesByIds(ids: List<String>): List<GroupMessage> {
+        if (ids.isEmpty()) return emptyList()
+        return supabase.postgrest.from("group_messages")
+            .select { filter { isIn("id", ids) } }
+            .decodeList<GroupMessage>()
+    }
+
     // ----- Albums (supabase_migration_28) --------------------------------
 
     // paths: the pictures, already uploaded into the conversation's folder.
