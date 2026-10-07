@@ -1,9 +1,6 @@
 package com.maychat.app.call
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.media.projection.MediaProjectionManager
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -374,17 +371,6 @@ private fun formatCallTime(ms: Long): String {
 // is the small picture in the corner, the buttons are at the bottom.
 @Composable
 private fun VideoCallScreen(call: CallUi) {
-    val context = LocalContext.current
-    // Android's own question "share your screen?"; a yes starts the sharing.
-    val askScreenShare = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val permission = result.data
-        CallManager.pipBlocked = false
-        if (result.resultCode == Activity.RESULT_OK && permission != null) {
-            CallManager.startScreenShare(permission)
-        }
-    }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(call.phase, call.connectedAtMs) {
         while (call.phase == CallPhase.CONNECTED) {
@@ -496,27 +482,8 @@ private fun VideoCallScreen(call: CallUi) {
                     active = CallManager.blurOn,
                     onClick = { CallManager.toggleBlur() },
                 )
-                ToggleChip(
-                    label = if (CallManager.sharingScreen) "Dừng chia sẻ" else "Chia sẻ màn hình",
-                    active = CallManager.sharingScreen,
-                    onClick = {
-                        if (CallManager.sharingScreen) {
-                            CallManager.stopScreenShare()
-                        } else if (!CallManager.canShareScreen) {
-                            CallManager.explainNoScreenShare()
-                        } else {
-                            runCatching {
-                                val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                                    as MediaProjectionManager
-                                CallManager.pipBlocked = true
-                                askScreenShare.launch(manager.createScreenCaptureIntent())
-                            }.onFailure { CallManager.pipBlocked = false }
-                        }
-                    },
-                )
             }
             val notice = CallManager.videoNotice
-                ?: if (CallManager.sharingScreen) "Người kia đang thấy màn hình của bạn." else null
             if (notice != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(notice, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center)

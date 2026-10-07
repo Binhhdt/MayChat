@@ -98,6 +98,11 @@ import com.maychat.app.ui.chat.ChatWallpaperLayer
 import com.maychat.app.ui.chat.EmojiPanel
 import com.maychat.app.ui.chat.ForwardScreen
 import com.maychat.app.ui.chat.ImageViewer
+import com.maychat.app.call.GroupCallLink
+import com.maychat.app.call.GroupCallManager
+import com.maychat.app.call.groupCallEndId
+import com.maychat.app.call.groupCallLink
+import com.maychat.app.call.rememberGroupCallGate
 import com.maychat.app.data.GroupFaces
 import com.maychat.app.data.boardLink
 import com.maychat.app.ui.chat.GalleryPanel
@@ -211,6 +216,38 @@ fun GroupChatScreen(
         if (state.members.isNotEmpty()) GroupFaces.ensure(listOf(groupId), force = true)
     }
     val groupName = group?.name ?: initialName
+
+    // ----- Group calls ----------------------------------------------------
+    // The call that is running in this group, if any: the newest "call
+    // started" message of the last 3 hours that has no "call ended" after
+    // it. (The message's key on screen, and the call.)
+    val runningCall: Pair<String, GroupCallLink>? = remember(state.messages) {
+        val ended = state.messages.mapNotNull { groupCallEndId(it.kind, it.extra) }.toSet()
+        state.messages.lastOrNull { groupCallLink(it.kind, it.extra) != null }?.let { message ->
+            val call = groupCallLink(message.kind, message.extra) ?: return@let null
+            val at = runCatching {
+                java.time.OffsetDateTime.parse(message.createdAt).toInstant().toEpochMilli()
+            }.getOrNull() ?: System.currentTimeMillis()
+            val recent = System.currentTimeMillis() - at < 3 * 60 * 60 * 1000L
+            if (call.callId !in ended && recent) message.key to call else null
+        }
+    }
+    val callGate = rememberGroupCallGate(
+        onRefused = { state.showError("Cần cho phép dùng micro để gọi nhóm.") },
+    )
+    // The phone/camera buttons and "Tham gia": join the running call, or
+    // start a new one of the asked kind.
+    val startOrJoinCall: (Boolean) -> Unit = { video ->
+        val running = runningCall?.second
+        when {
+            GroupCallManager.ui?.groupId == groupId -> GroupCallManager.restore()
+            running != null -> callGate(running.video) {
+                GroupCallManager.join(groupId, groupName, running.callId, running.video)
+            }
+            else -> callGate(video) { GroupCallManager.start(groupId, groupName, video) }
+        }
+    }
+
     val memberById = remember(state.members) { state.members.associateBy { it.id } }
 
     // People who wrote here but are no longer members (they left or were
@@ -723,6 +760,22 @@ fun GroupChatScreen(
                     },
                     navigationIcon = { BackButton(onClick = onBack) },
                     actions = {
+                        // Group call: voice and video. When a call is already
+                        // running in the group, both buttons join that call.
+                        IconButton(onClick = { startOrJoinCall(false) }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_call),
+                                contentDescription = "Gọi thoại nhóm",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        IconButton(onClick = { startOrJoinCall(true) }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_videocam),
+                                contentDescription = "Gọi video nhóm",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         IconButton(onClick = { infoOpen = true }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_group),
@@ -916,9 +969,21 @@ fun GroupChatScreen(
                                     "poll" -> "Xem bình chọn"
                                     "note" -> "Xem ghi chú"
                                     "remind" -> "Xem nhắc hẹn"
-                                    else -> null
+                                    // A group call that is still running.
+                                    else -> if (message.key == runningCall?.first) {
+                                        if (GroupCallManager.ui?.callId == runningCall?.second?.callId) {
+                                            "Trở lại cuộc gọi"
+                                        } else {
+                                            "Tham gia"
+                                        }
+                                    } else {
+                                        null
+                                    }
                                 },
                                 onAction = {
+                                    if (message.key == runningCall?.first) {
+                                        startOrJoinCall(runningCall?.second?.video == true)
+                                    }
                                     boardLink(message.kind, message.extra)?.let { (what, id) ->
                                         board = Triple(boardTabOf(what), id, false)
                                     }

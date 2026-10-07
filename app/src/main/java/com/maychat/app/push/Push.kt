@@ -45,6 +45,7 @@ object Push {
     // Separate channel for incoming calls: rings like a phone call.
     const val CALL_CHANNEL_ID = "calls"
     private const val CALL_NOTIFICATION_ID = 7001
+    private const val GROUP_CALL_NOTIFICATION_ID = 7003
 
     // True while MayChat is the app on screen (set by MainActivity).
     @Volatile
@@ -217,6 +218,64 @@ object Push {
         } catch (e: SecurityException) {
             // Notifications are not allowed for the app: nothing can be shown.
         }
+    }
+
+    // A group call just started: ring like a phone call. Tapping (or the
+    // full-screen display on a locked phone) opens the app on the "incoming
+    // group call" screen, where the call is joined or refused.
+    fun showIncomingGroupCall(
+        context: Context,
+        groupId: String,
+        groupName: String,
+        callId: String,
+        video: Boolean,
+        callerName: String,
+    ) {
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("group_call_id", callId)
+            putExtra("group_call_group", groupId)
+            putExtra("group_call_name", groupName)
+            putExtra("group_call_video", video)
+            putExtra("group_call_caller", callerName)
+            putExtra("group_call_at", System.currentTimeMillis())
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            GROUP_CALL_NOTIFICATION_ID,
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CALL_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(groupName)
+            .setContentText(
+                "$callerName đang gọi nhóm" + (if (video) " (video)" else " (thoại)") + ". Chạm để tham gia.",
+            )
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(pending, true)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setTimeoutAfter(40_000)
+            .build()
+        // Keep ringing until the notification is opened or times out.
+        notification.flags = notification.flags or Notification.FLAG_INSISTENT
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            manager.notify(GROUP_CALL_NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // Notifications are not allowed for the app: nothing can be shown.
+        }
+    }
+
+    // The group call is over: stop ringing for it.
+    fun cancelIncomingGroupCall(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        runCatching { manager.cancel(GROUP_CALL_NOTIFICATION_ID) }
     }
 
     // ----- Message notifications drawn by the app itself -----------------

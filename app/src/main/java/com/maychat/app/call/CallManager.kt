@@ -2,8 +2,6 @@ package com.maychat.app.call
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
-import android.media.projection.MediaProjection
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.Ringtone
@@ -58,8 +56,6 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
-import org.webrtc.RtpSender
-import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
@@ -166,35 +162,18 @@ object CallManager {
     private var localVideoTrack: VideoTrack? = null
     private var remoteVideoTrack: VideoTrack? = null
 
-    // ----- Screen sharing, background blur, floating window --------------
+    // ----- Background blur, floating window ------------------------------
 
-    // My screen is being sent instead of my camera.
-    var sharingScreen by mutableStateOf(false)
-        private set
     // The background behind me is blurred before my camera picture is sent.
     var blurOn by mutableStateOf(false)
         private set
     // The app is shown as a small floating window (set by MainActivity).
     var inPip by mutableStateOf(false)
-    // True while Android's "share your screen?" question is open: leaving
-    // the app for that question must not turn it into a floating window.
-    var pipBlocked by mutableStateOf(false)
-    // A short line for the video call screen ("Không chia sẻ được…").
+    // A short line for the video call screen ("…không làm mờ nền được").
     var videoNotice by mutableStateOf<String?>(null)
         private set
 
-    // The part of the call that sends my picture. Its content can be
-    // swapped (camera <-> screen) without setting the call up again.
-    private var videoSender: RtpSender? = null
-    private var screenCapturer: ScreenCapturerAndroid? = null
-    private var screenHelper: SurfaceTextureHelper? = null
-    private var screenSource: VideoSource? = null
-    private var screenTrack: VideoTrack? = null
     private var blur: BackgroundBlur? = null
-
-    // Screen sharing needs my picture to be part of the call, which it is
-    // when the camera was allowed at the start of the call.
-    val canShareScreen: Boolean get() = videoSender != null
 
     private fun showVideoNotice(text: String) {
         videoNotice = text
@@ -202,99 +181,6 @@ object CallManager {
             delay(4_000)
             if (videoNotice == text) videoNotice = null
         }
-    }
-
-    fun explainNoScreenShare() {
-        showVideoNotice("Không chia sẻ được màn hình vì cuộc gọi này bắt đầu khi chưa cấp quyền camera.")
-    }
-
-    // permission: what Android returned after the user agreed to share.
-    fun startScreenShare(permission: Intent) {
-        val context = appContext ?: return
-        val sender = videoSender
-        val f = videoFactory
-        val eglContext = egl?.eglBaseContext
-        if (sharingScreen || ui?.video != true || peerConnection == null) return
-        if (sender == null || f == null || eglContext == null) {
-            explainNoScreenShare()
-            return
-        }
-        main.launch {
-            // Android only allows capturing the screen while the call's
-            // permanent notification says so.
-            val allowed = CallService.beginScreenShare(context)
-            if (!allowed || peerConnection == null) {
-                CallService.endScreenShare(context)
-                showVideoNotice("Điện thoại không cho chia sẻ màn hình lúc này.")
-                return@launch
-            }
-            var helper: SurfaceTextureHelper? = null
-            var source: VideoSource? = null
-            var screen: ScreenCapturerAndroid? = null
-            try {
-                val capture = ScreenCapturerAndroid(
-                    permission,
-                    object : MediaProjection.Callback() {
-                        // Stopped from outside (Android's own "stop" button).
-                        override fun onStop() {
-                            main.launch { stopScreenShare() }
-                        }
-                    },
-                )
-                screen = capture
-                val captureHelper = SurfaceTextureHelper.create("maychat-screen", eglContext)
-                helper = captureHelper
-                val captureSource = f.createVideoSource(true)
-                source = captureSource
-                capture.initialize(captureHelper, context, captureSource.capturerObserver)
-                // At most 1280 points on the long side, even numbers.
-                val metrics = context.resources.displayMetrics
-                val longSide = maxOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1)
-                val scale = minOf(1f, 1280f / longSide)
-                val width = ((metrics.widthPixels * scale).toInt() / 2 * 2).coerceAtLeast(2)
-                val height = ((metrics.heightPixels * scale).toInt() / 2 * 2).coerceAtLeast(2)
-                capture.startCapture(width, height, 15)
-                val track = f.createVideoTrack("maychat-screen", captureSource)
-                if (!sender.setTrack(track, false)) throw IllegalStateException("cannot switch to screen")
-                screenCapturer = capture
-                screenHelper = captureHelper
-                screenSource = captureSource
-                screenTrack = track
-                sharingScreen = true
-            } catch (e: Throwable) {
-                runCatching { screen?.stopCapture() }
-                runCatching { screen?.dispose() }
-                runCatching { source?.dispose() }
-                runCatching { helper?.dispose() }
-                CallService.endScreenShare(context)
-                showVideoNotice("Không bắt đầu chia sẻ màn hình được.")
-            }
-        }
-    }
-
-    // Back to my camera.
-    fun stopScreenShare() {
-        if (!sharingScreen) return
-        sharingScreen = false
-        runCatching { videoSender?.setTrack(localVideoTrack, false) }
-        releaseScreenCapture()
-        appContext?.let { CallService.endScreenShare(it) }
-    }
-
-    private fun releaseScreenCapture() {
-        val screen = screenCapturer
-        val helper = screenHelper
-        val source = screenSource
-        val track = screenTrack
-        screenCapturer = null
-        screenHelper = null
-        screenSource = null
-        screenTrack = null
-        runCatching { screen?.stopCapture() }
-        runCatching { screen?.dispose() }
-        runCatching { track?.dispose() }
-        runCatching { source?.dispose() }
-        runCatching { helper?.dispose() }
     }
 
     // Blur the background behind me on / off (camera picture only).
@@ -349,7 +235,7 @@ object CallManager {
         camera.startCapture(640, 480, 24)
         val track = f.createVideoTrack("maychat-video", source)
         track.addSink(localSink)
-        videoSender = pc.addTrack(track, listOf("maychat"))
+        pc.addTrack(track, listOf("maychat"))
 
         capturer = camera
         captureHelper = helper
@@ -1143,15 +1029,12 @@ object CallManager {
         watchdogJob?.cancel()
         watchdogJob = null
 
-        // Screen sharing and background blur end with the call.
-        sharingScreen = false
+        // Background blur ends with the call.
         videoNotice = null
         runCatching { videoSource?.setVideoProcessor(null) }
         blur?.close()
         blur = null
         blurOn = false
-        videoSender = null
-        runCatching { screenCapturer?.stopCapture() }
 
         // Video: detach the views and stop the camera before the connection goes.
         runCatching { remoteVideoTrack?.removeSink(remoteSink) }
@@ -1174,7 +1057,6 @@ object CallManager {
         audioSource = null
         audioTrack = null
         runCatching { pc?.dispose() }
-        releaseScreenCapture()
         runCatching { source?.dispose() }
         runCatching { camera?.dispose() }
         runCatching { cameraSource?.dispose() }

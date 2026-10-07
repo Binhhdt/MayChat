@@ -6,6 +6,11 @@ import com.maychat.app.call.CallManager
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.DeviceId
 import com.maychat.app.data.SupabaseProvider
+import com.maychat.app.call.GROUP_CALL_END_TEXT
+import com.maychat.app.call.GROUP_CALL_VIDEO_TEXT
+import com.maychat.app.call.GROUP_CALL_VOICE_TEXT
+import com.maychat.app.call.GroupCallManager
+import com.maychat.app.call.groupCallLink
 import com.maychat.app.data.attempt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +89,35 @@ class PushService : FirebaseMessagingService() {
                 // Nobody is logged in on this phone: show nothing.
                 if (!loggedIn) return@withTimeoutOrNull
 
-                attempt { Push.showMessage(applicationContext, data) }
+                // A group call that just started rings instead of showing
+                // as a message. The server is asked first, so a message
+                // that arrives late does not ring for a call long over.
+                val messageText = data["text"] ?: data["body"] ?: ""
+                val groupId = data["conversation_id"]
+                var rang = false
+                if (data["is_group"] == "1" && groupId != null &&
+                    (messageText.startsWith(GROUP_CALL_VOICE_TEXT) || messageText.startsWith(GROUP_CALL_VIDEO_TEXT))
+                ) {
+                    val latest = attempt { ChatRepository.loadLatestGroupMessage(groupId) }.getOrNull()
+                    val call = latest?.let { groupCallLink(it.kind, it.extra) }
+                    if (latest != null && call != null && GroupCallManager.isFresh(latest.createdAt)) {
+                        Push.showIncomingGroupCall(
+                            applicationContext,
+                            groupId,
+                            data["title"] ?: "Nhóm",
+                            call.callId,
+                            call.video,
+                            data["person_name"] ?: "Một thành viên",
+                        )
+                        rang = true
+                    }
+                }
+                // "The group call is over": stop the ringing, show nothing.
+                if (data["is_group"] == "1" && messageText.startsWith(GROUP_CALL_END_TEXT)) {
+                    Push.cancelIncomingGroupCall(applicationContext)
+                    rang = true
+                }
+                if (!rang) attempt { Push.showMessage(applicationContext, data) }
 
                 // A new group reminder was announced: set this phone's alarm
                 // for it now, so it rings even if the app is never opened.

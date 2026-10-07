@@ -34,6 +34,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.call.CallManager
 import com.maychat.app.call.CallScreen
+import com.maychat.app.call.GroupCallLayer
+import com.maychat.app.call.GroupCallManager
 import com.maychat.app.call.FloatingCallView
 import com.maychat.app.call.CallPhase
 import com.maychat.app.call.MinimizeCallButton
@@ -167,6 +169,10 @@ fun MayChatApp() {
             // No call (any more): the next one starts with its full screen.
             if (call == null) CallManager.restore()
         }
+        // Group calls: ringing screen, call screen, bar back to the call.
+        // Drawn under a one-to-one call screen (only one of them is ever
+        // in a call at a time), and only while somebody is logged in.
+        if (status is SessionStatus.Authenticated) GroupCallLayer()
         if (call != null) {
             val canPutAside = call.phase != CallPhase.INCOMING && call.phase != CallPhase.ENDED
             if (CallManager.inPip && call.video && canPutAside) {
@@ -380,11 +386,15 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     // ----- Voice calls ---------------------------------------------------
     // Listen for incoming calls while logged in.
     DisposableEffect(myId) {
-        onDispose { CallManager.detach() }
+        onDispose {
+            CallManager.detach()
+            GroupCallManager.detach()
+        }
     }
     LaunchedEffect(myId) {
         val me = attempt { ChatRepository.loadProfile(myId) }.getOrNull()
         CallManager.attach(context, myId, me?.displayName ?: "MayChat")
+        GroupCallManager.attach(context, myId, me?.displayName ?: "MayChat")
         // The notification code needs my name to recognise "@my name".
         me?.displayName?.let { Push.rememberMyName(context, it) }
     }
@@ -427,6 +437,11 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             // A group message may announce a new reminder: set its alarm.
             Reminders.requestSync()
         }
+    }
+    // A group call that starts while the app is open rings here. (Not
+    // delayed like the block above, and no event may be skipped.)
+    LaunchedEffect(myId) {
+        ChatRepository.groupEvents.collect { groupId -> GroupCallManager.onGroupEvent(groupId) }
     }
     // Group reminders: read them and set this phone's alarms at start.
     LaunchedEffect(myId) { Reminders.requestSync(force = true) }

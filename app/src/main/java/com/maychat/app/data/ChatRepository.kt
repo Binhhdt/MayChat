@@ -707,6 +707,18 @@ object ChatRepository {
             .groupBy({ it.groupId }, { it.userId })
     }
 
+    // The newest message of a group (to notice a group call that just
+    // started), or null when the group has none.
+    suspend fun loadLatestGroupMessage(groupId: String): GroupMessage? =
+        supabase.postgrest.from("group_messages")
+            .select {
+                filter { eq("group_id", groupId) }
+                order("created_at", Order.DESCENDING)
+                limit(1L)
+            }
+            .decodeList<GroupMessage>()
+            .firstOrNull()
+
     // ----- Group board: polls, notes, reminders (supabase_migration_29) -----
 
     suspend fun loadGroupPolls(groupId: String): List<GroupPoll> =

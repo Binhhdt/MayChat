@@ -18,6 +18,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.maychat.app.call.CallManager
 import com.maychat.app.call.CallPhase
+import com.maychat.app.call.GroupCallManager
+import com.maychat.app.call.GroupRing
 import com.maychat.app.push.ChatToOpen
 import com.maychat.app.push.Push
 import com.maychat.app.ui.MayChatApp
@@ -55,14 +57,12 @@ class MainActivity : ComponentActivity() {
 
     // ----- Video call as a small floating window -------------------------
 
-    // A video call that is being set up or running, and my screen is not
-    // being shared (then the other apps are what should be seen).
+    // A video call that is being set up or running.
     private fun callWantsFloatingWindow(): Boolean {
         val call = CallManager.ui ?: return false
         return call.video &&
             call.phase != CallPhase.INCOMING &&
-            call.phase != CallPhase.ENDED &&
-            !CallManager.sharingScreen
+            call.phase != CallPhase.ENDED
     }
 
     private fun floatingWindowParams(autoEnter: Boolean): PictureInPictureParams {
@@ -79,9 +79,7 @@ class MainActivity : ComponentActivity() {
         // Only from the call screen itself: while the call is put aside the
         // app opens other screens (camera, photo picker...), which Android
         // reports the same way as "Home".
-        if (callWantsFloatingWindow() && !CallManager.minimized && !CallManager.pipBlocked &&
-            !isInPictureInPictureMode
-        ) {
+        if (callWantsFloatingWindow() && !CallManager.minimized && !isInPictureInPictureMode) {
             runCatching { enterPictureInPictureMode(floatingWindowParams(true)) }
         }
     }
@@ -129,6 +127,25 @@ class MainActivity : ComponentActivity() {
     // A tapped notification carries the conversation to open.
     private fun handleNotificationTap(intent: Intent?) {
         val extras = intent?.extras ?: return
+        // The notification of a group call: show the "incoming group call"
+        // screen (only while the call can still be ringing).
+        val groupCallId = extras.getString("group_call_id")
+        if (groupCallId != null) {
+            val shownAt = extras.getLong("group_call_at", 0L)
+            if (System.currentTimeMillis() - shownAt < 60_000) {
+                GroupCallManager.startRing(
+                    GroupRing(
+                        groupId = extras.getString("group_call_group") ?: "",
+                        groupName = extras.getString("group_call_name") ?: "Nhóm",
+                        callId = groupCallId,
+                        video = extras.getBoolean("group_call_video", false),
+                        callerName = extras.getString("group_call_caller") ?: "Một thành viên",
+                    ),
+                )
+            }
+            intent.removeExtra("group_call_id")
+            return
+        }
         val conversationId = extras.getString("conversation_id") ?: return
         val senderId = extras.getString("sender_id") ?: return
         val senderName = extras.getString("sender_name") ?: "MayChat"
