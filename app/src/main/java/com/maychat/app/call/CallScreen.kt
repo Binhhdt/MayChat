@@ -44,10 +44,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.maychat.app.R
 import com.maychat.app.ui.common.Avatar
 import kotlinx.coroutines.delay
+import org.webrtc.RendererCommon
+import org.webrtc.SurfaceViewRenderer
 
 // Colors of the call screen (the same in light and dark mode).
 private val CallGround = Color(0xFF083F40)
@@ -80,6 +83,20 @@ fun CallScreen(call: CallUi) {
     ) { granted ->
         if (granted) CallManager.accept() else micDenied = true
     }
+    // Accepting a VIDEO call asks for microphone and camera together. The
+    // microphone is required; without the camera the call still works, the
+    // other person just does not see me.
+    val askMicrophoneAndCamera = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) CallManager.accept() else micDenied = true
+    }
+
+    // A video call that is being set up or running has its own screen.
+    if (call.video && call.phase != CallPhase.INCOMING && call.phase != CallPhase.ENDED) {
+        VideoCallScreen(call)
+        return
+    }
 
     // Call length, counted while connected.
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -92,7 +109,7 @@ fun CallScreen(call: CallUi) {
 
     val statusText = when (call.phase) {
         CallPhase.CONNECTED -> formatCallTime(elapsedMs)
-        CallPhase.INCOMING -> "đang gọi cho bạn…"
+        CallPhase.INCOMING -> if (call.video) "đang gọi video cho bạn…" else "đang gọi cho bạn…"
         else -> call.message
     }
 
@@ -122,7 +139,7 @@ fun CallScreen(call: CallUi) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Cuộc gọi thoại MayChat",
+                    if (call.video) "Cuộc gọi video MayChat" else "Cuộc gọi thoại MayChat",
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.White,
                 )
@@ -223,7 +240,17 @@ fun CallScreen(call: CallUi) {
                                 context,
                                 Manifest.permission.RECORD_AUDIO,
                             ) == PackageManager.PERMISSION_GRANTED
-                            if (granted) CallManager.accept() else askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+                            val cameraGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            when {
+                                call.video && !(granted && cameraGranted) -> askMicrophoneAndCamera.launch(
+                                    arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA),
+                                )
+                                granted -> CallManager.accept()
+                                else -> askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         },
                     )
                 }
@@ -311,4 +338,163 @@ private fun formatCallTime(ms: Long): String {
     val minutes = total / 60
     val seconds = total % 60
     return "$minutes:${seconds.toString().padStart(2, '0')}"
+}
+
+// ---------------------------------------------------------------------
+// Video call
+// ---------------------------------------------------------------------
+
+// Screen of a video call: the other person fills the screen, my own camera
+// is the small picture in the corner, the buttons are at the bottom.
+@Composable
+private fun VideoCallScreen(call: CallUi) {
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(call.phase, call.connectedAtMs) {
+        while (call.phase == CallPhase.CONNECTED) {
+            elapsedMs = System.currentTimeMillis() - call.connectedAtMs
+            delay(500)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        // The other person's picture.
+        if (CallManager.remoteVideo) {
+            CallVideoView(
+                sink = CallManager.remoteSink,
+                mirror = false,
+                onTop = false,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            // No picture (yet): name and what is happening, like a voice call.
+            Column(
+                modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Avatar(
+                    name = call.peer.displayName,
+                    online = false,
+                    size = 120.dp,
+                    avatarPath = call.peer.avatarPath,
+                )
+                Spacer(Modifier.height(20.dp))
+                Text(call.peer.displayName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (call.phase == CallPhase.CONNECTED) "Đang chờ hình ảnh…" else call.message,
+                    color = CallSoftText,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+
+        // Name and call length at the top.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .safeDrawingPadding()
+                .padding(16.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black.copy(alpha = 0.35f))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Text(call.peer.displayName, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (call.phase == CallPhase.CONNECTED) formatCallTime(elapsedMs) else call.message,
+                color = CallSoftText,
+                fontSize = 13.sp,
+            )
+        }
+
+        // My own camera, small, in the top right corner.
+        if (CallManager.cameraOn) {
+            CallVideoView(
+                sink = CallManager.localSink,
+                mirror = CallManager.frontCamera,
+                onTop = true,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .safeDrawingPadding()
+                    .padding(12.dp)
+                    .size(width = 108.dp, height = 150.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.35f))
+                .safeDrawingPadding()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (CallManager.debugLine.isNotEmpty()) {
+                Text(
+                    CallManager.debugLine,
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                ToggleChip(
+                    label = if (CallManager.muted) "Mic tắt" else "Tắt mic",
+                    active = CallManager.muted,
+                    onClick = { CallManager.toggleMute() },
+                )
+                ToggleChip(
+                    label = if (CallManager.cameraOn) "Tắt camera" else "Camera tắt",
+                    active = !CallManager.cameraOn,
+                    onClick = { CallManager.toggleCamera() },
+                )
+                ToggleChip(
+                    label = "Đổi camera",
+                    active = false,
+                    onClick = { CallManager.switchCamera() },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            RoundCallButton(
+                label = "Kết thúc",
+                color = DeclineRed,
+                hangUpIcon = true,
+                onClick = { CallManager.hangUp() },
+            )
+        }
+    }
+}
+
+// One video picture. The view is created once, attached to the given sink
+// while it is on screen, and released when it leaves.
+@Composable
+private fun CallVideoView(sink: ProxySink, mirror: Boolean, onTop: Boolean, modifier: Modifier) {
+    val egl = CallManager.eglContext ?: return
+    val context = LocalContext.current
+    val renderer = remember {
+        SurfaceViewRenderer(context).apply {
+            init(egl, null)
+            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            setEnableHardwareScaler(true)
+            // The small picture must be drawn above the large one.
+            if (onTop) setZOrderMediaOverlay(true)
+        }
+    }
+    DisposableEffect(renderer) {
+        sink.target = renderer
+        onDispose {
+            sink.target = null
+            runCatching { renderer.release() }
+        }
+    }
+    AndroidView(
+        factory = { renderer },
+        update = { it.setMirror(mirror) },
+        modifier = modifier,
+    )
 }

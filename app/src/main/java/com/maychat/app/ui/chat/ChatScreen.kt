@@ -193,6 +193,48 @@ fun ChatScreen(
         }
     }
 
+    // Video call: microphone and camera. The microphone is required; if the
+    // camera is refused the call still starts and I only see the other person.
+    val askPermissionsForVideoCall = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            CallManager.startCall(other, conversationId, video = true)
+        } else {
+            state.showError("Cần quyền micro để gọi video. Bạn có thể bật trong Cài đặt của điện thoại.")
+        }
+    }
+    val startVideoCall: () -> Unit = {
+        val micGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        val cameraGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (micGranted && cameraGranted) {
+            CallManager.startCall(other, conversationId, video = true)
+        } else {
+            askPermissionsForVideoCall.launch(
+                arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA),
+            )
+        }
+    }
+
+    // Taking a photo: now that the app has the camera permission in its
+    // list (for video calls), Android only lets it open the camera app
+    // after that permission was granted. So it is asked for here first.
+    val askCameraForPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            state.showError("Cần quyền camera để chụp ảnh. Bạn có thể bật trong Cài đặt của điện thoại.")
+        } else if (!CameraCapture.start(context, conversationId)) {
+            state.showError("Không mở được máy ảnh trên điện thoại này.")
+        }
+    }
+
     // Load at start, and again whenever the live connection comes (back) up.
     LaunchedEffect(conversationId, connectionCount) { state.refresh() }
 
@@ -605,6 +647,14 @@ fun ChatScreen(
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }
+                    // Video call button.
+                    IconButton(onClick = startVideoCall, enabled = !blockedByMe) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_videocam),
+                            contentDescription = "Gọi video",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(
@@ -821,6 +871,14 @@ fun ChatScreen(
                         items(state.messages, key = { it.key }) { message ->
                             Box {
                             MessageBubble(
+                                // null = not choosing; otherwise whether this one is ticked.
+                                selectMark = if (selecting && message.kind != "system" &&
+                                    message.state != SendState.SENDING && message.state != SendState.FAILED
+                                ) {
+                                    message.key in selectedKeys
+                                } else {
+                                    null
+                                },
                                 onSelectMany = {
                                     selecting = true
                                     selectedKeys = setOf(message.key)
@@ -873,44 +931,7 @@ fun ChatScreen(
                                                 selectedKeys + message.key
                                             }
                                         },
-                                ) {
-                                    // Round tick mark on the free side of the row:
-                                    // filled with a check when chosen, an empty
-                                    // ring when not.
-                                    Box(
-                                        modifier = Modifier
-                                            .align(if (message.mine) Alignment.CenterStart else Alignment.CenterEnd)
-                                            .padding(horizontal = 6.dp)
-                                            .size(26.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (picked) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.surface
-                                                },
-                                            )
-                                            .border(
-                                                2.dp,
-                                                if (picked) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.outline
-                                                },
-                                                CircleShape,
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (picked) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_check),
-                                                contentDescription = "Đã chọn",
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-                                    }
-                                }
+                                )
                             }
                             }
                         }
@@ -1177,7 +1198,13 @@ fun ChatScreen(
                         }
                         IconButton(
                             onClick = {
-                                if (!CameraCapture.start(context, conversationId)) {
+                                val cameraGranted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.CAMERA,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (!cameraGranted) {
+                                    askCameraForPhoto.launch(Manifest.permission.CAMERA)
+                                } else if (!CameraCapture.start(context, conversationId)) {
                                     state.showError("Không mở được máy ảnh trên điện thoại này.")
                                 }
                             },
@@ -1408,6 +1435,7 @@ fun ChatScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
+    selectMark: Boolean?,
     onSelectMany: () -> Unit,
     markQuery: String?,
     isPinned: Boolean,
@@ -1559,6 +1587,11 @@ private fun MessageBubble(
         modifier = Modifier.weight(1f),
         horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start,
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (selectMark != null && message.mine) {
+            SelectTick(selectMark)
+            Spacer(Modifier.width(6.dp))
+        }
         Box {
             when {
                 // Taken back by the sender: a quiet grey note for both people.
@@ -1764,6 +1797,13 @@ private fun MessageBubble(
                 }
             }
         }
+        // While choosing several messages: the tick sits right next to the bubble.
+        if (selectMark != null && !message.mine) {
+            Spacer(Modifier.width(6.dp))
+            SelectTick(selectMark)
+        }
+        }
+        // Reactions under the bubble. Tapping mine removes it.
         // Reactions under the bubble. Tapping mine removes it.
         if (message.reactions.isNotEmpty()) {
             Row(
@@ -1937,3 +1977,30 @@ private class MenuAction(
     val onClick: () -> Unit,
     val danger: Boolean = false,
 )
+
+// Round tick mark shown beside a message while several are being chosen:
+// a filled circle with a check when chosen, an empty ring when not.
+@Composable
+private fun SelectTick(picked: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+            .border(
+                2.dp,
+                if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (picked) {
+            Icon(
+                painter = painterResource(R.drawable.ic_check),
+                contentDescription = "Đã chọn",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}

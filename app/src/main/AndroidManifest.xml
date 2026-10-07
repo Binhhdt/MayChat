@@ -13,6 +13,12 @@
     <!-- Voice calls: switch between earpiece and loudspeaker. No popup. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Camera: for video calls. The phone asks the user the first time.
+         A phone without a camera can still install and use the app. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <!-- Keep a call alive while the app is not on screen (shows a permanent
          "in a call" notification), and switch the display off when the phone
          is held to the ear. None of these shows a popup. -->

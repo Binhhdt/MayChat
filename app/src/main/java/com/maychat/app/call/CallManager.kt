@@ -1,6 +1,8 @@
 package com.maychat.app.call
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -10,6 +12,7 @@ import android.os.PowerManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import com.maychat.app.data.CallServer
 import com.maychat.app.data.CallSignaling
 import com.maychat.app.data.ChatRepository
@@ -38,14 +41,26 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
+import org.webrtc.Camera2Enumerator
+import org.webrtc.CameraVideoCapturer
 import org.webrtc.DataChannel
+import org.webrtc.DefaultVideoDecoderFactory
+import org.webrtc.DefaultVideoEncoderFactory
+import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -58,7 +73,19 @@ data class CallUi(
     val peer: Profile,
     val message: String,
     val connectedAtMs: Long = 0L,
+    val video: Boolean = false,     // a video call (false = voice only)
 )
+
+// Stands between a video track and the view that draws it. The view can be
+// attached and taken away at any time without touching the track itself.
+class ProxySink : VideoSink {
+    @Volatile
+    var target: VideoSink? = null
+
+    override fun onFrame(frame: VideoFrame) {
+        target?.onFrame(frame)
+    }
+}
 
 // One-to-one voice calls with WebRTC.
 //
@@ -90,6 +117,78 @@ object CallManager {
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
     private var gatheringDone = CompletableDeferred<Unit>()
+
+    // ------------------------------------------------------------------
+    // Video (only used by video calls; voice calls never touch any of it)
+    // ------------------------------------------------------------------
+
+    // My camera is sending (false = switched off, or no camera permission).
+    var cameraOn by mutableStateOf(false)
+        private set
+    // The front camera is the one in use (its picture is shown mirrored).
+    var frontCamera by mutableStateOf(true)
+        private set
+    // The other person's picture is arriving.
+    var remoteVideo by mutableStateOf(false)
+        private set
+
+    // The call screen attaches its two video views to these.
+    val localSink = ProxySink()
+    val remoteSink = ProxySink()
+
+    private var egl: EglBase? = null
+    val eglContext: EglBase.Context? get() = egl?.eglBaseContext
+
+    // A separate factory with video support, created on the first video
+    // call. Voice calls keep using the plain one, exactly as before.
+    private var videoFactory: PeerConnectionFactory? = null
+    private var capturer: CameraVideoCapturer? = null
+    private var captureHelper: SurfaceTextureHelper? = null
+    private var videoSource: VideoSource? = null
+    private var localVideoTrack: VideoTrack? = null
+    private var remoteVideoTrack: VideoTrack? = null
+
+    fun toggleCamera() {
+        val track = localVideoTrack ?: return
+        cameraOn = !cameraOn
+        runCatching { track.setEnabled(cameraOn) }
+    }
+
+    fun switchCamera() {
+        val camera = capturer ?: return
+        runCatching {
+            camera.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+                override fun onCameraSwitchDone(isFront: Boolean) {
+                    main.launch { frontCamera = isFront }
+                }
+
+                override fun onCameraSwitchError(error: String?) {}
+            })
+        }
+    }
+
+    // Starts my camera and adds its picture to the call.
+    private fun startCamera(context: Context, f: PeerConnectionFactory, pc: PeerConnection) {
+        val eglContext = egl?.eglBaseContext ?: return
+        val enumerator = Camera2Enumerator(context)
+        val names = enumerator.deviceNames
+        val name = names.firstOrNull { enumerator.isFrontFacing(it) } ?: names.firstOrNull() ?: return
+        val camera = enumerator.createCapturer(name, null) ?: return
+        val helper = SurfaceTextureHelper.create("maychat-camera", eglContext)
+        val source = f.createVideoSource(false)
+        camera.initialize(helper, context, source.capturerObserver)
+        camera.startCapture(640, 480, 24)
+        val track = f.createVideoTrack("maychat-video", source)
+        track.addSink(localSink)
+        pc.addTrack(track, listOf("maychat"))
+
+        capturer = camera
+        captureHelper = helper
+        videoSource = source
+        localVideoTrack = track
+        frontCamera = enumerator.isFrontFacing(name)
+        cameraOn = true
+    }
 
     // ------------------------------------------------------------------
     // Diagnosis line (small text on the call screen)
@@ -228,24 +327,27 @@ object CallManager {
     // ------------------------------------------------------------------
 
     // Call someone. The microphone permission must already be granted.
-    fun startCall(peer: Profile, conversationId: String) {
+    // video = true starts a video call (camera permission should be granted;
+    // without it the call still works, I just send no picture).
+    fun startCall(peer: Profile, conversationId: String, video: Boolean = false) {
         if (ui != null || myId.isBlank()) return
         val id = UUID.randomUUID().toString()
         callId = id
         peerId = peer.id
         iAmCaller = true
-        ui = CallUi(CallPhase.OUTGOING, peer, "Đang gọi…")
+        ui = CallUi(CallPhase.OUTGOING, peer, "Đang gọi…", video = video)
 
         callJob = main.launch {
             try {
                 // A line in the chat: call history, and it also triggers the
                 // normal message notification on the other phone.
-                launch { attempt { ChatRepository.sendMessage(conversationId, "📞 Cuộc gọi thoại") } }
+                val chatLine = if (video) "📞 Cuộc gọi video" else "📞 Cuộc gọi thoại"
+                launch { attempt { ChatRepository.sendMessage(conversationId, chatLine) } }
                 // A row in the call history. Started on its own, so ending
                 // the call does not cancel it (see finish()).
                 callLogJob = main.async { attempt { ChatRepository.logCallStart(peer.id) }.getOrNull() }
 
-                val pc = createPeer()
+                val pc = createPeer(video)
                 onCallStarted()
                 // Let the caller hear the usual waiting tone until the other
                 // side answers.
@@ -348,7 +450,7 @@ object CallManager {
 
         callJob = main.launch {
             try {
-                val pc = createPeer()
+                val pc = createPeer(current.video)
                 onCallStarted()
                 dbgTheirs = countAddresses(offer)
                 debugStep("đang tìm địa chỉ")
@@ -503,6 +605,7 @@ object CallManager {
         when (type) {
             "offer" -> {
                 val sdp = text(json, "sdp") ?: return
+                val isVideo = text(json, "video") == "true"
                 val current = ui
                 if (from == ignorePeerId && System.currentTimeMillis() < ignoreUntilMs) {
                     // I already rejected this call from its notification.
@@ -514,10 +617,17 @@ object CallManager {
                     callId = id
                     offerFromPeer = sdp
                     pendingTimeoutJob?.cancel()
+                    // Now it is known whether this is a video call.
+                    val announced = if (isVideo) {
+                        current.copy(video = true, message = "Cuộc gọi video đến")
+                    } else {
+                        current
+                    }
+                    ui = announced
                     main.launch { attempt { CallSignaling.send(from, signal("ringing", id)) } }
                     if (acceptWhenOfferArrives) {
                         acceptWhenOfferArrives = false
-                        ui = current.copy(phase = CallPhase.INCOMING)
+                        ui = announced.copy(phase = CallPhase.INCOMING)
                         accept()
                     }
                 } else if (ui == null) {
@@ -531,7 +641,8 @@ object CallManager {
                     ui = CallUi(
                         CallPhase.INCOMING,
                         Profile(id = from, username = "", displayName = name),
-                        "Cuộc gọi thoại đến",
+                        if (isVideo) "Cuộc gọi video đến" else "Cuộc gọi thoại đến",
+                        video = isVideo,
                     )
                     startRingtone()
                     loadPeerPicture(from)
@@ -605,6 +716,7 @@ object CallManager {
         put("call_id", id)
         put("from", myId)
         put("from_name", myName)
+        if (ui?.video == true) put("video", true)
         if (sdp != null) put("sdp", sdp)
     }
 
@@ -612,14 +724,27 @@ object CallManager {
     // WebRTC
     // ------------------------------------------------------------------
 
-    private fun createPeer(): PeerConnection {
+    private fun createPeer(video: Boolean = false): PeerConnection {
         val context = appContext ?: throw IllegalStateException("not attached")
 
-        val f = factory ?: run {
+        val f = if (video) {
+            // Video calls: a factory that can also encode and decode pictures.
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions(),
             )
-            PeerConnectionFactory.builder().createPeerConnectionFactory().also { factory = it }
+            val eglBase = egl ?: EglBase.create().also { egl = it }
+            videoFactory ?: PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
+                .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
+                .createPeerConnectionFactory()
+                .also { videoFactory = it }
+        } else {
+            factory ?: run {
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions(),
+                )
+                PeerConnectionFactory.builder().createPeerConnectionFactory().also { factory = it }
+            }
         }
 
         gatheringDone = CompletableDeferred()
@@ -668,6 +793,30 @@ object CallManager {
         audioSource = source
         audioTrack = track
         peerConnection = pc
+
+        if (video) {
+            cameraOn = false
+            remoteVideo = false
+            val cameraAllowed = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (cameraAllowed) runCatching { startCamera(context, f, pc) }
+            // No camera on my side: as the caller, still ask to RECEIVE the
+            // other person's picture. (An answering phone needs nothing
+            // here; the caller's request already contains the video part.)
+            if (localVideoTrack == null && iAmCaller) {
+                runCatching {
+                    pc.addTransceiver(
+                        MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+                        RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
+                    )
+                }
+            }
+            // A video call is held in front of the face: use the loudspeaker.
+            speakerOn = true
+            applySpeaker()
+        }
         return pc
     }
 
@@ -681,6 +830,18 @@ object CallManager {
             dbgIce = state?.name ?: "-"
             refreshDebug()
             main.launch { onConnectionState(state) }
+        }
+
+        // The other person's picture starts arriving (video calls only).
+        override fun onTrack(transceiver: RtpTransceiver?) {
+            val track = transceiver?.receiver?.track() as? VideoTrack ?: return
+            main.launch {
+                if (peerConnection != null && ui?.video == true) {
+                    remoteVideoTrack = track
+                    runCatching { track.addSink(remoteSink) }
+                    remoteVideo = true
+                }
+            }
         }
 
         override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
@@ -813,6 +974,21 @@ object CallManager {
         watchdogJob?.cancel()
         watchdogJob = null
 
+        // Video: detach the views and stop the camera before the connection goes.
+        runCatching { remoteVideoTrack?.removeSink(remoteSink) }
+        runCatching { localVideoTrack?.removeSink(localSink) }
+        remoteVideoTrack = null
+        localVideoTrack = null
+        remoteVideo = false
+        cameraOn = false
+        val camera = capturer
+        val cameraHelper = captureHelper
+        val cameraSource = videoSource
+        capturer = null
+        captureHelper = null
+        videoSource = null
+        runCatching { camera?.stopCapture() }
+
         val pc = peerConnection
         val source = audioSource
         peerConnection = null
@@ -820,6 +996,9 @@ object CallManager {
         audioTrack = null
         runCatching { pc?.dispose() }
         runCatching { source?.dispose() }
+        runCatching { camera?.dispose() }
+        runCatching { cameraSource?.dispose() }
+        runCatching { cameraHelper?.dispose() }
 
         appContext?.let { context ->
             val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager

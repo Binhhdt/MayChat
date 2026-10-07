@@ -1,5 +1,7 @@
 package com.maychat.app.ui.main
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
@@ -138,6 +141,16 @@ fun QrScreen(
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         if (saved) scope.launch { readFrom(compressImage(context, photoUri, maxSide = 1600)) }
     }
+    // The app now lists the camera permission (for video calls), so Android
+    // only lets it open the camera app once that permission is granted.
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            runCatching { takePhoto.launch(photoUri) }
+                .onFailure { error = "Không mở được máy ảnh trên điện thoại này." }
+        } else {
+            error = "Cần quyền camera để chụp mã QR. Bạn vẫn có thể chọn ảnh có mã QR từ máy."
+        }
+    }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch { readFrom(compressImage(context, uri, maxSide = 1600)) }
     }
@@ -200,10 +213,18 @@ fun QrScreen(
             Spacer(Modifier.height(12.dp))
             Button(
                 onClick = {
-                    try {
-                        takePhoto.launch(photoUri)
-                    } catch (e: Exception) {
-                        error = "Không mở được máy ảnh trên điện thoại này."
+                    val cameraGranted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA,
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (!cameraGranted) {
+                        askCamera.launch(Manifest.permission.CAMERA)
+                    } else {
+                        try {
+                            takePhoto.launch(photoUri)
+                        } catch (e: Exception) {
+                            error = "Không mở được máy ảnh trên điện thoại này."
+                        }
                     }
                 },
                 enabled = !busy,
