@@ -190,3 +190,58 @@ data class CallServer(
     val username: String = "",
     val credential: String = "",
 )
+
+// ---------------------------------------------------------------------
+// Group chats (see supabase_migration_21_groups.sql)
+// ---------------------------------------------------------------------
+
+@Serializable
+data class Group(
+    val id: String,
+    val name: String,
+    @SerialName("owner_id") val ownerId: String,          // the group leader
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("last_message_text") val lastMessageText: String? = null,
+    @SerialName("last_message_at") val lastMessageAt: String? = null,
+    @SerialName("last_sender_id") val lastSenderId: String? = null,
+)
+
+@Serializable
+data class GroupMember(
+    @SerialName("group_id") val groupId: String,
+    @SerialName("user_id") val userId: String,
+    @SerialName("joined_at") val joinedAt: String? = null,
+)
+
+@Serializable
+data class GroupMessage(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    @SerialName("sender_id") val senderId: String,
+    val content: String,
+    val kind: String = "text",          // text, image, voice, file or system
+    @SerialName("media_path") val mediaPath: String? = null,
+    @SerialName("duration_ms") val durationMs: Int? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("file_size") val fileSize: Int? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+// What the app sends when creating a group message.
+@Serializable
+data class NewGroupMessage(
+    @SerialName("group_id") val groupId: String,
+    val content: String,
+    val kind: String = "text",
+    @SerialName("media_path") val mediaPath: String? = null,
+    @SerialName("duration_ms") val durationMs: Int? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("file_size") val fileSize: Int? = null,
+)
+
+// One row returned by the database function group_unread_counts().
+@Serializable
+data class GroupUnread(
+    @SerialName("group_id") val groupId: String,
+    val unread: Int,
+)

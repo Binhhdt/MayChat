@@ -37,6 +37,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -431,6 +433,104 @@ object ChatRepository {
             val outgoing = call.callerId == myId
             profiles[if (outgoing) call.calleeId else call.callerId]?.let { CallItem(call, it, outgoing) }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Group chats (see supabase_migration_21_groups.sql)
+    // ------------------------------------------------------------------
+
+    // The security rules only return groups I am a member of.
+    suspend fun loadGroups(): List<Group> =
+        supabase.postgrest.from("groups").select().decodeList<Group>()
+
+    // null when the group does not exist or I am not (or no longer) a member.
+    suspend fun loadGroup(groupId: String): Group? =
+        supabase.postgrest.from("groups")
+            .select { filter { eq("id", groupId) } }
+            .decodeList<Group>()
+            .firstOrNull()
+
+    suspend fun loadGroupMembers(groupId: String): List<Profile> {
+        val ids = supabase.postgrest.from("group_members")
+            .select { filter { eq("group_id", groupId) } }
+            .decodeList<GroupMember>()
+            .map { it.userId }
+        return loadProfiles(ids)
+    }
+
+    suspend fun loadGroupUnreadCounts(): Map<String, Int> =
+        supabase.postgrest.rpc("group_unread_counts")
+            .decodeList<GroupUnread>()
+            .associate { it.groupId to it.unread }
+
+    // Returns the id of the new group.
+    suspend fun createGroup(name: String, memberIds: List<String>): String =
+        supabase.postgrest.rpc(
+            "create_group",
+            buildJsonObject {
+                put("p_name", name)
+                put("p_members", buildJsonArray { memberIds.forEach { add(it) } })
+            },
+        ).data.trim().trim('"')
+
+    suspend fun addGroupMembers(groupId: String, memberIds: List<String>) {
+        supabase.postgrest.rpc(
+            "add_group_members",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_members", buildJsonArray { memberIds.forEach { add(it) } })
+            },
+        )
+    }
+
+    suspend fun removeGroupMember(groupId: String, userId: String) {
+        supabase.postgrest.rpc(
+            "remove_group_member",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_user", userId)
+            },
+        )
+    }
+
+    suspend fun leaveGroup(groupId: String) {
+        supabase.postgrest.rpc("leave_group", buildJsonObject { put("p_group", groupId) })
+    }
+
+    suspend fun renameGroup(groupId: String, name: String) {
+        supabase.postgrest.rpc(
+            "rename_group",
+            buildJsonObject {
+                put("p_group", groupId)
+                put("p_name", name)
+            },
+        )
+    }
+
+    suspend fun markGroupRead(groupId: String) {
+        supabase.postgrest.rpc("mark_group_read", buildJsonObject { put("p_group", groupId) })
+    }
+
+    // One page of group messages, newest first. Pass the time of the oldest
+    // message already shown to get the page before it.
+    suspend fun loadGroupMessages(groupId: String, before: String? = null, limit: Int = PAGE_SIZE): List<GroupMessage> {
+        val beforeUtc = before?.let {
+            runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrNull()
+        }
+        return supabase.postgrest.from("group_messages")
+            .select {
+                filter {
+                    eq("group_id", groupId)
+                    if (beforeUtc != null) lt("created_at", beforeUtc)
+                }
+                order("created_at", Order.DESCENDING)
+                limit(limit.toLong())
+            }
+            .decodeList<GroupMessage>()
+    }
+
+    suspend fun sendGroupMessage(message: NewGroupMessage) {
+        supabase.postgrest.from("group_messages").insert(message)
     }
 
     // Loads one page of messages, newest first. Pass the time of the oldest

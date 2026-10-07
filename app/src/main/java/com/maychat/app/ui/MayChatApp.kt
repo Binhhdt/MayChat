@@ -44,6 +44,8 @@ import com.maychat.app.push.Push
 import com.maychat.app.ui.auth.AuthScreen
 import com.maychat.app.ui.chat.ChatScreen
 import com.maychat.app.ui.common.SplashScreen
+import com.maychat.app.ui.group.CreateGroupScreen
+import com.maychat.app.ui.group.GroupChatScreen
 import com.maychat.app.ui.main.CallsScreen
 import com.maychat.app.ui.main.ConversationsScreen
 import com.maychat.app.ui.main.EditProfileScreen
@@ -64,6 +66,8 @@ private sealed interface Overlay {
     data object EditProfile : Overlay
     data object Settings : Overlay
     data object Qr : Overlay
+    data object CreateGroup : Overlay
+    data class GroupChat(val groupId: String, val name: String) : Overlay
     data class Chat(val conversationId: String, val other: Profile) : Overlay
 }
 
@@ -76,6 +80,8 @@ private val OverlaySaver = listSaver<Overlay?, String>(
             Overlay.EditProfile -> listOf("profile")
             Overlay.Settings -> listOf("settings")
             Overlay.Qr -> listOf("qr")
+            Overlay.CreateGroup -> listOf("create-group")
+            is Overlay.GroupChat -> listOf("group", value.groupId, value.name)
             is Overlay.Chat -> listOf(
                 "chat",
                 value.conversationId,
@@ -92,6 +98,8 @@ private val OverlaySaver = listSaver<Overlay?, String>(
             "profile" -> Overlay.EditProfile
             "settings" -> Overlay.Settings
             "qr" -> Overlay.Qr
+            "create-group" -> Overlay.CreateGroup
+            "group" -> if (saved.size >= 3) Overlay.GroupChat(saved[1], saved[2]) else null
             "chat" -> if (saved.size >= 6) {
                 Overlay.Chat(
                     conversationId = saved[1],
@@ -278,6 +286,13 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
     LaunchedEffect(chatToOpen) {
         val target = chatToOpen ?: return@LaunchedEffect
         Push.clearOpenChat()
+        // The notification of a GROUP message carries the group's id in the
+        // same place: open the group in that case.
+        val group = attempt { ChatRepository.loadGroup(target.conversationId) }.getOrNull()
+        if (group != null) {
+            overlay = Overlay.GroupChat(group.id, group.name)
+            return@LaunchedEffect
+        }
         val person = attempt { ChatRepository.loadProfile(target.senderId) }.getOrNull()
             ?: Profile(id = target.senderId, username = "", displayName = target.senderName)
         overlay = Overlay.Chat(target.conversationId, person)
@@ -338,6 +353,8 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
                 onOpenChat = { id, other -> overlay = Overlay.Chat(id, other) },
                 onOpenProfile = { overlay = Overlay.EditProfile },
                 onOpenSettings = { overlay = Overlay.Settings },
+                onCreateGroup = { overlay = Overlay.CreateGroup },
+                onOpenGroup = { group -> overlay = Overlay.GroupChat(group.id, group.name) },
                 bottomBar = bottomBar,
             )
             MainTab.FRIENDS -> FriendsScreen(
@@ -361,6 +378,18 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         )
         Overlay.EditProfile -> EditProfileScreen(
             myId = myId,
+            onBack = { overlay = null },
+        )
+        Overlay.CreateGroup -> CreateGroupScreen(
+            friends = friends.friends,
+            onCreated = { id, name -> overlay = Overlay.GroupChat(id, name) },
+            onBack = { overlay = null },
+        )
+        is Overlay.GroupChat -> GroupChatScreen(
+            myId = myId,
+            groupId = current.groupId,
+            initialName = current.name,
+            friends = friends.friends,
             onBack = { overlay = null },
         )
         Overlay.Qr -> QrScreen(

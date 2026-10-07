@@ -58,6 +58,15 @@ fun Throwable.toUserMessage(): String {
         "bucket not found" in text ->
             "Máy chủ chưa bật lưu ảnh và ghi âm. Hãy chạy file supabase_migration_03_media.sql."
 
+        "group_full" in text ->
+            "Nhóm đã đủ 50 thành viên."
+
+        "only_leader" in text ->
+            "Chỉ trưởng nhóm mới xóa được thành viên."
+
+        "invalid_group_name" in text ->
+            "Tên nhóm cần từ 1 đến 60 ký tự."
+
         "rate limit" in text || "over_request_rate_limit" in text || "rate_limited" in text ->
             "Thao tác quá nhanh. Chờ một lát rồi thử lại."
 
