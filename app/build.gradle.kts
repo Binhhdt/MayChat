@@ -182,8 +182,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 59
-        versionName = "0.31.0"
+        versionCode = 60
+        versionName = "0.32.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -281,6 +281,9 @@ dependencies {
 
     // WebRTC (voice calls): Google's WebRTC library, pre-built by Stream.
     implementation("io.getstream:stream-webrtc-android:1.3.9")
+    // Finds the person in the camera picture, on the phone itself (no
+    // internet), for "Làm mờ nền" in video calls.
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
 
     // Draws and reads QR codes (used for "add a friend by QR code").
     implementation("com.google.zxing:core:3.5.3")

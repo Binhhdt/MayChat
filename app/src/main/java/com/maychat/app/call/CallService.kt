@@ -14,6 +14,8 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.maychat.app.MainActivity
 import com.maychat.app.R
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 
 // Keeps a call alive while MayChat is not on screen.
 //
@@ -28,11 +30,17 @@ class CallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        val name = intent?.getStringExtra(EXTRA_NAME) ?: "MayChat"
+        val name = intent?.getStringExtra(EXTRA_NAME) ?: lastName
+        lastName = name
 
         // Android requires startForeground() after every start of the
         // service, also when the service is only started to be stopped.
-        showForeground(name)
+        val shown = showForeground(name)
+        // Somebody waits to hear whether screen capturing is now allowed.
+        if (action == ACTION_SHARE) {
+            shareAnswer?.complete(shown && screenShare)
+            shareAnswer = null
+        }
 
         when (action) {
             ACTION_HANG_UP -> {
@@ -49,7 +57,9 @@ class CallService : Service() {
         stopSelf()
     }
 
-    private fun showForeground(name: String) {
+    // Returns true when the notification is up with everything asked for
+    // (including "is capturing the screen" while sharing).
+    private fun showForeground(name: String): Boolean {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Cuộc gọi đang diễn ra", NotificationManager.IMPORTANCE_LOW).apply {
@@ -75,20 +85,39 @@ class CallService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_call)
             .setContentTitle("Đang trong cuộc gọi với $name")
-            .setContentText("Chạm để quay lại cuộc gọi")
+            .setContentText(
+                if (screenShare) "Đang chia sẻ màn hình · Chạm để quay lại" else "Chạm để quay lại cuộc gọi",
+            )
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setOngoing(true)
             .setContentIntent(open)
             .addAction(0, "Kết thúc", hangUp)
             .build()
 
-        try {
-            val type = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+        val microphone = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        // While sharing the screen Android (10+) wants that said as well.
+        if (screenShare && Build.VERSION.SDK_INT >= 29) {
+            try {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    microphone or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                )
+                return true
+            } catch (e: Exception) {
+                // Not allowed: carry on as a normal call (below), no sharing.
+            }
+        }
+        return try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, microphone)
+            // Below Android 10 nothing more is needed to capture the screen.
+            !screenShare || Build.VERSION.SDK_INT < 29
         } catch (e: Exception) {
             // Not allowed right now (for example the app is not on screen):
             // the call still works while MayChat stays open.
             stopSelf()
+            false
         }
     }
 
@@ -98,11 +127,55 @@ class CallService : Service() {
         private const val EXTRA_NAME = "name"
         private const val ACTION_HANG_UP = "com.maychat.app.call.HANG_UP"
         private const val ACTION_STOP = "com.maychat.app.call.STOP"
+        private const val ACTION_SHARE = "com.maychat.app.call.SHARE"
 
         private var running = false
+        private var lastName = "MayChat"
+
+        // True while my screen is being shared in the call.
+        @Volatile
+        private var screenShare = false
+        private var shareAnswer: CompletableDeferred<Boolean>? = null
+
+        // Before capturing the screen: marks the call's notification as
+        // "capturing the screen" and waits until Android accepted that.
+        // Returns false when Android refuses.
+        suspend fun beginScreenShare(context: Context): Boolean {
+            screenShare = true
+            val answer = CompletableDeferred<Boolean>()
+            shareAnswer = answer
+            try {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, CallService::class.java).setAction(ACTION_SHARE).putExtra(EXTRA_NAME, lastName),
+                )
+                running = true
+            } catch (e: Exception) {
+                shareAnswer = null
+                screenShare = false
+                return false
+            }
+            return withTimeoutOrNull(3_000) { answer.await() } ?: false
+        }
+
+        // Sharing is over: the notification is a normal call again.
+        fun endScreenShare(context: Context) {
+            if (!screenShare) return
+            screenShare = false
+            // Only while the app is on screen: Android refuses to renew the
+            // notification of an app in the background, and the call must
+            // not lose it. (Then it simply keeps its wording until the end.)
+            if (!running || !com.maychat.app.push.Push.appVisible) return
+            runCatching {
+                context.startService(
+                    Intent(context, CallService::class.java).setAction(ACTION_SHARE).putExtra(EXTRA_NAME, lastName),
+                )
+            }
+        }
 
         // Called when a call starts (the app is on screen at that moment).
         fun start(context: Context, peerName: String) {
+            lastName = peerName
             try {
                 ContextCompat.startForegroundService(
                     context,
@@ -116,6 +189,7 @@ class CallService : Service() {
 
         // Called when the call is over.
         fun stop(context: Context) {
+            screenShare = false
             if (!running) return
             running = false
             try {

@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.maychat.app.call.CallManager
 import com.maychat.app.call.CallScreen
+import com.maychat.app.call.FloatingCallView
 import com.maychat.app.call.CallPhase
 import com.maychat.app.call.MinimizeCallButton
 import com.maychat.app.call.ReturnToCallBar
@@ -168,7 +169,10 @@ fun MayChatApp() {
         }
         if (call != null) {
             val canPutAside = call.phase != CallPhase.INCOMING && call.phase != CallPhase.ENDED
-            if (CallManager.minimized && canPutAside) {
+            if (CallManager.inPip && call.video && canPutAside) {
+                // The app is a small floating window: only the picture.
+                FloatingCallView(call)
+            } else if (CallManager.minimized && canPutAside) {
                 ReturnToCallBar(call)
             } else {
                 CallScreen(call)

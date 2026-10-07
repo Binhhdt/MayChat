@@ -1,7 +1,10 @@
 package com.maychat.app
 
 import android.Manifest
+import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.res.Configuration
+import android.util.Rational
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.maychat.app.call.CallManager
+import com.maychat.app.call.CallPhase
 import com.maychat.app.push.ChatToOpen
 import com.maychat.app.push.Push
 import com.maychat.app.ui.MayChatApp
@@ -41,9 +45,59 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         CameraCapture.launcher = { uri -> takePhoto.launch(uri) }
         handleNotificationTap(intent)
+        watchCallForFloatingWindow()
         setContent {
             MayChatTheme {
                 MayChatApp()
+            }
+        }
+    }
+
+    // ----- Video call as a small floating window -------------------------
+
+    // A video call that is being set up or running, and my screen is not
+    // being shared (then the other apps are what should be seen).
+    private fun callWantsFloatingWindow(): Boolean {
+        val call = CallManager.ui ?: return false
+        return call.video &&
+            call.phase != CallPhase.INCOMING &&
+            call.phase != CallPhase.ENDED &&
+            !CallManager.sharingScreen
+    }
+
+    private fun floatingWindowParams(autoEnter: Boolean): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(9, 16))
+        // Android 12+: also when leaving with the "home" swipe.
+        if (Build.VERSION.SDK_INT >= 31) builder.setAutoEnterEnabled(autoEnter)
+        return builder.build()
+    }
+
+    // Leaving the app (Home button) during a video call: keep the call on
+    // screen as a small floating window.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Only from the call screen itself: while the call is put aside the
+        // app opens other screens (camera, photo picker...), which Android
+        // reports the same way as "Home".
+        if (callWantsFloatingWindow() && !CallManager.minimized && !CallManager.pipBlocked &&
+            !isInPictureInPictureMode
+        ) {
+            runCatching { enterPictureInPictureMode(floatingWindowParams(true)) }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        CallManager.inPip = isInPictureInPictureMode
+    }
+
+    private fun watchCallForFloatingWindow() {
+        lifecycleScope.launch {
+            snapshotFlow { callWantsFloatingWindow() }.collect { wanted ->
+                runCatching { setPictureInPictureParams(floatingWindowParams(wanted)) }
+                // The call ended while it was a floating window: put the
+                // small window away instead of showing the chats in it.
+                if (!wanted && isInPictureInPictureMode) runCatching { moveTaskToBack(true) }
             }
         }
     }
