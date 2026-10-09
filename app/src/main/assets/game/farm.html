@@ -64,7 +64,7 @@ h1 span { color: var(--leaf); }
 .pop .note { font-size: 12px; font-weight: 700; }
 .btn.green { background: var(--leaf); color: #fff; border-color: var(--leaf-dark); box-shadow: 0 4px 0 var(--leaf-dark); }
 .coin { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff3b0, var(--gold) 55%, #d99a12); border: 2px solid #a8701a; box-sizing: border-box; flex: none; }
-.coins.pop { animation: pop 0.35s ease; }
+.coins.bump { animation: pop 0.35s ease; }
 @keyframes pop { 50% { transform: scale(1.12); } }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { background: var(--paper); border: 2px solid var(--wood); border-radius: 10px; padding: 3px 9px 1px; font: 800 13.5px var(--display); color: var(--ink); }
@@ -261,7 +261,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   .su-title b { font-size: 19px; }
   .avawrap { width: 42px; height: 42px; }
 }
-@media (prefers-reduced-motion: reduce) { .coins.pop { animation: none; } .tool:active { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .coins.bump { animation: none; } .tool:active { transform: none; } }
 </style>
 
 <div class="app">
@@ -1095,7 +1095,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   }
   function addGold(n) {
     S.gold += n;
-    const c = $("coins"); c.classList.remove("pop"); void c.offsetWidth; c.classList.add("pop");
+    const c = $("coins"); c.classList.remove("bump"); void c.offsetWidth; c.classList.add("bump");
   }
   const seedCost = (id) => CROPS[id].seed;
   function plantAt(k, id) {

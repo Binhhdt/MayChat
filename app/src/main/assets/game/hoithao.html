@@ -339,7 +339,6 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   <div class="sheet" id="settingsSheet" hidden>
     <div class="card" role="dialog" aria-label="Cài đặt">
       <div class="sheet-head"><b>⚙️ Cài đặt</b><button class="mini primary" id="settingsClose" type="button">Xong</button></div>
-      <div class="row"><label for="modeSeg">Item</label><div class="seg" id="modeSeg" role="group" aria-label="Đường chạy"></div></div>
       <div class="row"><label for="levelSeg">Sức bot</label><div class="seg" id="levelSeg" role="group" aria-label="Sức bot"></div></div>
       <div class="row"><label for="pingSeg">Mạng giả lập</label><div class="seg" id="pingSeg" role="group" aria-label="Độ trễ mạng"></div></div>
       <div class="row"><label for="viewSeg">Góc nhìn</label><div class="seg" id="viewSeg" role="group" aria-label="Góc nhìn"></div></div>
@@ -438,9 +437,10 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   const ME = { id: "me", name: "Bạn", color: "#9a6a3a", design: "me", isMe: true };
   // Taps per second a bot manages (min, max) at each strength.
   const LEVELS = {
-    easy: { label: "Dễ", rate: [6.2, 7.6] },
-    mid: { label: "Vừa", rate: [8.0, 9.4] },
-    hard: { label: "Khó", rate: [9.6, 11.2] },
+    // (lowered: a thumb on a phone taps about 5 to 8 times a second)
+    easy: { label: "Dễ", rate: [4.8, 5.8] },
+    mid: { label: "Vừa", rate: [6.0, 7.0] },
+    hard: { label: "Khó", rate: [7.2, 8.2] },
     mix: { label: "Trộn", rate: null },
   };
   const PINGS = [0, 80, 150, 300, 500];
@@ -538,7 +538,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       drawRoster();
     });
     segment($("pingSeg"), PINGS.map((p) => [p, p === 0 ? "Không trễ" : p + " ms"]), settings.ping, (v) => { settings.ping = v; drawSettings(); });
-    segment($("modeSeg"), Object.entries(MODES), settings.mode, (v) => { settings.mode = v; drawSettings(); drawRoster(); });
+    // (the "Có item / Không item" choice was removed: a cup always has items)
     segment($("heroSeg"), [...HERO_IDS.map((id) => [id, HEROES[id].name]), ["chibi", "Chibi cũ"]], settings.hero, (v) => { settings.hero = v; drawSettings(); assignLooks(); drawRoster(); });
     segment($("guideSeg"), [[true, "Hiện"], [false, "Ẩn"]], settings.guide, (v) => { settings.guide = v; drawSettings(); });
     segment($("viewSeg"), [["full", "Toàn sân"], ["follow", "Theo tôi"]], settings.view, (v) => { settings.view = v; drawSettings(); });
@@ -592,6 +592,9 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   // ----- The room: up to 6 seats; friends are invited, bots are added -----
   const FRIENDS = ["Anh Tuấn", "Minh Thư", "Hoàng Nam", "Thảo Vy", "Quốc Bảo", "Ngọc Hân", "Đức Huy"];
   const SEATS = 6;
+  // Inside the MayChat app: inviting real friends comes with the next
+  // version (races between phones); until then only bots join the room.
+  const IN_APP = (() => { try { return window.parent !== window && !!window.parent.MayChatGame; } catch (e) { return false; } })();
   let invites = {};       // friend name -> "wait" | "no"
   let uid = 0;
   const pendingCount = () => Object.values(invites).filter((v) => v === "wait").length;
@@ -713,14 +716,15 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       f.addEventListener("click", () => { drawFriends(); $("friendSheet").hidden = false; });
       const b = document.createElement("button"); b.type = "button"; b.className = "mini"; b.textContent = "Thêm bot";
       b.addEventListener("click", addBot);
-      btns.append(f, b); li.appendChild(btns);
+      if (IN_APP) btns.append(b); else btns.append(f, b);
+      li.appendChild(btns);
       ul.appendChild(li);
     }
     const all = roster.every((p) => p.ready);
     const mapsOk = settings.cupMode === "random" || settings.cupMaps.length === 4;
     const ok = roster.length >= 2 && all && mapsOk && pendingCount() === 0;
     $("startBtn").disabled = !ok;
-    $("startBtn").textContent = roster.length < 2 ? "Cần ít nhất 2 người (mời bạn hoặc thêm bot)"
+    $("startBtn").textContent = roster.length < 2 ? (IN_APP ? "Cần ít nhất 2 người (thêm bot)" : "Cần ít nhất 2 người (mời bạn hoặc thêm bot)")
       : !all || pendingCount() ? "Đang chờ người vào phòng…"
       : !mapsOk ? `Chọn đủ 4 map (${settings.cupMaps.length}/4)`
       : `Bắt đầu giải (${roster.length}/${SEATS} người)`;
@@ -1145,6 +1149,9 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       if (!r.p.isMe && r.finish == null) {
         // Bot taps due in this frame (no grip while in the air).
         let guard = 0;
+        // after a pause (app hidden, a slow moment of the phone) the taps
+        // missed meanwhile are dropped, so a bot never makes up for them
+        if (t - r.nextTap > 0.25) r.nextTap = t;
         while (t >= r.nextTap && guard++ < 6) {
           if (r.air == null && t >= r.fallUntil && t >= r.spinUntil && t >= r.burnUntil && !(FX && FX.holdTap && FX.holdTap(r, t))) r.v = Math.min(VMAX, r.v + TAP);
           const fatigue = r.x > LEN * 0.6 ? r.tired : 1;
