@@ -28,6 +28,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -54,10 +55,19 @@ class GameActivity : ComponentActivity() {
         fun isNew(context: Context): Boolean =
             !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("opened", false)
 
-        fun open(context: Context) {
+        fun open(context: Context, roomId: String? = null) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("opened", true).apply()
-            context.startActivity(Intent(context, GameActivity::class.java))
+            val intent = Intent(context, GameActivity::class.java)
+            if (roomId != null) {
+                // "Vào" on an invite card: straight into that Hội thao room
+                intent.putExtra(EXTRA_ROOM, roomId)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            context.startActivity(intent)
         }
+
+        const val EXTRA_ROOM = "room"
+        private val ROOM_ID = Regex("^[0-9a-fA-F-]{36}$")
     }
 
     private var web: WebView? = null
@@ -111,7 +121,19 @@ class GameActivity : ComponentActivity() {
                 }
             }
         }
-        view.loadUrl(PAGE)
+        view.loadUrl(pageFor(intent))
+    }
+
+    private fun pageFor(intent: Intent?): String {
+        val room = intent?.getStringExtra(EXTRA_ROOM)?.takeIf { ROOM_ID.matches(it) }
+        return if (room != null) "$PAGE?room=$room" else PAGE
+    }
+
+    // The game is already open and an invite card was tapped.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val room = intent.getStringExtra(EXTRA_ROOM)?.takeIf { ROOM_ID.matches(it) } ?: return
+        web?.evaluateJavascript("window.__mc && window.__mc.joinRoom && window.__mc.joinRoom(${JSONObject.quote(room)})", null)
     }
 
     private fun hideBars() {
@@ -139,6 +161,8 @@ class GameActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // leaving the game also leaves the live channel of a Hội thao room
+        kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch { ChatRepository.leaveGameRoom() }
         web?.apply {
             removeJavascriptInterface("MayChatGame")
             destroy()
@@ -162,6 +186,12 @@ class GameActivity : ComponentActivity() {
             FarmAlarm.set(applicationContext, ms.toLongOrNull() ?: 0L)
         }
 
+        // One message to the other phones of the Hội thao room (no answer).
+        @JavascriptInterface
+        fun rtSend(message: String) {
+            ChatRepository.sendGameMessage(message)
+        }
+
         @JavascriptInterface
         fun close() {
             runOnUiThread { finish() }
@@ -173,6 +203,20 @@ class GameActivity : ComponentActivity() {
         val result = attempt {
             if (method == "profile") {
                 profile()
+            } else if (method == "friends") {
+                ChatRepository.gameFriends()
+            } else if (method == "rt_join") {
+                val room = runCatching { json.parseToJsonElement(args).jsonObject["room"]?.jsonPrimitive?.content }.getOrNull()
+                    ?.takeIf { ROOM_ID.matches(it) } ?: error("bad_room")
+                ChatRepository.joinGameRoom(room) { message ->
+                    runOnUiThread {
+                        web?.evaluateJavascript("window.__mc && window.__mc.rt && window.__mc.rt($message)", null)
+                    }
+                }
+                "true"
+            } else if (method == "rt_leave") {
+                ChatRepository.leaveGameRoom()
+                "true"
             } else {
                 val given = runCatching { json.parseToJsonElement(args).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
                 // {"name": ...} from the page -> p_name for the SQL function
@@ -194,6 +238,7 @@ class GameActivity : ComponentActivity() {
             attempt { smallPicture(ChatRepository.downloadAvatar(path)) }.getOrNull()
         }
         return buildJsonObject {
+            put("id", me)
             put("name", profile?.displayName ?: "")
             put("avatar", avatar)
         }.toString()

@@ -340,6 +340,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     <div class="card" role="dialog" aria-label="Cài đặt">
       <div class="sheet-head"><b>⚙️ Cài đặt</b><button class="mini primary" id="settingsClose" type="button">Xong</button></div>
       <div class="row"><label for="levelSeg">Sức bot</label><div class="seg" id="levelSeg" role="group" aria-label="Sức bot"></div></div>
+      <p class="note">Bot Dễ: thưởng vàng 60%. Bot Vừa: thưởng đủ.</p>
       <div class="row"><label for="pingSeg">Mạng giả lập</label><div class="seg" id="pingSeg" role="group" aria-label="Độ trễ mạng"></div></div>
       <div class="row"><label for="viewSeg">Góc nhìn</label><div class="seg" id="viewSeg" role="group" aria-label="Góc nhìn"></div></div>
       <div class="row"><label for="guideSeg">Vạch gợi ý nhảy</label><div class="seg" id="guideSeg" role="group" aria-label="Vạch gợi ý nhảy"></div></div>
@@ -438,14 +439,13 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   // Taps per second a bot manages (min, max) at each strength.
   const LEVELS = {
     // (lowered: a thumb on a phone taps about 5 to 8 times a second)
+    // only Dễ and Vừa (Khó and Trộn were removed); Dễ pays less gold in the farm
     easy: { label: "Dễ", rate: [4.8, 5.8] },
     mid: { label: "Vừa", rate: [6.0, 7.0] },
-    hard: { label: "Khó", rate: [7.2, 8.2] },
-    mix: { label: "Trộn", rate: null },
   };
   const PINGS = [0, 80, 150, 300, 500];
 
-  const settings = { bots: 5, level: "mix", ping: 150, guide: true, runRight: true, view: "full", mode: "items", laps: 5, hero: "kai", cupMode: "random", cupMaps: [] };
+  const settings = { bots: 5, level: "easy", ping: 150, guide: true, runRight: true, view: "full", mode: "items", laps: 5, hero: "kai", cupMode: "random", cupMaps: [] };
   const MODES = { items: "Có item", plain: "Không item" };
   let soundOn = true;
 
@@ -532,6 +532,10 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     });
   }
   function drawSettings() {
+    // between phones the host chooses the bots; the network is real (no "Mạng giả lập")
+    $("levelSeg").closest(".row").hidden = NET.on && !NET.host;
+    $("pingSeg").closest(".row").hidden = IN_APP;
+    if (IN_APP) settings.ping = 0;
     segment($("levelSeg"), Object.entries(LEVELS).map(([k, v]) => [k, v.label]), settings.level, (v) => {
       settings.level = v; drawSettings();
       roster.filter((p) => p.kind === "bot").forEach((p, i) => Object.assign(p, botRate(i)));
@@ -551,9 +555,11 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   // The 4 maps of the cup: drawn at random at the start, or picked in order.
   let noteMap = null;
   function drawCup() {
+    $("cupSeg").closest(".row").hidden = NET.on && !NET.host;
+    $("mapNote").hidden = NET.on && !NET.host;
     segment($("cupSeg"), [["random", "Ngẫu nhiên 4 map"], ["pick", "Tự chọn"]], settings.cupMode, (v) => { settings.cupMode = v; drawCup(); drawRoster(); });
     const box = $("mapPick");
-    box.hidden = settings.cupMode !== "pick";
+    box.hidden = settings.cupMode !== "pick" || (NET.on && !NET.host);
     box.innerHTML = "";
     MAP_IDS.forEach((id) => {
       const at = settings.cupMaps.indexOf(id);
@@ -584,7 +590,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   }
 
   function botRate(i) {
-    const lv = settings.level === "mix" ? ["easy", "mid", "mid", "hard", "hard"][i % 5] : settings.level;
+    const lv = LEVELS[settings.level] ? settings.level : "easy";
     const [a, b] = LEVELS[lv].rate;
     return { level: lv, rate: rnd(a, b) };
   }
@@ -604,14 +610,20 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   // characters left (bots are named after their character).
   function assignLooks() {
     if (!roster.length) return;
+    // a guest's look is chosen by the host: just tell it which character I want
+    if (NET.on && !NET.host) { netSend({ k: "hello", name: NET.myName, hero: settings.hero }); return; }
     const me = roster[0];
     const hero = HEROES[settings.hero] ? settings.hero : null;
     me.design = hero || ME.design; me.color = hero ? HEROES[hero].color : ME.color;
     const free = hero ? HERO_IDS.filter((id) => id !== hero) : [];
     const used = {};
+    const taken = new Set(hero ? [hero] : []);
     roster.slice(1).forEach((p, i) => {
       if (hero) {
-        const id = free[i % free.length];
+        // a friend gets the character they chose when it is still free
+        const id = p.kind === "friend" && HEROES[p.hero] && !taken.has(p.hero) ? p.hero
+          : free.find((x) => !taken.has(x)) || free[i % free.length];
+        taken.add(id);
         used[id] = (used[id] || 0) + 1;
         p.design = id; p.color = HEROES[id].color;
         if (p.kind === "bot") p.name = HEROES[id].name + (used[id] > 1 ? " " + used[id] : "");
@@ -659,6 +671,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   }
 
   function kick(p) {
+    if (NET.on && p.uid) { NET.kicked[p.uid] = true; netSend({ k: "kick", uid: p.uid }); }
     roster = roster.filter((q) => q !== p);
     assignLooks(); drawRoster(); drawFriends();
   }
@@ -687,12 +700,12 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     roster.forEach((p) => {
       const li = document.createElement("li");
       if (p.isMe) li.className = "me";
-      const tag = p.isMe ? "Chủ phòng"
-        : p.kind === "friend" ? "Bạn bè"
+      const tag = p.isMe ? (NET.on && !NET.host ? "Bạn" : "Chủ phòng")
+        : p.kind === "friend" ? (NET.on && p.uid === NET.hostUid ? "Chủ phòng" : "Bạn bè")
         : `Bot · ${LEVELS[p.level].label} · ~${p.rate.toFixed(1)} lần gõ/giây`;
       li.innerHTML = `<span class="pname">${p.name}<small>${tag}</small></span>
         <span class="state ${p.ready ? "ready" : "joining"}">${p.ready ? "Sẵn sàng" : "đang vào…"}</span>`;
-      if (!p.isMe) {
+      if (!p.isMe && !(NET.on && !NET.host)) {
         const k = document.createElement("button");
         k.type = "button"; k.className = "kick"; k.textContent = "✕";
         k.setAttribute("aria-label", "Mời " + p.name + " ra khỏi phòng");
@@ -713,10 +726,11 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       li.innerHTML = `<span class="seat">+</span><span class="pname">Chỗ trống</span>`;
       const btns = document.createElement("span"); btns.className = "seat-btns";
       const f = document.createElement("button"); f.type = "button"; f.className = "mini primary"; f.textContent = "Mời bạn bè";
-      f.addEventListener("click", () => { drawFriends(); $("friendSheet").hidden = false; });
+      f.addEventListener("click", () => { if (NET.on) { openFriendsOnline(); return; } drawFriends(); $("friendSheet").hidden = false; });
       const b = document.createElement("button"); b.type = "button"; b.className = "mini"; b.textContent = "Thêm bot";
       b.addEventListener("click", addBot);
-      if (IN_APP) btns.append(b); else btns.append(f, b);
+      if (NET.on && !NET.host) { /* a guest: the host fills the seats */ }
+      else if (IN_APP && !NET.on) btns.append(b); else btns.append(f, b);
       li.appendChild(btns);
       ul.appendChild(li);
     }
@@ -729,6 +743,8 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       : !mapsOk ? `Chọn đủ 4 map (${settings.cupMaps.length}/4)`
       : `Bắt đầu giải (${roster.length}/${SEATS} người)`;
     $("pbLobby").innerHTML = `Kỷ lục 5 vòng của bạn: <b>${fmt(bestTime())}</b>`;
+    if (NET.on && !NET.host) { $("startBtn").disabled = true; $("startBtn").textContent = "Chờ chủ phòng bắt đầu…"; }
+    if (NET.on && NET.host) sendRosterSoon();
   }
 
   // ------------------------------------------------------------------
@@ -775,15 +791,25 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     const me = runners[0];
     me.lane = 5;
     runners.slice(1).forEach((r, i) => { r.lane = i; });
+    // Between phones: this phone runs me (and the bots, on the host's
+    // phone); the others come over the network.
+    runners.forEach((r) => { r.remote = NET.on && !(r.p.isMe || (NET.host && r.p.kind === "bot")); });
+    let plan = null;
+    if (NET.on && NET.host) {
+      plan = { i: cup.index, map: cup.maps[cup.index], seed: Math.floor(Math.random() * 2147483647), goAt: serverNow() + 5200 };
+      netSend({ k: "start", ...plan, maps: cup.maps, list: pubRoster(cup.players), level: settings.level });
+    } else if (NET.on && NET.start && NET.start.i === cup.index) plan = NET.start;
+    NET.sendAt = -1;
     LEN = raceLength();
     race = {
       runners, me, phase: "count", t0: performance.now(), goAt: null, clock: 0,
       finishedOrder: [], endAt: null, photo: false,
       boxes: itemsOn() ? makeBoxes() : [], obstacles: [],
-      map: cup.maps[cup.index],
+      map: plan && MAPS[plan.map] ? plan.map : cup.maps[cup.index],
     };
     // map effects (ice, snowballs, chocolate, springs), all from one seed
-    race.seed = Math.floor(Math.random() * 2147483647);
+    // (between phones: the host's seed, so every phone has the same map)
+    race.seed = plan ? plan.seed : Math.floor(Math.random() * 2147483647);
     race.fx = {};
     if (MAPS[race.map].fx) MAPS[race.map].fx.init(race.fx, seeded(race.seed));
     $("iceMark").hidden = race.map !== "snow";
@@ -798,17 +824,18 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     $("pingTag").textContent = settings.ping ? `Mạng ${settings.ping} ms` : "";
     const thisRace = race;
     const count = (n) => () => { if (race === thisRace && race.phase === "count") { setCall(String(n), "count"); beep(n === 1 ? 660 : 520, 0.14); buzz(30); } };
-    race.timers = [
-      setTimeout(count(3), 1700),
-      setTimeout(count(2), 2700),
-      setTimeout(count(1), 3700),
-      setTimeout(() => { if (race === thisRace && race.phase === "count") go(); }, 4700),
-    ];
+    // Between phones every phone says CHẠY! at the same moment (the
+    // server's clock); alone: 4.7 seconds from now as before.
+    const total = plan ? Math.max(600, plan.goAt - serverNow()) : 4700;
+    if (plan) race.goPlan = performance.now() + total;
+    race.timers = [];
+    [[3, total - 3000], [2, total - 2000], [1, total - 1000]].forEach(([n, ms]) => { if (ms >= 0) race.timers.push(setTimeout(count(n), ms)); });
+    race.timers.push(setTimeout(() => { if (race === thisRace && race.phase === "count") go(); }, total));
   }
 
   function go() {
     race.phase = "go";
-    race.goAt = performance.now();
+    race.goAt = race.goPlan || performance.now();
     setCall("CHẠY!", "hot");
     gun(); buzz(60);
     setTimeout(() => { if (race && race.phase === "go") setCall("", ""); }, 700);
@@ -816,7 +843,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (FX) setTimeout(() => { if (race && race.phase === "go") feed(MAPS[race.map].name + ": " + FX.start, false); }, 800);
     // Bots react 0.12–0.28 s after the gun, then tap at their own pace.
     race.runners.forEach((r) => {
-      if (r.p.isMe) return;
+      if (r.p.isMe || r.remote) return;
       r.nextTap = rnd(0.12, 0.28);
     });
   }
@@ -966,8 +993,9 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (r.item === "lightning") {
       r.item = null;
       r.thrown++;
+      if (NET.on) netSend({ k: "zap", i: cup.index, by: r.p.id, t });
       race.runners.forEach((v) => {
-        if (v === r || v.dq || v.finish != null) return;
+        if (v === r || v.dq || v.finish != null || v.remote) return;
         // a bot's lightning reaches my phone after the network delay
         const delay = v.p.isMe && !r.p.isMe ? settings.ping / 1000 : 0;
         v.strikes.push(t + delay);
@@ -983,10 +1011,12 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     const kind = r.item;
     r.item = null;
     r.thrown++;
-    const spot = Math.min(LEN - 1, target.x + rnd(5, 7));
+    // (a runner of another phone is seen a little late: aim a bit further)
+    const spot = Math.min(LEN - 1, target.x + (target.remote ? target.v * NET_LAG : 0) + rnd(5, 7));
     // A bot throwing at me: my phone hears of it only after the network delay.
     const delay = !r.p.isMe && target.p.isMe ? settings.ping / 1000 : 0;
     race.obstacles.push({ kind, lane: target.lane, x: spot, made: t, live: t + delay, by: r, target, used: false, passed: false });
+    if (NET.on) netSend({ k: "throw", i: cup.index, by: r.p.id, target: target.p.id, kind, x: spot, made: t });
     feed(`${r.p.isMe ? "Bạn" : r.p.name} ném ${ITEMS[kind].name} vào ${target.p.isMe ? "Bạn" : target.p.name}!`, target.p.isMe);
     if (r.p.isMe) { beep(520, 0.1, "square", 0.06); drawItemPad(); }
     if (target.p.isMe) { beep(300, 0.15, "triangle", 0.08); buzz(40); }
@@ -1053,6 +1083,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
         // opened: a burst of light here, and the box comes back a few
         // seconds later at another random spot of the same part of the lap
         b.burstAt = t; b.burstM = b.m;
+        if (NET.on) netSend({ k: "pick", i: cup.index, id: r.p.id, m: b.m });
         b.back = t + BOX_RESPAWN;
         b.m = boxSpot(b.part, race.boxes.filter((o) => o !== b && o.lane === b.lane).map((o) => o.m));
         if (r.p.isMe) { beep(1200, 0.08, "triangle", 0.07); beep(1600, 0.1, "triangle", 0.05); drawItemPad(); hint("Nhặt được " + ITEMS[r.item].name + "! Bấm ITEM để " + (ITEMS[r.item].self ? "dùng" : "ném"), false); }
@@ -1146,6 +1177,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     race.clock = t;
     const FX = MAPS[race.map].fx;
     race.runners.forEach((r) => {
+      if (r.remote) return;   // run by its own phone, seen through the network
       if (!r.p.isMe && r.finish == null) {
         // Bot taps due in this frame (no grip while in the air).
         let guard = 0;
@@ -1202,11 +1234,13 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       }
     });
 
+    if (NET.on) netTick(t);
     // Everyone finished (or out), or 25 s passed: the race is over.
     const running = race.runners.filter((r) => !r.dq && r.finish == null);
     // Old obstacles disappear after a while.
     race.obstacles = race.obstacles.filter((o) => t - o.made < OBSTACLE_LIFE || (o.hitAt && t - o.hitAt < 1));
-    if (!race.endAt && (running.length === 0 || t > 12 + settings.laps * 12)) {
+    // (between phones only the host ends the race; the others get its result)
+    if (!race.endAt && (!NET.on || NET.host) && (running.length === 0 || t > 12 + settings.laps * 12)) {
       race.endAt = now;
       const [a, b] = race.finishedOrder;
       race.photo = a && b && b.finish - a.finish < 0.06;
@@ -1230,10 +1264,10 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   // in the past, smoothly in between. The jump itself is sent as the time
   // of take-off, so the arc is drawn smoothly from it.
   function shownState(r, t) {
-    if (r.p.isMe || settings.ping === 0) return { x: r.x, h: airHeight(r, t), f: fallAt(r, t), sp: spinAt(r, t), at: t };
+    if (r.p.isMe || (settings.ping === 0 && !r.remote)) return { x: r.x, h: airHeight(r, t), f: fallAt(r, t), sp: spinAt(r, t), at: t };
     const arrived = r.sent.filter((s) => s.arrive <= t);
     if (arrived.length === 0) return { x: 0, h: 0, f: 0, at: -1 };
-    const at = renderTime(t);
+    const at = r.remote ? t - NET_LAG : renderTime(t);
     for (let i = arrived.length - 1; i > 0; i--) {
       const a = arrived[i - 1], b = arrived[i];
       if (a.at <= at && at <= b.at) {
@@ -3100,6 +3134,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (!race) return;
     const r = race;
     race.phase = "done";
+    if (NET.on && NET.host) netSend({ k: "result", i: cup.index, rows: r.runners.map((x) => ({ id: x.p.id, f: x.finish, x: x.x, th: x.thrown, hi: x.hits })) });
     // Place on this map: those who finished by time, then the others by
     // how far they got when the time ran out.
     const order = r.runners.slice().sort((a, b) => {
@@ -3158,6 +3193,10 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     const label = () => last ? `Xem trao giải 🏆 (${left})` : `Map ${cup.index + 2}: ${MAPS[cup.maps[cup.index + 1]].name} (${left})`;
     $("nextBtn").textContent = label();
     clearInterval(nextTimer);
+    const guest = NET.on && !NET.host;
+    $("nextBtn").disabled = guest;
+    $("lobbyBtn").hidden = guest;
+    if (guest) { $("nextBtn").textContent = last ? "Chờ trao giải…" : "Chờ chủ phòng…"; return; }
     nextTimer = setInterval(() => {
       left--;
       if (left <= 0) { clearInterval(nextTimer); nextMap(); } else $("nextBtn").textContent = label();
@@ -3167,7 +3206,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   function nextMap() {
     clearInterval(nextTimer);
     if (!cup) return;
-    if (cup.index >= cup.maps.length - 1) { showFinal(); return; }
+    if (cup.index >= cup.maps.length - 1) { if (NET.on && NET.host) netFinal(); else showFinal(); return; }
     cup.index++;
     startRace();
   }
@@ -3199,15 +3238,335 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     $("chatCard").innerHTML = `<span>🏆 Giải Hội thao 4 map · Phòng ${$("roomCode").textContent}</span><span>${top}</span>` +
       `<span>${myPlace === 1 ? "<b>Bạn vô địch!</b>" : `Bạn về hạng <b>${myPlace}/${order.length}</b>`} với ${cupTotal(me)} điểm (${cup.maps.map((m) => MAPS[m].name).join(", ")}).</span><span class="act">Xem bảng điểm</span>`;
     show("final");
-    // When opened inside the farm, hand the result over (gold is paid there).
+    // When opened inside the farm, hand the result over (gold is paid there;
+    // for a room between phones the server pays from the host's places).
     try {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: "hoithao-cup", place: myPlace, players: order.length,
-          friends: cup.players.filter((p) => p.kind === "friend").length, points: cupTotal(me) }, "*");
+          friends: cup.players.filter((p) => p.kind === "friend").length, points: cupTotal(me), level: settings.level,
+          room: NET.on ? NET.room : null }, "*");
       }
     } catch (e) {}
+    $("againBtn").hidden = NET.on && !NET.host;
     // a little fanfare
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.18, "triangle", 0.07), i * 150));
+  }
+
+
+  // ------------------------------------------------------------------
+  // Inside MayChat: a room between phones (version 0.36.0)
+  // The room is kept on the server (who is in it, the final places); the
+  // race goes phone to phone through a live channel of the app:
+  //   - the host (who made the room) decides who is in it, runs the bots,
+  //     starts the cup and every map, and sends the result of each map;
+  //   - every phone runs its own runner and sends where it is 4 times a
+  //     second; the others are drawn a little late, smoothly in between;
+  //   - items thrown at a runner of another phone are sent to that phone,
+  //     which decides whether it was jumped in time.
+  // ------------------------------------------------------------------
+  const NET = { on: false, host: false, room: null, code: "", me: null, myName: "", hostUid: null,
+    heard: {}, invited: {}, kicked: {}, friends: null, lastHost: 0, timer: null, sendAt: -1, start: null };
+  const EVK = ["jumps", "falls", "spins", "burns", "bolts", "boosts", "shields", "bigJumps"];
+  const NET_LAG = 0.3;   // seconds the runners of other phones are drawn late
+  const mc = () => window.parent.__mc;
+  const netApi = (method, args) => mc().api(method, args);
+  const serverNow = () => { try { return mc().serverNow(); } catch (e) { return Date.now(); } };
+  function netSend(msg) {
+    if (!NET.on) return;
+    msg.from = NET.me;
+    try { window.parent.MayChatGame.rtSend(JSON.stringify(msg)); } catch (e) {}
+  }
+  const byId = (id) => (race ? race.runners.find((r) => r.p.id === id) : null);
+  const NET_ERR = {
+    room_closed: "Phòng đã đóng", room_racing: "Phòng đang đấu, chờ giải sau nhé", room_full: "Phòng đã đủ 6 người",
+    not_friend: "Chỉ bạn bè của chủ phòng mới vào được", no_room: "Không tìm thấy phòng", not_host: "Chỉ chủ phòng làm được việc này",
+    own_room: "Đây là phòng của chính bạn",
+  };
+  const netErr = (e) => { const m = String((e && e.message) || ""); for (const k in NET_ERR) if (m.includes(k)) return NET_ERR[k]; return "Không kết nối được máy chủ"; };
+  function netToast(text) {
+    let el = $("netToast");
+    if (!el) {
+      el = document.createElement("div"); el.id = "netToast";
+      el.style.cssText = "position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:60;max-width:86%;background:#fff8ec;border:2px solid #8b5a2b;border-radius:12px;padding:6px 12px;font:800 13px/1.35 var(--body);color:#4a2f1a;text-align:center;box-shadow:0 3px 0 rgba(90,58,34,.35)";
+      document.body.appendChild(el);
+    }
+    el.textContent = text; el.hidden = false;
+    clearTimeout(netToast.t); netToast.t = setTimeout(() => { el.hidden = true; }, 3400);
+  }
+
+  // the room as sent to the other phones
+  const pubRoster = (list) => (list || roster).map((p) => ({
+    id: p.id, kind: p.kind === "bot" ? "bot" : "human", uid: p.uid || null, name: p.isMe ? NET.myName : p.name,
+    design: p.design, color: p.color, level: p.level || null, rate: p.rate || null, ready: !!p.ready, hero: p.hero || null,
+  }));
+  function fromPub(p) {
+    const me = p.uid === NET.me;
+    return { id: String(p.id), uid: p.uid, kind: me ? "me" : p.kind === "bot" ? "bot" : "friend", isMe: me,
+      name: me ? "Bạn" : String(p.name || "Bạn bè").slice(0, 24), design: p.design, color: p.color,
+      level: LEVELS[p.level] ? p.level : "easy", rate: Number(p.rate) || 6, ready: p.ready !== false, hero: p.hero };
+  }
+  const meFirst = (list) => { const mine = list.find((p) => p.uid === NET.me); return mine ? [mine, ...list.filter((p) => p !== mine)] : null; };
+  // (alone with bots nothing is sent: it would only use up the free quota)
+  const hasFriends = (list) => (list || roster).some((p) => p.kind === "friend");
+  function sendRoster() { if (NET.on && NET.host && hasFriends()) netSend({ k: "roster", list: pubRoster(), level: settings.level, code: NET.code, cup: !!cup }); }
+  let rosterSoon = 0;
+  function sendRosterSoon() { clearTimeout(rosterSoon); rosterSoon = setTimeout(sendRoster, 250); }
+
+  function whoAmI() {
+    const pr = (mc() && mc().profile) || {};
+    NET.me = pr.id || null; NET.myName = pr.name || "Bạn";
+    if (!NET.me) throw new Error("no_profile");
+  }
+
+  // ----- the host -----
+  async function netCreate() {
+    whoAmI();
+    const room = await netApi("hoithao_create", { level: settings.level });
+    await netApi("rt_join", { room: room.id });
+    Object.assign(NET, { on: true, host: true, room: room.id, code: room.code, hostUid: NET.me, heard: {}, invited: {}, kicked: {}, start: null });
+    roster[0].id = "u:" + NET.me; roster[0].uid = NET.me;
+    $("roomCode").textContent = "#" + room.code;
+    netLoop(); drawSettings(); drawCup(); drawRoster(); sendRoster();
+  }
+  function onHello(m) {
+    if (NET.kicked[m.from]) return;
+    NET.heard[m.from] = Date.now();
+    let p = roster.find((q) => q.uid === m.from);
+    if (!p) {
+      if (cup || seatsLeft() <= 0) return;
+      p = { id: "u:" + m.from, uid: m.from, kind: "friend", isMe: false, ready: true, name: String(m.name || "Bạn bè").slice(0, 24), level: "mid", rate: 7 };
+      roster.push(p);
+      delete NET.invited[m.from];
+      netToast(p.name + " đã vào phòng");
+      beep(880, 0.1, "triangle", 0.06);
+    }
+    const hero = HEROES[m.hero] ? m.hero : null;
+    if (p.hero !== hero || !p.design) { p.hero = hero; assignLooks(); }
+    if (!cup) drawRoster();
+    if (!$("friendSheet").hidden && NET.friends) drawFriendsOnline();
+    sendRoster();
+  }
+  // the end of the cup: the server learns the places first, then the others are told
+  function netFinal() {
+    const order = cupOrder();
+    const humans = order.filter((p) => p.uid);
+    const tell = () => { netSend({ k: "final" }); showFinal(); };
+    netApi("hoithao_finish", { room: NET.room, places: humans.map((p) => ({ uid: p.uid, place: order.indexOf(p) + 1 })), players: order.length })
+      .then(tell, tell);
+  }
+
+  // ----- a friend (guest) -----
+  async function netJoin(roomId) {
+    try {
+      whoAmI();
+      const room = await netApi("hoithao_join", { room: roomId });
+      await netApi("rt_join", { room: room.id });
+      Object.assign(NET, { on: true, host: false, room: room.id, code: room.code, hostUid: room.host, lastHost: Date.now(), start: null });
+      if (LEVELS[room.level]) settings.level = room.level;
+      clearInterval(nextTimer); cup = null; race = null;
+      roster = [{ ...ME, kind: "me", id: "u:" + NET.me, uid: NET.me, ready: true }];
+      invites = {};
+      $("roomCode").textContent = "#" + room.code;
+      show("lobby"); drawSettings(); drawCup(); drawRoster();
+      netSend({ k: "hello", name: NET.myName, hero: settings.hero });
+      netLoop();
+      netToast(`Đã vào phòng của ${room.host_name || "bạn bè"}, chờ chủ phòng bắt đầu`);
+    } catch (e) {
+      netToast(netErr(e));
+      if (!NET.on) { show("home"); drawHome(); }
+    }
+  }
+  function onRoster(m) {
+    const list = meFirst(m.list || []);
+    if (!list) { if (!cup) netLeave("Bạn đã ra khỏi phòng"); return; }
+    if (LEVELS[m.level]) settings.level = m.level;
+    if (cup) return;   // during a cup the players stay as at its start
+    roster = list.map(fromPub);
+    drawRoster();
+  }
+  function onStart(m) {
+    if (!MAPS[m.map]) return;
+    if (m.i === 0 || !cup) {
+      const list = meFirst(m.list || []);
+      if (!list) return;
+      roster = list.map(fromPub);
+      if (LEVELS[m.level]) settings.level = m.level;
+      cup = { maps: (m.maps || []).filter((id) => MAPS[id]), index: 0, players: roster.slice(), rows: [], pts: {}, wins: {}, seconds: {}, time: {} };
+      roster.forEach((p) => { cup.pts[p.id] = []; cup.wins[p.id] = 0; cup.seconds[p.id] = 0; cup.time[p.id] = 0; });
+    }
+    clearInterval(nextTimer);
+    if (race && race.timers) race.timers.forEach(clearTimeout);
+    NET.start = m;
+    cup.index = m.i;
+    $("settingsSheet").hidden = true; $("friendSheet").hidden = true;
+    startRace();
+  }
+  function onResult(m) {
+    if (!race || !cup || m.i !== cup.index || race.phase === "done") return;
+    (m.rows || []).forEach((row) => {
+      const r = byId(row.id);
+      if (!r) return;
+      r.finish = row.f == null ? null : Number(row.f); r.x = Number(row.x) || 0; r.thrown = row.th || 0; r.hits = row.hi || 0;
+    });
+    finishRace();
+  }
+
+  // ----- both -----
+  function netTick(t) {
+    if (t - NET.sendAt < 0.25 || !hasFriends(cup.players)) return;
+    NET.sendAt = t;
+    const list = race.runners.filter((r) => !r.remote).map((r) => {
+      const ev = {};
+      r._ev = r._ev || {};
+      EVK.forEach((k) => { const a = r[k] || [], n = r._ev[k] || 0; if (a.length > n) { ev[k] = a.slice(n); r._ev[k] = a.length; } });
+      return { id: r.p.id, t: +t.toFixed(3), x: +r.x.toFixed(2), v: +r.v.toFixed(2), f: r.finish, th: r.thrown, hi: r.hits, ev };
+    });
+    netSend({ k: "pos", i: cup.index, list });
+  }
+  function onPos(m) {
+    if (!race || !cup || m.i !== cup.index) return;
+    const t = raceTime();
+    (m.list || []).forEach((s) => {
+      const r = byId(s.id);
+      if (!r || !r.remote) return;
+      r.x = Number(s.x) || 0; r.v = Number(s.v) || 0;
+      r.sent.push({ at: Number(s.t) || 0, x: r.x, h: 0, arrive: t });
+      if (r.sent.length > 80) r.sent.shift();
+      if (s.ev) EVK.forEach((k) => { if (Array.isArray(s.ev[k])) r[k] = (r[k] || []).concat(s.ev[k].map(Number)); });
+      if (s.f != null && r.finish == null && race.phase === "go") { r.finish = Number(s.f); race.finishedOrder.push(r); }
+      r.thrown = s.th || 0; r.hits = s.hi || 0;
+    });
+  }
+  function onThrow(m) {
+    if (!race || !cup || m.i !== cup.index || !ITEMS[m.kind]) return;
+    const by = byId(m.by), target = byId(m.target);
+    if (!by || !target) return;
+    const made = Number(m.made) || raceTime();
+    race.obstacles.push({ kind: m.kind, lane: target.lane, x: Number(m.x) || 0, made, live: made, by, target, used: false, passed: false });
+    feed(`${by.p.isMe ? "Bạn" : by.p.name} ném ${ITEMS[m.kind].name} vào ${target.p.isMe ? "Bạn" : target.p.name}!`, target.p.isMe);
+    if (target.p.isMe) { beep(300, 0.15, "triangle", 0.08); buzz(40); }
+  }
+  function onZap(m) {
+    if (!race || !cup || m.i !== cup.index) return;
+    const by = byId(m.by);
+    if (!by) return;
+    const at = Math.max(raceTime(), Number(m.t) || 0);
+    race.runners.forEach((v) => { if (v === by || v.remote || v.dq || v.finish != null) return; v.strikes.push(at); });
+    feed(`${by.p.name} gọi sấm sét đánh tất cả!`, true);
+  }
+  function onPick(m) {
+    if (!race || !cup || m.i !== cup.index) return;
+    const r = byId(m.id);
+    if (!r || !r.remote) return;
+    const t = raceTime();
+    const b = race.boxes.filter((o) => o.lane === r.lane).sort((a, c) => Math.abs(a.m - m.m) - Math.abs(c.m - m.m))[0];
+    if (!b || t < b.back) return;
+    b.burstAt = t; b.burstM = b.m; b.back = t + BOX_RESPAWN;
+    b.m = boxSpot(b.part, race.boxes.filter((o) => o !== b && o.lane === b.lane).map((o) => o.m));
+  }
+  window.__net = (m) => {
+    if (!NET.on || !m || !m.from || m.from === NET.me) return;
+    const fromHost = m.from === NET.hostUid;
+    if (fromHost) NET.lastHost = Date.now();
+    else if (NET.host) NET.heard[m.from] = Date.now();
+    switch (m.k) {
+      case "hello": if (NET.host) onHello(m); break;
+      case "bye":
+        if (NET.host) { roster = roster.filter((p) => p.uid !== m.from); if (!cup) { assignLooks(); drawRoster(); } sendRoster(); }
+        break;
+      case "roster": if (!NET.host && fromHost) onRoster(m); break;
+      case "closed": if (!NET.host && fromHost) netLeave("Chủ phòng đã đóng phòng"); break;
+      case "kick": if (!NET.host && fromHost && m.uid === NET.me) netLeave("Chủ phòng đã mời bạn ra khỏi phòng"); break;
+      case "start": if (!NET.host && fromHost) onStart(m); break;
+      case "result": if (!NET.host && fromHost) onResult(m); break;
+      case "final": if (!NET.host && fromHost && cup) showFinal(); break;
+      case "pos": onPos(m); break;
+      case "throw": onThrow(m); break;
+      case "zap": onZap(m); break;
+      case "pick": onPick(m); break;
+    }
+  };
+  // every 3 seconds: the host tells who is in the room and drops who is
+  // gone; a friend says it is still there and notices a host that is gone
+  function netLoop() {
+    clearInterval(NET.timer);
+    NET.timer = setInterval(() => {
+      if (!NET.on) return;
+      const now = Date.now();
+      if (NET.host) {
+        if (!cup) {
+          const gone = roster.filter((p) => p.kind === "friend" && now - (NET.heard[p.uid] || now) > 12000);
+          if (gone.length) { roster = roster.filter((p) => !gone.includes(p)); assignLooks(); drawRoster(); }
+        }
+        sendRoster();
+      } else {
+        if (!cup) netSend({ k: "hello", name: NET.myName, hero: settings.hero });
+        if (now - NET.lastHost > 25000) netLeave("Mất kết nối với chủ phòng");
+      }
+    }, 3000);
+  }
+  function netLeave(text) {
+    if (!NET.on) return;
+    netSend(NET.host ? { k: "closed" } : { k: "bye" });
+    const room = NET.room;
+    if (room) netApi("hoithao_leave", { room }).catch(() => {});
+    netApi("rt_leave", {}).catch(() => {});
+    clearInterval(NET.timer); clearInterval(nextTimer);
+    if (race && race.timers) race.timers.forEach(clearTimeout);
+    Object.assign(NET, { on: false, host: false, room: null, start: null });
+    cup = null; race = null; roster = []; invites = {};
+    $("settingsSheet").hidden = true; $("friendSheet").hidden = true;
+    $("againBtn").hidden = false; $("lobbyBtn").hidden = false; $("nextBtn").disabled = false;
+    show("home"); drawSettings(); drawCup(); drawHome();
+    if (text) netToast(text);
+  }
+  window.__joinRoom = (id) => {
+    if (NET.on && NET.room === id) return;   // already in that room
+    if (NET.on) netLeave(null);
+    netJoin(id);
+  };
+
+  // ----- inviting real friends (the host) -----
+  async function openFriendsOnline() {
+    $("friendSheet").hidden = false;
+    $("friendSheet").querySelector(".note").textContent = "Lời mời được gửi thành tin nhắn có nút Vào. Bạn bè bấm Vào là vào phòng này (cần mở MayChat bản mới).";
+    if (!NET.friends) {
+      $("seatLeft").textContent = "";
+      $("friendList").innerHTML = "<li><span class=\"pname\">Đang tải danh sách bạn bè…</span></li>";
+      try { NET.friends = await netApi("friends", {}); } catch (e) {
+        $("friendList").innerHTML = `<li><span class="pname">${netErr(e)}</span></li>`;
+        return;
+      }
+    }
+    drawFriendsOnline();
+  }
+  function drawFriendsOnline() {
+    const ul = $("friendList"); ul.innerHTML = "";
+    $("seatLeft").textContent = `Còn ${Math.max(0, seatsLeft())} chỗ trống trong phòng.`;
+    if (!NET.friends || !NET.friends.length) { ul.innerHTML = "<li><span class=\"pname\">Bạn chưa có bạn bè nào trong MayChat.</span></li>"; return; }
+    NET.friends.forEach((f, i) => {
+      const li = document.createElement("li");
+      const inRoom = roster.some((p) => p.uid === f.id);
+      const st = NET.invited[f.id];
+      const name = String(f.name || "Bạn bè");
+      li.innerHTML = `<span class="pname"></span><span></span>`;
+      li.querySelector(".pname").innerHTML = `<b></b><small>${inRoom ? "Đã vào phòng" : st === "sent" ? "Đã gửi lời mời qua tin nhắn" : f.online ? "Đang trực tuyến" : "Không trực tuyến"}</small>`;
+      li.querySelector(".pname b").textContent = name;
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "mini" + (inRoom || st ? "" : " primary");
+      btn.textContent = inRoom ? "Đã vào" : st === "sending" ? "Đang gửi…" : st === "sent" ? "Mời lại" : "Mời";
+      btn.disabled = inRoom || st === "sending" || seatsLeft() <= 0;
+      btn.addEventListener("click", () => {
+        NET.invited[f.id] = "sending"; drawFriendsOnline();
+        netApi("hoithao_invite", { room: NET.room, friend: f.id })
+          .then(() => { NET.invited[f.id] = "sent"; netToast("Đã gửi lời mời cho " + name); },
+                (e) => { delete NET.invited[f.id]; netToast(netErr(e)); })
+          .finally(() => { if (!$("friendSheet").hidden) drawFriendsOnline(); });
+      });
+      li.appendChild(btn);
+      li.prepend(portrait({ color: FAN_COLORS[i % FAN_COLORS.length], design: BOT_POOL[i % BOT_POOL.length].design }, 40));
+      ul.appendChild(li);
+    });
   }
 
   // ------------------------------------------------------------------
@@ -3257,21 +3616,37 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   });
   document.addEventListener("keyup", () => { ["padRun", "padJump", "padItem"].forEach((id) => $(id).classList.remove("down")); });
 
-  $("createBtn").addEventListener("click", () => { ensureAudio(); makeRoom(); drawSettings(); show("lobby"); });
-  $("leaveBtn").addEventListener("click", () => { joinTimers.forEach(clearTimeout); roster = []; invites = {}; show("home"); drawHome(); });
+  $("createBtn").addEventListener("click", () => {
+    ensureAudio(); makeRoom(); drawSettings(); show("lobby");
+    // in the app the room is made on the server, so friends can be invited
+    if (IN_APP) netCreate().catch((e) => netToast(netErr(e) + ". Phòng này chỉ đấu với bot."));
+  });
+  $("leaveBtn").addEventListener("click", () => {
+    if (NET.on) { netLeave(null); return; }
+    joinTimers.forEach(clearTimeout); roster = []; invites = {}; show("home"); drawHome();
+  });
   $("settingsBtn").addEventListener("click", () => { $("settingsSheet").hidden = false; });
   $("settingsClose").addEventListener("click", () => { $("settingsSheet").hidden = true; });
   $("friendClose").addEventListener("click", () => { $("friendSheet").hidden = true; });
   ["settingsSheet", "friendSheet"].forEach((id) => $(id).addEventListener("click", (e) => { if (e.target.id === id) $(id).hidden = true; }));
-  $("startBtn").addEventListener("click", startCup);
+  $("startBtn").addEventListener("click", () => {
+    if (NET.on && !NET.host) return;
+    if (!NET.on) { startCup(); return; }
+    // between phones: tell the server first (nobody new can join during the cup)
+    $("startBtn").disabled = true;
+    netApi("hoithao_start", { room: NET.room, level: settings.level })
+      .then(() => startCup(), (e) => { netToast(netErr(e)); drawRoster(); });
+  });
   $("nextBtn").addEventListener("click", nextMap);
   const backToRoom = () => { clearInterval(nextTimer); cup = null; race = null; show("lobby"); drawRoster(); };
   $("lobbyBtn").addEventListener("click", backToRoom);
   $("finalLobbyBtn").addEventListener("click", backToRoom);
   $("againBtn").addEventListener("click", () => {
+    if (NET.on && !NET.host) return;
     // A new cup, same room; the bots are a little different each time.
     roster.filter((p) => p.kind === "bot").forEach((p, i) => Object.assign(p, botRate(i)));
-    startCup();
+    if (!NET.on) { startCup(); return; }
+    netApi("hoithao_start", { room: NET.room, level: settings.level }).then(() => startCup(), (e) => netToast(netErr(e)));
   });
   function drawHome() {
     const row = $("homeFaces"); row.innerHTML = "";
@@ -3287,6 +3662,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   placePads();
   drawHome();
   show("home");
+  { const q = new URLSearchParams(location.search).get("room"); if (IN_APP && q) netJoin(q); }
   if (document.fonts && document.fonts.load) document.fonts.load("800 8px 'Baloo 2'").catch(() => {});
   requestAnimationFrame(frame);
 })();

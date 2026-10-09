@@ -1960,6 +1960,17 @@ internal fun MessageBubble(
                     )
                 }
 
+                // An invite to a Hội thao room (the farm game): "Vào" joins it.
+                message.kind == "game" -> Surface(color = bubbleColor, shape = bubbleShape, border = outline) {
+                    com.maychat.app.game.GameInviteCard(
+                        text = message.text,
+                        roomId = message.extra,
+                        mine = message.mine,
+                        textColor = textColor,
+                        onLongPress = openMenu,
+                    )
+                }
+
                 // A message of only one to three emojis: shown large, without
                 // a bubble, like a sticker.
                 message.kind == "text" && message.replyPreview == null && isEmojiOnly(message.text) -> Box(

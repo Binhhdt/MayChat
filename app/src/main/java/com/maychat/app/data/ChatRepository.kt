@@ -1067,11 +1067,93 @@ object ChatRepository {
     private val farmFunctions = setOf(
         "farm_get", "farm_create", "farm_rename", "farm_plant",
         "farm_harvest", "farm_sell", "farm_upgrade", "farm_cup",
+        // Hội thao between phones (supabase_migration_33_hoithao_rooms.sql)
+        "hoithao_create", "hoithao_invite", "hoithao_join", "hoithao_leave",
+        "hoithao_start", "hoithao_finish", "farm_cup_room",
     )
 
     suspend fun farmCall(function: String, params: JsonObject): String {
         require(function in farmFunctions) { "unknown_function" }
         return supabase.postgrest.rpc(function, params).data
+    }
+
+    // My friends for the Hội thao invite list: [{"id","name","online"}].
+    suspend fun gameFriends(): String {
+        val me = currentUserId() ?: return "[]"
+        val ids = loadFriendships()
+            .filter { it.status == "accepted" }
+            .map { if (it.userA == me) it.userB else it.userA }
+        val online = onlineUsers.value
+        val people = loadProfiles(ids).sortedWith(compareBy({ it.id !in online }, { it.displayName.lowercase() }))
+        return buildJsonArray {
+            people.forEach { p ->
+                add(
+                    buildJsonObject {
+                        put("id", p.id)
+                        put("name", p.displayName)
+                        put("online", p.id in online)
+                    },
+                )
+            }
+        }.toString()
+    }
+
+    // The live channel of one Hội thao room: the phones in the room send
+    // each other where their runners are. One room at a time; messages go
+    // out one after another, in order (the oldest are dropped if the
+    // connection is too slow).
+    private var gameChannel: RealtimeChannel? = null
+    private var gameJob: Job? = null
+    private var gameOut: kotlinx.coroutines.channels.Channel<JsonObject>? = null
+
+    suspend fun joinGameRoom(roomId: String, onMessage: (String) -> Unit) {
+        leaveGameRoom()
+        val channel = supabase.channel("hoithao-$roomId")
+        val out = kotlinx.coroutines.channels.Channel<JsonObject>(
+            capacity = 64,
+            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+        )
+        gameChannel = channel
+        gameOut = out
+        gameJob = scope.launch {
+            val incoming = channel.broadcastFlow<JsonObject>(event = "m")
+            launch { incoming.collect { onMessage(it.toString()) } }
+            launch {
+                for (message in out) {
+                    if (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) continue
+                    try {
+                        channel.broadcast(event = "m", message = message)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        // A lost position is replaced by the next one.
+                    }
+                }
+            }
+            delay(200)
+            joinWithRetry(channel)
+        }
+        withTimeoutOrNull(8_000) {
+            while (channel.status.value != RealtimeChannel.Status.SUBSCRIBED) delay(100)
+        }
+    }
+
+    fun sendGameMessage(text: String) {
+        val out = gameOut ?: return
+        val message = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return
+        out.trySend(message)
+    }
+
+    suspend fun leaveGameRoom() {
+        gameJob?.cancel()
+        gameJob = null
+        gameOut?.close()
+        gameOut = null
+        val channel = gameChannel
+        gameChannel = null
+        if (channel != null) {
+            withContext(NonCancellable) { runCatching { supabase.realtime.removeChannel(channel) } }
+        }
     }
 
     // avatarPath: null keeps the current avatar, "" removes it.

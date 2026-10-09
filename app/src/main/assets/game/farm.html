@@ -187,7 +187,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   .pcard { flex: 0 1 270px; }
   .pava { width: 42px; height: 42px; }
   .avawrap { width: 42px; height: 42px; }
-  .avawrap .badge { width: 19px; height: 19px; right: -8px; bottom: -5px; }
+  .avawrap .badge { width: 18px; height: 18px; right: -13px; bottom: -6px; }
   .avawrap .acct { font-size: 17px; }
   .pinfo b { font-size: 14px; }
   .ptrack em { font-size: 10px; }
@@ -220,10 +220,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
 .in-app .chip.exit { display: inline-flex; align-items: center; }
 .in-app .small-row, .in-app .notecard { display: none !important; }
 .in-app .pcard { cursor: pointer; }
+.in-app .pcard { padding-left: 4px; gap: 16px; }
 .avawrap { position: relative; width: 52px; height: 52px; flex: none; display: block; }
 .avawrap .acct { width: 100%; height: 100%; border-radius: 50%; border: 3px solid var(--wood); overflow: hidden; display: grid; place-items: center; background: linear-gradient(135deg, #4a8fe0, #0b74e5); color: #fff; font: 800 20px var(--body); }
 .avawrap .acct img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.avawrap .badge { position: absolute; right: -6px; bottom: -4px; width: 24px; height: 24px; object-fit: cover; object-position: 50% 0; border-radius: 50%; border: 2px solid #fff; background: #bfe7fd; display: block; }
+.avawrap .badge { position: absolute; right: -14px; bottom: -6px; width: 22px; height: 22px; object-fit: cover; object-position: 50% 0; border-radius: 50%; border: 2px solid #fff; background: #bfe7fd; display: block; }
 .setupwrap { position: fixed; inset: 0; z-index: 30; overflow-y: auto; background: linear-gradient(180deg, #bfe7fd, #d9f2ff 38%, #cdeeb4); display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; justify-items: center; gap: 10px; padding: 14px 16px 18px; }
 .su-scene { position: relative; width: min(100%, 360px); height: 170px; }
 .su-scene .hill { position: absolute; inset: auto -40px -10px; height: 90px; background: #8fd06a; border-radius: 50% 50% 0 0; }
@@ -353,7 +354,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       <tr><td>🥉 Hạng 3</td><td>250</td></tr>
       <tr><td>Hạng 4–6</td><td>150</td></tr>
     </table>
-    <p class="note">2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè được thưởng ×1,5 (trong bản thử, bạn bè là người mẫu do máy điều khiển).</p>
+    <p class="note">Đấu với bot Vừa được đủ số vàng trên, bot Dễ được 60%. 2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè được thưởng ×1,5 (trong bản thử, bạn bè là người mẫu do máy điều khiển).</p>
   </div>
 </div>
 <!-- Hội thao, opened inside the farm -->
@@ -1323,13 +1324,14 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const base = SPORT_GOLD[m.place] || 150;
     const share = n < FULL_CUPS ? 1 : 0.2;
     const withFriends = m.friends > 0;
-    const gold = Math.round(base * share * (withFriends ? 1.5 : 1));
+    const easy = m.level === "easy";                // bots Dễ: 60% of the gold
+    const gold = Math.round(base * share * (easy ? 0.6 : 1) * (withFriends ? 1.5 : 1));
     S.cups = { day: today(), n: n + 1 };
     addGold(gold); save(); refresh(); drawSport();
     $("rewardMedal").textContent = ["", "🥇", "🥈", "🥉"][m.place] || "🏃";
     $("rewardMsg").textContent = `Bạn về hạng ${m.place}/${m.players} với ${m.points} điểm!`;
     $("rewardGold").textContent = "+" + money(gold);
-    $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${base} vàng` + (share < 1 ? ` · giải thứ ${n + 1} hôm nay nên còn 20%` : ` · giải ${n + 1}/${FULL_CUPS} được thưởng đủ`) + (withFriends ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+    $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${base} vàng` + (share < 1 ? ` · giải thứ ${n + 1} hôm nay nên còn 20%` : ` · giải ${n + 1}/${FULL_CUPS} được thưởng đủ`) + (easy ? " · bot Dễ nên 60%" : "") + (withFriends ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
     $("rewardPop").hidden = false;
     coinSound();
   });
@@ -1427,6 +1429,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       max_level: "Nhà đã ở cấp cao nhất",
       cup_too_soon: "Giải vừa rồi đã được tính, đợi một lát",
       bad_name: "Tên nông trại cần 2–20 ký tự",
+      no_result: "Chưa nhận được kết quả giải từ chủ phòng",
     };
     const errText = (e) => {
       const m = String((e && e.message) || "");
@@ -1434,8 +1437,14 @@ table.reward td, table.reward th { padding: 7px 10px; }
       return "Không kết nối được máy chủ, thử lại sau";
     };
 
+    // ---- for the Hội thao page inside (rooms between phones)
+    mc.api = api;
+    mc.serverNow = () => Date.now() + (S.offset || 0);
+    mc.rt = (m) => { try { const w = $("sportFrame").contentWindow; if (w && w.__net) w.__net(m); } catch (e) {} };
+
     // ---- the server's farm -> the screen
     let profile = { name: "", avatar: null };
+    mc.profile = profile;
     let farm = null;                       // { name, farmer } once the farm exists
     const pic = (k) => (ART_SRC[k] ? ART_SRC[k][0] : "");
     function showCard() {
@@ -1466,7 +1475,20 @@ table.reward td, table.reward th { padding: 7px 10px; }
       farm = { name: st.name, farmer: st.farmer };
       lastRipe = -1;
       showCard(); refresh(); tick(); drawSport(); setAlarm();
+      if (roomWanted) { const id = roomWanted; roomWanted = null; setTimeout(() => openRoom(id), 300); }
     }
+    // "Vào" on an invite card in a chat: straight into that Hội thao room
+    // (after the farm is open; a first-time player names the farm first).
+    let roomWanted = new URLSearchParams(location.search).get("room");
+    function openRoom(id) {
+      if (!farm) { roomWanted = id; return; }
+      const f = $("sportFrame"), w = f.contentWindow;
+      if (f.getAttribute("src") && w && w.__joinRoom) w.__joinRoom(id);
+      else f.setAttribute("src", "hoithao.html?room=" + encodeURIComponent(id));
+      $("sportSheet").hidden = true; $("rewardPop").hidden = true; $("ripePop").hidden = true;
+      drawSport(); $("sportWrap").hidden = false;
+    }
+    mc.joinRoom = openRoom;
     // the phone rings when the next crop is ripe (the app sets the alarm)
     function setAlarm() {
       const t = now();
@@ -1508,7 +1530,10 @@ table.reward td, table.reward th { padding: 7px 10px; }
       if (!m || m.type !== "hoithao-cup" || e.source !== $("sportFrame").contentWindow) return;
       flush();
       $("rewardNote").textContent = "Đang cộng vàng vào nông trại…";
-      send("farm_cup", { place: m.place, players: m.players, friends: m.friends || 0 }, (st, err) => {
+      // a cup with friends: the server pays from the places the host handed in
+      const method = m.room ? "farm_cup_room" : "farm_cup";
+      const args = m.room ? { room: m.room } : { place: m.place, players: m.players, friends: m.friends || 0, level: m.level === "easy" ? "easy" : "mid" };
+      send(method, args, (st, err) => {
         if (err || !st || !st.reward) {
           $("rewardGold").textContent = "+0";
           $("rewardNote").textContent = errText(err) + ". Giải này chưa được cộng vàng.";
@@ -1518,7 +1543,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
         $("rewardGold").textContent = "+" + money(r.gold);
         $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${r.base} vàng` +
           (share >= 1 ? ` · giải ${r.n}/${FULL_CUPS} được thưởng đủ` : share > 0 ? ` · giải thứ ${r.n} hôm nay nên còn 20%` : " · đã quá 10 giải hôm nay nên không còn thưởng") +
-          (m.friends > 0 && r.gold > 0 ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+          (r.level === "easy" && r.gold > 0 ? " · bot Dễ nên 60%" : "") + ((r.friends != null ? r.friends : m.friends) > 0 && r.gold > 0 ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
       });
     });
 
@@ -1585,7 +1610,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       $("bootRetry").disabled = true;
       $("bootWrap").hidden = false;
       Promise.all([api("profile", {}).catch(() => null), api("farm_get", {})]).then(([pr, st]) => {
-        if (pr) profile = pr;
+        if (pr) { profile = pr; mc.profile = pr; }
         $("bootWrap").hidden = true;
         if (st) { apply(st); setTimeout(ripeNotice, 600); }
         else openSetup(false);
