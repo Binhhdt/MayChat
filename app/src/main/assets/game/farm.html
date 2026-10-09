@@ -1,0 +1,1635 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body style="margin:0">
+<title>Nông Trại MayChat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;700;800&display=swap">
+<style>
+/* Layout: a little floating farm island seen from above at a slant (like Zing Me), a wooden sign on top with the gold, a row of big thumb buttons below. One bright look on purpose, same family as Hội thao. */
+:root {
+  --sky: #cdeffc;        /* page ground */
+  --paper: #fff8ec;      /* cards and signs */
+  --paper-2: #fdeed6;
+  --wood: #8b5a2b;       /* frames, outlines */
+  --ink: #4a2f1a;        /* text: dark brown like the line art */
+  --muted: #8a6d55;
+  --leaf: #4cb06a;       /* farm green, main action */
+  --leaf-dark: #2f7d48;
+  --gold: #ffc93c;       /* coins */
+  --good: #2fa866;
+  --bad: #e2453a;
+  --display: "Baloo 2", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --body: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+html, body { height: 100%; touch-action: manipulation; }
+button { touch-action: manipulation; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #bfe7fd 0%, var(--sky) 40%, #dff3cf 100%);
+  background-color: var(--sky);
+  color: var(--ink); font-family: var(--body); font-size: 15px;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.app { max-width: 560px; margin: 0 auto; padding-inline: 16px; padding-block: 10px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+h1 { margin: 0; font: 800 24px/1 var(--display); text-wrap: balance; }
+h1 span { color: var(--leaf); }
+.sub { color: var(--muted); font-size: 12px; font-weight: 700; }
+.coins {
+  display: flex; align-items: center; gap: 6px; font: 800 20px/1 var(--display); font-variant-numeric: tabular-nums;
+  background: var(--paper); border: 2.5px solid var(--wood); border-radius: 14px; padding: 6px 12px 4px; box-shadow: 0 3px 0 rgba(139, 90, 43, 0.35);
+}
+.coins img { width: 26px; height: 26px; object-fit: contain; display: block; }
+.tool .ic img { width: 30px; height: 30px; object-fit: contain; display: block; }
+.tool.sport .ic img { width: 30px; height: 36px; }
+.tipbox { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; }
+.tipbox img { width: 52px; height: 48px; object-fit: cover; border-radius: 12px; border: 2px solid var(--wood); background: #bfe7fd; display: block; }
+.tipbox .bubble { position: relative; background: var(--paper); border: 2px solid var(--wood); border-radius: 14px; padding: 7px 11px; font: 800 13px/1.4 var(--body); color: var(--ink); min-width: 0; }
+.tipbox .bubble::before { content: ""; position: absolute; left: -8px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-right-color: var(--wood); border-left: 0; }
+.popwrap { position: fixed; inset: 0; background: rgba(40, 25, 10, 0.45); display: grid; place-items: center; z-index: 20; padding-inline: 16px; }
+.pop { width: min(300px, 100%); background: var(--paper); border: 4px solid var(--wood); border-radius: 22px; box-shadow: 0 6px 0 rgba(90, 58, 34, 0.5); text-align: center; padding: 0 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.pop .ribbon { margin-top: -18px; background: linear-gradient(#b5793f, #8b5a2b); color: #fff; font: 800 20px var(--display); padding: 6px 26px 3px; border-radius: 12px; border: 3px solid #5a3a22; box-shadow: 0 3px 0 #5a3a22; }
+.pop img { width: 110px; height: 104px; object-fit: contain; }
+.pop p { margin: 0; font-weight: 800; color: var(--ink); line-height: 1.45; }
+.pop .btns { width: 100%; }
+.sportwrap { position: fixed; inset: 0; z-index: 15; background: var(--sky); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+.sporthead { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--paper); border-bottom: 2.5px solid var(--wood); }
+.sporthead b { font: 800 16px var(--display); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sportwrap iframe { flex: 1; width: 100%; border: 0; display: block; background: var(--sky); }
+.reward-medal { font-size: 54px; line-height: 1; margin-top: 4px; }
+.reward-gold { display: flex; align-items: center; gap: 8px; font: 800 30px var(--display); color: #b8860b; }
+.reward-gold img { width: 34px; height: 34px; }
+.pop .note { font-size: 12px; font-weight: 700; }
+.btn.green { background: var(--leaf); color: #fff; border-color: var(--leaf-dark); box-shadow: 0 4px 0 var(--leaf-dark); }
+.coin { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff3b0, var(--gold) 55%, #d99a12); border: 2px solid #a8701a; box-sizing: border-box; flex: none; }
+.coins.pop { animation: pop 0.35s ease; }
+@keyframes pop { 50% { transform: scale(1.12); } }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { background: var(--paper); border: 2px solid var(--wood); border-radius: 10px; padding: 3px 9px 1px; font: 800 13.5px var(--display); color: var(--ink); }
+.chip.time { color: var(--muted); }
+.stage { position: relative; border-radius: 18px; overflow: hidden; border: 3px solid var(--wood); box-shadow: 0 4px 0 rgba(139, 90, 43, 0.3); background: #6fbf4a; }
+canvas.scene { display: block; width: 100%; height: auto; aspect-ratio: 360 / 280; max-width: 100%; touch-action: none; cursor: pointer; }
+.toast { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: 86%; text-align: center; font: 800 13px var(--body); color: var(--ink); background: rgba(255, 248, 236, 0.96); border: 2px solid var(--wood); border-radius: 12px; padding: 5px 10px; pointer-events: none; }
+.toast.bad { background: #ffe0dc; border-color: var(--bad); }
+.hint { text-align: center; font-size: 13px; font-weight: 800; color: var(--muted); margin: 0; min-height: 1.4em; }
+.bar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tool {
+  border: 2.5px solid var(--wood); border-radius: 16px; background: var(--paper); color: var(--ink);
+  box-shadow: 0 4px 0 var(--wood); padding: 8px 4px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font: 800 12px var(--body); min-width: 0;
+}
+.tool .ic { font-size: 24px; line-height: 1.1; }
+.tool b { font: 800 10.5px var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tool:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--wood); }
+.tool.main { background: var(--leaf); color: #fff; box-shadow: 0 4px 0 var(--leaf-dark); border-color: var(--leaf-dark); }
+.tool.main b { color: #eafbe9; }
+.tool.sport { grid-column: 1 / -1; flex-direction: row; justify-content: center; gap: 10px; font-size: 14px; background: #fff1c9; }
+.tool.sport b { font-size: 12px; }
+.tool:focus-visible, .mini:focus-visible, .btn:focus-visible { outline: 3px solid var(--leaf); outline-offset: 2px; }
+.small-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mini { border: 2px solid var(--wood); background: var(--paper); border-radius: 10px; font: 800 12.5px var(--body); padding: 6px 10px; cursor: pointer; color: var(--ink); }
+.mini.on { background: var(--gold); }
+.mini.primary { background: var(--leaf); color: #fff; border-color: var(--leaf-dark); }
+.mini[disabled] { opacity: 0.45; cursor: default; }
+.note { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 0; font-weight: 600; max-width: 62ch; }
+
+/* sheets */
+.sheet { position: fixed; inset: 0; background: rgba(40, 25, 10, 0.45); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.card { background: var(--paper); border: 2px solid var(--wood); border-radius: 20px 20px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)); width: 100%; max-width: 560px; max-height: 86vh; overflow: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sheet-head b { font: 800 19px var(--display); }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.list li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--paper-2); border-radius: 14px; padding: 7px 10px; }
+.list li.off { opacity: 0.55; }
+.list .em { font-size: 28px; text-align: center; line-height: 1; }
+.list .em img { width: 36px; height: 36px; object-fit: contain; display: block; margin: 0 auto; }
+.list .nm { font-weight: 800; min-width: 0; }
+.list .nm small { display: block; font-weight: 700; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.price { font-variant-numeric: tabular-nums; }
+.btn { border: 2px solid var(--wood); border-radius: 16px; padding: 12px; font: 800 17px var(--display); cursor: pointer; background: var(--gold); color: var(--ink); box-shadow: 0 4px 0 var(--wood); }
+.btn[disabled] { opacity: 0.5; cursor: default; }
+.btn.ghost { background: var(--paper); }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.preview { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center; }
+.preview canvas { width: 150px; height: 120px; background: #8fd06a; border: 2px solid var(--wood); border-radius: 14px; }
+.preview .big { font: 800 20px var(--display); }
+.levels li { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.levels .lv { font: 800 16px var(--display); text-align: center; }
+.levels li.now { outline: 2px solid var(--gold); }
+.ok { color: var(--good); font-weight: 800; font-size: 13px; }
+table.reward { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.reward td, table.reward th { padding: 5px 4px; border-bottom: 1px solid #e6cfa8; text-align: left; }
+table.reward th { color: var(--muted); font-size: 12px; }
+table.reward td:last-child, table.reward th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+/* ===== new look: rounded wooden-cream cards like the mock-up ===== */
+.hud { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pcard { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; background: linear-gradient(#fffaf0, #fbecd2); border: 3px solid var(--wood); border-radius: 18px 26px 26px 18px; padding: 4px 12px 4px 4px; box-shadow: 0 3px 0 rgba(90, 58, 34, 0.45); }
+.pava { width: 52px; height: 52px; border-radius: 50%; border: 3px solid var(--wood); background: #bfe7fd; overflow: hidden; flex: none; display: block; }
+.pava img { width: 100%; height: 160%; object-fit: cover; object-position: 50% 0; display: block; }
+.pinfo { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.pinfo b { font: 800 16px/1 var(--display); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbar { display: flex; align-items: center; gap: 0; min-width: 0; }
+.plv { background: #6b4423; color: #fff; font: 800 12px/1 var(--display); padding: 5px 9px 4px; border-radius: 10px 0 0 10px; white-space: nowrap; }
+.ptrack { position: relative; flex: 1; min-width: 60px; height: 22px; background: #5a3a22; border-radius: 0 11px 11px 0; overflow: hidden; }
+.ptrack i { position: absolute; inset: 0 auto 0 0; width: 0%; background: linear-gradient(#9be86a, #4cb06a); }
+.ptrack em { position: relative; display: block; text-align: center; font: 800 12px/22px var(--display); font-style: normal; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+.coins { border-radius: 999px; padding: 5px 14px 3px 6px; background: linear-gradient(#fff7e4, #f6e2b8); border-width: 3px; }
+.chips { justify-content: center; }
+.tipbox { grid-template-columns: 70px minmax(0, 1fr); gap: 4px; }
+.tipbox img { width: 70px; height: 64px; border: 0; background: transparent; border-radius: 0; object-fit: contain; }
+.tipbox .bubble { background: linear-gradient(#fffaf0, #fbefd8); border: 3px solid #d9b27a; border-radius: 20px; padding: 10px 14px; font: 800 14.5px/1.4 var(--body); box-shadow: 0 3px 0 rgba(139, 90, 43, 0.25); }
+.tipbox .bubble::before { left: -11px; border-width: 8px; border-right-color: #d9b27a; }
+.bar { gap: 8px; }
+.tool { position: relative; border-radius: 20px; border: 3px solid #b88a54; background: linear-gradient(#fffaf0, #f7e7cb); box-shadow: 0 4px 0 #a8743f; padding: 8px 4px 7px; font: 800 14px/1.1 var(--display); gap: 1px; }
+.tool .ic { font-size: 30px; }
+.tool .ic img { width: 40px; height: 40px; }
+.tool b { font: 800 11px var(--body); color: var(--muted); }
+.tool.main { background: linear-gradient(#7fd35f, #43a447); border-color: #2f7d48; box-shadow: 0 4px 0 #2f7d48, 0 0 0 3px #ffe66b; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+.tool.main b { color: #f1ffe9; }
+.pointer { position: absolute; top: -16px; right: 4px; width: 26px; height: 26px; background: #ffc93c; clip-path: polygon(0 0, 100% 0, 100% 35%, 62% 35%, 100% 75%, 75% 100%, 35% 62%, 35% 100%, 0 100%); filter: drop-shadow(0 2px 0 #b8860b); transform: rotate(180deg); animation: poke 0.9s ease-in-out infinite; }
+@keyframes poke { 50% { transform: rotate(180deg) translate(-3px, -3px); } }
+.sportbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; border: 3px solid #b88a54; border-radius: 22px; background: linear-gradient(#fffaf0, #f7e7cb); box-shadow: 0 4px 0 #a8743f; padding: 6px 12px 6px 6px; cursor: pointer; text-align: left; color: var(--ink); }
+.sportbar:active { transform: translateY(2px); box-shadow: 0 2px 0 #a8743f; }
+.sb-face img { width: 40px; height: 44px; object-fit: contain; display: block; }
+.sb-cal { font-size: 22px; background: #fff; border: 2px solid #d9b27a; border-radius: 10px; padding: 2px 5px; }
+.sb-text { display: flex; flex-direction: column; min-width: 0; }
+.sb-text b { font: 800 16px/1.1 var(--display); }
+.sb-text small { font: 700 12px var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-go { font: 800 30px/1 var(--display); color: #e8a21b; }
+.mini { border-radius: 999px; padding: 8px 14px; border-width: 2.5px; box-shadow: 0 3px 0 rgba(139, 90, 43, 0.35); font-size: 13px; }
+.mini.fast { background: linear-gradient(#ffe27a, #ffc93c); border-color: #c98a1b; }
+.mini.fast.on { background: linear-gradient(#ffe27a, #ffb21c); }
+.notecard { display: grid; grid-template-columns: 50px minmax(0, 1fr); gap: 6px; align-items: center; background: linear-gradient(#fffaf0, #fbefd8); border: 3px solid #d9b27a; border-radius: 18px; padding: 6px 12px 6px 6px; }
+.notecard img { width: 50px; height: 46px; object-fit: contain; display: block; }
+.sportbar:focus-visible { outline: 3px solid var(--leaf); outline-offset: 2px; }
+.card { background: linear-gradient(#fffaf0, #f7e7cb); border: 3px solid #b88a54; border-bottom: 0; border-radius: 24px 24px 0 0; }
+.btn { border-radius: 999px; border-width: 3px; }
+.btn.green { box-shadow: 0 4px 0 #2f7d48, 0 0 0 3px #ffe66b; }
+table.reward { background: #fffaf0; border: 2px solid #e6cfa8; border-radius: 14px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+table.reward td, table.reward th { padding: 7px 10px; }
+.sporthead { background: linear-gradient(#fffaf0, #f7e7cb); border-bottom: 3px solid #b88a54; box-shadow: 0 3px 0 rgba(139, 90, 43, 0.25); }
+.sporthead .mini.primary { background: linear-gradient(#7fd35f, #43a447); border-color: #2f7d48; }
+.list li { background: #fffaf0; border: 2px solid #e6cfa8; border-radius: 16px; }
+.pop { background: linear-gradient(#fffaf0, #f7e7cb); }
+@media (prefers-reduced-motion: reduce) { .pointer { animation: none; } }
+/* ===== phone held sideways: farm on the left, everything else in a column on the right ===== */
+.side { display: contents; }
+@media (orientation: landscape) and (max-height: 620px) {
+  /* landscape: the farm fills the whole screen, the buttons sit on top of it */
+  html, body { height: 100%; overflow: hidden; }
+  .app { max-width: none; height: 100%; padding: 0; display: block; position: relative; }
+  .stage { position: absolute; inset: 0; border: 0; border-radius: 0; box-shadow: none; }
+  canvas.scene { width: 100%; height: 100%; aspect-ratio: auto; }
+  .hud { position: absolute; z-index: 5; top: calc(6px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); align-items: flex-start; pointer-events: none; }
+  .hud > * { pointer-events: auto; }
+  .pcard { flex: 0 1 270px; }
+  .pava { width: 42px; height: 42px; }
+  .avawrap { width: 42px; height: 42px; }
+  .avawrap .badge { width: 19px; height: 19px; right: -8px; bottom: -5px; }
+  .avawrap .acct { font-size: 17px; }
+  .pinfo b { font-size: 14px; }
+  .ptrack em { font-size: 10px; }
+  .chips { position: absolute; z-index: 5; top: calc(66px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); max-width: 46%; gap: 4px; justify-content: flex-start; }
+  .chip { font-size: 11.5px; padding: 2px 7px 0; box-shadow: 0 2px 0 rgba(90, 58, 34, 0.3); }
+  .side { display: contents; }
+  .tipbox { position: absolute; z-index: 5; left: calc(6px + env(safe-area-inset-left, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: min(300px, 38%); grid-template-columns: 46px minmax(0, 1fr); }
+  .tipbox img { width: 46px; height: 44px; }
+  .tipbox .bubble { font-size: 12.5px; padding: 6px 10px; }
+  .bar { position: absolute; z-index: 5; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 6px; }
+  .tool { width: 74px; padding: 5px 2px 4px; font-size: 12.5px; line-height: 1.05; }
+  .tool .ic img { width: 34px; height: 34px; }
+  .tool b { font-size: 10px; }
+  .pointer { top: -12px; }
+  .sportbar { position: absolute; z-index: 5; right: calc(8px + env(safe-area-inset-right, 0px)); top: calc(62px + env(safe-area-inset-top, 0px)); width: 224px; padding: 4px 10px 4px 4px; }
+  .sb-face img { width: 32px; height: 36px; }
+  .sportbar .sb-text b { font-size: 14px; white-space: nowrap; }
+  .sportbar .sb-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .sportbar .sb-text small { font-size: 11px; }
+  .small-row { position: absolute; z-index: 5; right: calc(8px + env(safe-area-inset-right, 0px)); top: calc(118px + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .small-row .mini { font-size: 11px; padding: 3px 9px; }
+  .notecard { display: none; }
+  .sportwrap iframe { height: 100%; }
+  .sporthead { padding: 3px 16px; }
+  .sporthead b { font-size: 14px; }
+  .sporthead .mini { padding: 4px 12px; }
+}
+/* ---- inside MayChat: account card, first-time setup, loading ---- */
+.chip.exit { display: none; cursor: pointer; font: 800 13px var(--display); }
+.in-app .chip.exit { display: inline-flex; align-items: center; }
+.in-app .small-row, .in-app .notecard { display: none !important; }
+.in-app .pcard { cursor: pointer; }
+.avawrap { position: relative; width: 52px; height: 52px; flex: none; display: block; }
+.avawrap .acct { width: 100%; height: 100%; border-radius: 50%; border: 3px solid var(--wood); overflow: hidden; display: grid; place-items: center; background: linear-gradient(135deg, #4a8fe0, #0b74e5); color: #fff; font: 800 20px var(--body); }
+.avawrap .acct img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avawrap .badge { position: absolute; right: -6px; bottom: -4px; width: 24px; height: 24px; object-fit: cover; object-position: 50% 0; border-radius: 50%; border: 2px solid #fff; background: #bfe7fd; display: block; }
+.setupwrap { position: fixed; inset: 0; z-index: 30; overflow-y: auto; background: linear-gradient(180deg, #bfe7fd, #d9f2ff 38%, #cdeeb4); display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; justify-items: center; gap: 10px; padding: 14px 16px 18px; }
+.su-scene { position: relative; width: min(100%, 360px); height: 170px; }
+.su-scene .hill { position: absolute; inset: auto -40px -10px; height: 90px; background: #8fd06a; border-radius: 50% 50% 0 0; }
+.su-scene .hill2 { position: absolute; left: -20px; right: 40%; bottom: 10px; height: 70px; background: #a6d977; border-radius: 50% 50% 0 0; }
+.su-scene img { position: absolute; }
+.su-scene .house { width: 150px; left: 50%; bottom: 6px; transform: translateX(-50%); }
+.su-scene .tree { width: 54px; right: 6px; bottom: 16px; }
+.su-scene .crop1 { width: 58px; left: 4px; bottom: 6px; }
+.su-scene .crop2 { width: 58px; right: 54px; bottom: 0; }
+.su-card { width: min(100%, 420px); background: linear-gradient(#fffaf0, #f7e7cb); border: 3px solid #b88a54; border-radius: 22px; box-shadow: 0 4px 0 #a8743f; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.su-title { text-align: center; }
+.su-title b { display: block; font: 800 22px/1.1 var(--display); }
+.su-title span { font-weight: 700; color: var(--muted); font-size: 13px; }
+.su-card label { font: 800 14px var(--display); }
+.su-name { display: flex; align-items: center; gap: 6px; background: #fff; border: 2.5px solid #d9b27a; border-radius: 14px; padding: 4px 6px 4px 12px; }
+.su-name span { font-weight: 800; color: var(--muted); white-space: nowrap; font-size: 14px; }
+.su-name input { flex: 1; min-width: 0; border: 0; outline: 0; font: 800 16px var(--body); color: var(--ink); background: transparent; padding: 6px 0; }
+.su-dice { border: 2px solid #d9b27a; background: var(--paper); border-radius: 10px; font-size: 18px; width: 36px; height: 34px; cursor: pointer; }
+.su-count { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.su-count .err { color: #e2453a; }
+.su-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.su-pick { border: 3px solid #e6cfa8; background: #fff; border-radius: 16px; padding: 6px 4px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; font: 800 14px var(--display); color: var(--ink); }
+.su-pick img { height: 82px; }
+.su-pick[aria-pressed="true"] { border-color: var(--leaf); background: #effbe8; box-shadow: 0 0 0 3px #ffe66b; }
+.su-gift { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 13px; }
+.su-gift img { width: 22px; }
+.su-card .btns.one { grid-template-columns: 1fr; }
+.su-card .btn[disabled], .pop .btn[disabled] { filter: grayscale(0.6); opacity: 0.6; cursor: default; }
+@media (orientation: landscape) and (max-height: 620px) {
+  .setupwrap { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; align-content: center; padding: 10px 16px; }
+  .su-scene { height: min(220px, 70vh); }
+  .su-scene .house { width: 190px; }
+  .su-pick img { height: 58px; }
+  .su-card { gap: 6px; padding: 10px 12px; }
+  .su-title b { font-size: 19px; }
+  .avawrap { width: 42px; height: 42px; }
+}
+@media (prefers-reduced-motion: reduce) { .coins.pop { animation: none; } .tool:active { transform: none; } }
+</style>
+
+<div class="app">
+  <div class="hud">
+    <div class="pcard">
+      <span class="pava" id="pAva"></span>
+      <div class="pinfo">
+        <b>Nông trại của bạn</b>
+        <div class="pbar"><span class="plv" id="houseLv">Cấp 1</span><span class="ptrack"><i id="houseFill"></i><em id="houseNext">0/1.000</em></span></div>
+      </div>
+    </div>
+    <div class="coins" id="coins" aria-label="Vàng"><span class="coin" id="coinIc"></span><span id="gold">0</span></div>
+  </div>
+  <div class="chips">
+    <span class="chip" id="houseChip">Nhà cấp 1 · Chòi tre</span>
+    <span class="chip" id="plotChip">6/20 ô đất</span>
+    <span class="chip time" id="clockChip"></span>
+    <button class="chip exit" id="exitBtn" type="button">← Về MayChat</button>
+  </div>
+
+  <div class="stage">
+    <canvas class="scene" id="cv" width="1080" height="840" aria-label="Nông trại: nhà, ô đất và cây trồng"></canvas>
+    <div class="toast" id="toast" hidden></div>
+  </div>
+  <div class="side">
+  <div class="tipbox"><span id="tipFace"></span><p class="bubble" id="hint">Chạm ô trống để gieo, chạm cây chín để thu hoạch, chạm nhà để nâng cấp. Kéo để xem cả nông trại.</p></div>
+
+  <div class="bar">
+    <button class="tool main" id="plantAllBtn" type="button"><span class="pointer" aria-hidden="true"></span><span class="ic">🌱</span>Gieo hạt<b>các ô trống</b></button>
+    <button class="tool" id="harvestAllBtn" type="button"><span class="ic" data-art="ic_basket">🧺</span>Thu hoạch<b id="ripeTxt">0 ô chín</b></button>
+    <button class="tool" id="storeBtn" type="button"><span class="ic" data-art="ui_shop">🏪</span>Kho &amp; bán<b id="storeTxt">0 món</b></button>
+    <button class="tool" id="houseBtn" type="button"><span class="ic" data-art="ui_house">🏠</span>Nâng cấp<b id="houseTxt">nhà</b></button>
+  </div>
+  <button class="sportbar" id="sportBtn" type="button">
+    <span class="sb-face" data-art="boy_run">🏃</span>
+    <span class="sb-text"><b>Hội thao hằng ngày</b><small id="sportTxt">kiếm vàng</small></span>
+    <span class="sb-go" aria-hidden="true">›</span>
+  </button>
+
+  <div class="small-row">
+    <button class="mini fast" id="fastBtn" type="button" aria-pressed="false">⏩ Tua nhanh ×60: tắt</button>
+    <button class="mini" id="resetBtn" type="button">↺ Chơi lại từ đầu</button>
+  </div>
+  <div class="notecard"><span id="noteFace"></span><p class="note">Cây lớn theo giờ thật, kể cả khi bạn đóng trang. "Tua nhanh" chỉ có trong bản thử để xem cây lớn ngay. Trong bản thử, nông trại được lưu trên máy này; trong app sẽ lưu trên máy chủ.</p></div>
+  </div>
+</div>
+
+<!-- seeds -->
+<div class="sheet" id="seedSheet" hidden>
+  <div class="card" role="dialog" aria-label="Chọn hạt giống">
+    <div class="sheet-head"><b id="seedTitle">Chọn hạt giống</b><button class="mini" id="seedClose" type="button">Đóng</button></div>
+    <ul class="list" id="seedList"></ul>
+  </div>
+</div>
+<!-- store -->
+<div class="sheet" id="storeSheet" hidden>
+  <div class="card" role="dialog" aria-label="Kho và bán">
+    <div class="sheet-head"><b>🏪 Kho nông sản</b><button class="mini" id="storeClose" type="button">Đóng</button></div>
+    <ul class="list" id="storeList"></ul>
+    <button class="btn" id="sellAllBtn" type="button">Bán tất cả</button>
+  </div>
+</div>
+<!-- house -->
+<div class="sheet" id="houseSheet" hidden>
+  <div class="card" role="dialog" aria-label="Nâng cấp nhà">
+    <div class="sheet-head"><b>🏠 Nâng cấp nhà</b><button class="mini" id="houseClose" type="button">Đóng</button></div>
+    <div class="preview">
+      <canvas id="houseCv" width="450" height="360" aria-label="Hình nhà cấp tiếp theo"></canvas>
+      <div>
+        <div class="big" id="nextName"></div>
+        <p class="note" id="nextPerks"></p>
+      </div>
+    </div>
+    <button class="btn" id="upgradeBtn" type="button">Nâng cấp</button>
+    <ul class="list levels" id="levelList"></ul>
+  </div>
+</div>
+<!-- sports day -->
+<div class="sheet" id="sportSheet" hidden>
+  <div class="card" role="dialog" aria-label="Hội thao hằng ngày">
+    <div class="sheet-head"><b>🏃 Hội thao hằng ngày</b><button class="mini" id="sportClose" type="button">Đóng</button></div>
+    <p class="note">Mỗi ngày đấu giải Hội thao 4 map để kiếm vàng về nông trại. Đấu xong giải, vàng tự chuyển về đây.</p>
+    <p class="note" id="sportToday"></p>
+    <button class="btn green" id="sportGo" type="button">Vào Hội thao</button>
+    <table class="reward">
+      <tr><th>Hạng chung cuộc</th><th>Vàng</th></tr>
+      <tr><td>🥇 Hạng 1</td><td>500</td></tr>
+      <tr><td>🥈 Hạng 2</td><td>350</td></tr>
+      <tr><td>🥉 Hạng 3</td><td>250</td></tr>
+      <tr><td>Hạng 4–6</td><td>150</td></tr>
+    </table>
+    <p class="note">2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè được thưởng ×1,5 (trong bản thử, bạn bè là người mẫu do máy điều khiển).</p>
+  </div>
+</div>
+<!-- Hội thao, opened inside the farm -->
+<div class="sportwrap" id="sportWrap" hidden>
+  <div class="sporthead">
+    <b>🏃 Hội thao hằng ngày</b>
+    <span class="chip" id="sportCount"></span>
+    <button class="mini primary" id="sportBack" type="button">Về nông trại</button>
+  </div>
+  <iframe id="sportFrame" title="Hội thao" allow="autoplay"></iframe>
+</div>
+<!-- gold from Hội thao -->
+<div class="popwrap" id="rewardPop" hidden>
+  <div class="pop" role="dialog" aria-label="Thưởng Hội thao">
+    <div class="ribbon">Thưởng Hội thao</div>
+    <div class="reward-medal" id="rewardMedal">🥇</div>
+    <p id="rewardMsg"></p>
+    <div class="reward-gold"><span class="coin-sm" id="rewardCoin"></span><b id="rewardGold">+0</b></div>
+    <p class="note" id="rewardNote"></p>
+    <div class="btns">
+      <button class="btn ghost" id="rewardStay" type="button">Xem bảng điểm</button>
+      <button class="btn green" id="rewardHome" type="button">Về nông trại</button>
+    </div>
+  </div>
+</div>
+<!-- "ready to harvest" notice -->
+<div class="popwrap" id="ripePop" hidden>
+  <div class="pop" role="dialog" aria-label="Thu hoạch">
+    <div class="ribbon">Thu hoạch</div>
+    <span id="ripeArt"></span>
+    <p id="ripeMsg">Có cây sẵn sàng thu hoạch!</p>
+    <div class="btns">
+      <button class="btn ghost" id="ripeLater" type="button">Để sau</button>
+      <button class="btn green" id="ripeGo" type="button">Thu hoạch</button>
+    </div>
+  </div>
+</div>
+<!-- inside MayChat only: first visit (name + farmer), or changing them later -->
+<div class="setupwrap" id="setupWrap" hidden>
+  <div class="su-scene" aria-hidden="true">
+    <div class="hill2"></div><div class="hill"></div>
+    <img class="crop1" data-k="carrot_s3" alt="">
+    <img class="house" data-k="house1" alt="">
+    <img class="crop2" data-k="wheat_s3" alt="">
+    <img class="tree" data-k="tree" alt="">
+  </div>
+  <form class="su-card" id="setupForm" novalidate>
+    <div class="su-title"><b id="setupTitle">Chào mừng tới Nông trại!</b><span id="setupSub">Đặt tên và chọn bác nông dân của bạn</span></div>
+    <label for="farmName">Tên nông trại</label>
+    <div class="su-name"><span>Nông trại</span><input id="farmName" maxlength="20" autocomplete="off" placeholder="Hoa Hướng Dương"><button class="su-dice" id="dice" type="button" aria-label="Gợi ý tên">🎲</button></div>
+    <div class="su-count"><span id="nameMsg">2–20 ký tự, bạn bè sẽ thấy tên này.</span><span id="nameCount">0/20</span></div>
+    <label>Bác nông dân</label>
+    <div class="su-picks">
+      <button class="su-pick" type="button" data-who="boy" aria-pressed="true"><img data-k="boy_front" alt="">Nông dân trai</button>
+      <button class="su-pick" type="button" data-who="girl" aria-pressed="false"><img data-k="girl_front" alt="">Nông dân gái</button>
+    </div>
+    <div class="su-gift" id="setupGift"><img data-k="ic_coin" alt="">Quà khởi đầu: 300 vàng + 2 ô cà rốt sắp chín</div>
+    <div class="btns one" id="setupBtns">
+      <button class="btn ghost" id="setupCancel" type="button" hidden>Huỷ</button>
+      <button class="btn green" id="setupGo" type="submit" disabled>Bắt đầu</button>
+    </div>
+  </form>
+</div>
+<!-- inside MayChat only: opening the farm, or no connection -->
+<div class="popwrap" id="bootWrap" hidden>
+  <div class="pop" role="dialog" aria-label="Nông trại">
+    <div class="ribbon">Nông trại</div>
+    <p id="bootMsg">Đang mở nông trại…</p>
+    <div class="btns">
+      <button class="btn ghost" id="bootExit" type="button">Về MayChat</button>
+      <button class="btn green" id="bootRetry" type="button" disabled>Thử lại</button>
+    </div>
+  </div>
+</div>
+<!-- reset -->
+<div class="sheet" id="resetSheet" hidden>
+  <div class="card" role="dialog" aria-label="Chơi lại từ đầu">
+    <div class="sheet-head"><b>Chơi lại từ đầu?</b></div>
+    <p class="note">Nông trại sẽ về lại chòi tre với 300 vàng, mất hết cây và nông sản trong kho.</p>
+    <div class="btns">
+      <button class="btn ghost" id="resetNo" type="button">Không</button>
+      <button class="btn" id="resetYes" type="button">Chơi lại</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  // Inside the MayChat app the page gets window.MayChatGame, and the farm is kept on the server.
+  const APP = !!(window.MayChatGame && window.MayChatGame.call);
+
+  // ------------------------------------------------------------------
+  // The farm's rules
+  // ------------------------------------------------------------------
+  // min: minutes to grow · seed: cost · sell: price of one harvest · lv: house level needed
+  const CROPS = {
+    carrot:     { name: "Cà rốt",   em: "🥕", min: 5,   seed: 10,  sell: 25,  lv: 1 },
+    wheat:      { name: "Lúa mì",   em: "🌾", min: 30,  seed: 20,  sell: 60,  lv: 1 },
+    corn:       { name: "Ngô",      em: "🌽", min: 60,  seed: 30,  sell: 100, lv: 1 },
+    cabbage:    { name: "Bắp cải",  em: "🥬", min: 90,  seed: 40,  sell: 135, lv: 2 },
+    tomato:     { name: "Cà chua",  em: "🍅", min: 120, seed: 50,  sell: 170, lv: 2 },
+    strawberry: { name: "Dâu tây",  em: "🍓", min: 240, seed: 80,  sell: 300, lv: 3 },
+    pumpkin:    { name: "Bí ngô",   em: "🎃", min: 480, seed: 120, sell: 520, lv: 4 },
+  };
+  const CROP_IDS = Object.keys(CROPS);
+  const HOUSES = [
+    null,
+    { name: "Chòi tre",  cost: 0,     plots: 6,  perks: "6 ô đất. Trồng cà rốt, lúa mì, ngô." },
+    { name: "Nhà gỗ",    cost: 1000,  plots: 9,  perks: "9 ô đất. Mở hạt bắp cải và cà chua." },
+    { name: "Nhà ngói",  cost: 3000,  plots: 12, perks: "12 ô đất. Mở hạt dâu tây. Cây gieo mới lớn nhanh hơn 10%. Thêm bồn hoa trước nhà." },
+    { name: "Nhà lầu",   cost: 8000,  plots: 16, perks: "16 ô đất. Mở hạt bí ngô. Thêm hồ cá cạnh nhà." },
+    { name: "Biệt thự",  cost: 25000, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
+  ];
+  const MAX_LV = 5;
+  const FAST = 60;
+  // The 20 plots (grid corner i, j), in the order they open with the house.
+  const PLOTS = [];
+  for (let j = 4; j <= 5; j++) for (let i = 4; i <= 6; i++) PLOTS.push([i, j]);   // 6 at level 1
+  for (let i = 4; i <= 6; i++) PLOTS.push([i, 6]);                                 // +3 at level 2
+  for (let i = 4; i <= 6; i++) PLOTS.push([i, 7]);                                 // +3 at level 3
+  for (let j = 4; j <= 7; j++) PLOTS.push([7, j]);                                 // +4 at level 4
+  for (let j = 4; j <= 7; j++) PLOTS.push([8, j]);                                 // +4 at level 5
+  const plotLevel = (k) => (k < 6 ? 1 : k < 9 ? 2 : k < 12 ? 3 : k < 16 ? 4 : 5);
+
+  // ------------------------------------------------------------------
+  // State (saved on this phone in the demo; on the server in the app)
+  // ------------------------------------------------------------------
+  const KEY = "maychat-farm-v1";
+  let S = null;
+  function fresh() {
+    const now = Date.now();
+    const plots = Array(20).fill(null);
+    // a first look: two plots of carrots ready, wheat on the way
+    plots[0] = { crop: "carrot", at: now - 6 * 60000, dur: 5 * 60000 };
+    plots[1] = { crop: "carrot", at: now - 7 * 60000, dur: 5 * 60000 };
+    plots[3] = { crop: "wheat", at: now - 11 * 60000, dur: 30 * 60000 };
+    return { v: 1, gold: 300, level: 1, plots, store: {}, offset: 0, fast: false, harvested: 0 };
+  }
+  function load() {
+    if (APP) return fresh();   // in the app: replaced by the farm from the server at once
+    try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) return s; } } catch (e) {}
+    return fresh();
+  }
+  function save() { if (APP) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+  S = load();
+  // The farm's clock: real time, plus what "Tua nhanh" has added.
+  const now = () => Date.now() + S.offset;
+
+  const growth = (p) => Math.min(1, (now() - p.at) / p.dur);
+  const ripe = (p) => p && growth(p) >= 1;
+  const unlocked = (k) => plotLevel(k) <= S.level;
+  function left(p) {
+    const s = Math.max(0, Math.ceil((p.at + p.dur - now()) / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h} giờ ${m} phút` : m ? `${m} phút ${sec} giây` : `${sec} giây`;
+  }
+  const money = (n) => n.toLocaleString("vi-VN");
+
+  // ------------------------------------------------------------------
+  // Sound (made on the spot, after the first tap)
+  // ------------------------------------------------------------------
+  let audio = null;
+  function beep(f, d, type = "triangle", vol = 0.06) {
+    try {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(vol, audio.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + d);
+      o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + d);
+    } catch (e) {}
+  }
+  const coinSound = () => { beep(988, 0.08); setTimeout(() => beep(1319, 0.14), 70); };
+
+  // ------------------------------------------------------------------
+  // Drawing: a 10 x 10 slanted grid on a 360 x 280 canvas (drawn 3x finer)
+  // ------------------------------------------------------------------
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  let W = 360, H = 280, ZOOM = 3;          // W x H: what the canvas shows (changes in landscape)
+  const WORLD_W = 360, WORLD_H = 280;      // the size of the farm picture itself
+  const TW = 36, TH = 18, N = 10;
+  const OX = 180, OY = 76;
+  const OUT = "#5a3a22";
+  // ----- pictures from the asset sheet -----
+  const ART_SRC = {"house_main": ["img/house_main.webp", 144, 136], "house_small": ["img/house_small.webp", 125, 125], "fence": ["img/fence.webp", 104, 90], "tree": ["img/tree.webp", 110, 135], "bush": ["img/bush.webp", 86, 84], "plot_green": ["img/plot_green.webp", 108, 98], "wheat": ["img/wheat.webp", 100, 97], "tomato": ["img/tomato.webp", 102, 98], "carrot": ["img/carrot.webp", 101, 97], "cabbage": ["img/cabbage.webp", 99, 90], "sign": ["img/sign.webp", 87, 116], "mailbox": ["img/mailbox.webp", 75, 107], "well": ["img/well.webp", 109, 130], "bench": ["img/bench.webp", 101, 93], "crate": ["img/crate.webp", 95, 97], "boy_stand": ["img/boy_stand.webp", 67, 113], "boy_walk": ["img/boy_walk.webp", 62, 103], "boy_run": ["img/boy_run.webp", 62, 103], "boy_jump": ["img/boy_jump.webp", 65, 111], "boy_fall": ["img/boy_fall.webp", 86, 70], "girl_stand": ["img/girl_stand.webp", 67, 113], "girl_walk": ["img/girl_walk.webp", 63, 108], "girl_run": ["img/girl_run.webp", 63, 109], "girl_jump": ["img/girl_jump.webp", 67, 96], "girl_fall": ["img/girl_fall.webp", 87, 68], "ic_coin": ["img/ic_coin.webp", 57, 50], "ic_seed": ["img/ic_seed.webp", 57, 50], "ic_basket": ["img/ic_basket.webp", 57, 51], "ic_bag": ["img/ic_bag.webp", 81, 68], "ui_shop": ["img/ui_shop.webp", 42, 38], "ui_house": ["img/ui_house.webp", 40, 38], "ui_farmer": ["img/ui_farmer.webp", 138, 124]};
+  Object.assign(ART_SRC, {"hut": ["img/hut.webp", 206, 172], "soil_empty": ["img/soil_empty.webp", 135, 88], "soil_seeded": ["img/soil_seeded.webp", 135, 94], "clothesline": ["img/clothesline.webp", 132, 97], "lantern": ["img/lantern.webp", 39, 63], "jar": ["img/jar.webp", 52, 62], "rocks": ["img/rocks.webp", 92, 62], "guide_sign": ["img/guide_sign.webp", 96, 93], "basket": ["img/basket.webp", 59, 63]});
+  // sharper versions (made 2–4 times bigger with an upscaling model)
+  Object.assign(ART_SRC, {"hut": ["img/hut_2.webp", 824, 688], "house_small": ["img/house_small_2.webp", 500, 500], "house_main": ["img/house_main_2.webp", 576, 544], "tree": ["img/tree_2.webp", 220, 270], "plot_green": ["img/plot_green_2.webp", 216, 196], "wheat": ["img/wheat_2.webp", 200, 194], "tomato": ["img/tomato_2.webp", 204, 196], "carrot": ["img/carrot_2.webp", 202, 194], "cabbage": ["img/cabbage_2.webp", 198, 180], "well": ["img/well_2.webp", 218, 260], "bush": ["img/bush_2.webp", 172, 168]});
+  // the 5 houses (one for each level) and the two farmers seen from the front, walking and from the back
+  Object.assign(ART_SRC, {"house1": ["img/house1.webp", 560, 453], "house2": ["img/house2.webp", 560, 457], "house3": ["img/house3.webp", 560, 415], "house4": ["img/house4.webp", 560, 480], "house5": ["img/house5.webp", 560, 366], "boy_front": ["img/boy_front.webp", 160, 226], "boy_walk1": ["img/boy_walk1.webp", 160, 225], "boy_walk2": ["img/boy_walk2.webp", 160, 236], "boy_back": ["img/boy_back.webp", 160, 241], "boy_side": ["img/boy_side.webp", 160, 249], "girl_front": ["img/girl_front.webp", 160, 235], "girl_walk1": ["img/girl_walk1.webp", 160, 240], "girl_walk2": ["img/girl_walk2.webp", 160, 246], "girl_back": ["img/girl_back.webp", 160, 254], "girl_side": ["img/girl_side.webp", 160, 251]});
+  // walking away: the back picture with the left / the right foot lifted
+  Object.assign(ART_SRC, {"boy_backA": ["img/boy_backa.webp", 160, 241], "boy_backB": ["img/boy_backb.webp", 160, 241], "girl_backA": ["img/girl_backa.webp", 160, 254], "girl_backB": ["img/girl_backb.webp", 160, 254]});
+  // carrot, wheat, tomato, cabbage and the empty fenced plot (second set of crop sheets)
+  Object.assign(ART_SRC, {"carrot_icon": ["img/carrot_icon.webp", 177, 158], "carrot_s0": ["img/carrot_s0.webp", 284, 225], "carrot_s1": ["img/carrot_s1.webp", 279, 224], "carrot_s2": ["img/carrot_s2.webp", 273, 234], "carrot_s3": ["img/carrot_s3.webp", 276, 252], "wheat_icon": ["img/wheat_icon.webp", 208, 257], "wheat_s0": ["img/wheat_s0.webp", 304, 250], "wheat_s1": ["img/wheat_s1.webp", 287, 240], "wheat_s2": ["img/wheat_s2.webp", 299, 257], "wheat_s3": ["img/wheat_s3.webp", 279, 263], "tomato_icon": ["img/tomato_icon.webp", 196, 156], "tomato_s0": ["img/tomato_s0.webp", 245, 193], "tomato_s1": ["img/tomato_s1.webp", 233, 192], "tomato_s2": ["img/tomato_s2.webp", 238, 235], "tomato_s3": ["img/tomato_s3.webp", 249, 240], "cabbage_icon": ["img/cabbage_icon.webp", 168, 149], "cabbage_s0": ["img/cabbage_s0.webp", 287, 218], "cabbage_s1": ["img/cabbage_s1.webp", 294, 228], "cabbage_s2": ["img/cabbage_s2.webp", 294, 234], "cabbage_s3": ["img/cabbage_s3.webp", 283, 240], "bed_empty": ["img/bed_empty.webp", 330, 261]});
+  // corn, strawberry and pumpkin: a fenced plot for every stage, and an icon
+  Object.assign(ART_SRC, {"corn_bag": ["img/corn_bag.webp", 248, 262], "corn_s0": ["img/corn_s0.webp", 319, 274], "corn_s1": ["img/corn_s1.webp", 330, 281], "corn_s2": ["img/corn_s2.webp", 305, 320], "corn_s3": ["img/corn_s3.webp", 324, 332], "straw_fruit": ["img/straw_fruit.webp", 188, 207], "straw_s0": ["img/straw_s0.webp", 265, 230], "straw_s1": ["img/straw_s1.webp", 265, 232], "straw_s2": ["img/straw_s2.webp", 273, 271], "straw_s3": ["img/straw_s3.webp", 286, 291], "pump_fruit": ["img/pump_fruit.webp", 177, 175], "pump_s0": ["img/pump_s0.webp", 243, 214], "pump_s1": ["img/pump_s1.webp", 237, 216], "pump_s2": ["img/pump_s2.webp", 245, 251], "pump_s3": ["img/pump_s3.webp", 251, 278]});
+  const ART = {};
+  Object.entries(ART_SRC).forEach(([k, [src, w, h]]) => { const im = new Image(); im.src = src; ART[k] = { im, w, h }; });
+  const ready = (k) => ART[k] && ART[k].im.complete && ART[k].im.naturalWidth > 0;
+  // draws picture k, w wide, with its point (ax, ay) (0..1 of the picture) at (x, y)
+  function art(k, x, y, w, ax = 0.5, ay = 1, flip = false) {
+    const a = ART[k], h = (w * a.h) / a.w;
+    g.save(); g.translate(x, y); if (flip) g.scale(-1, 1);
+    g.drawImage(a.im, -ax * w, -ay * h, w, h); g.restore();
+  }
+  let g = ctx;                 // the canvas being drawn on (the farm or the house preview)
+  // Camera: closer than the whole island; drag to look around.
+  let CAM_S = 1.3;
+  const cam = { x: 186, y: 138 };
+  function clampCam() {
+    const hw = W / (2 * CAM_S), hh = H / (2 * CAM_S);
+    cam.x = Math.max(hw, Math.min(WORLD_W - hw, cam.x));
+    cam.y = Math.max(hh, Math.min(WORLD_H + 6 - hh, cam.y));
+  }
+  clampCam();
+  let L = (i, j, z = 0) => [OX + (i - j) * TW / 2, OY + (i + j) * TH / 2 - z];
+
+  function poly(pts, fill, stroke, lw = 0.8) {
+    g.beginPath(); pts.forEach(([x, y], n) => (n ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.lineJoin = "round"; g.stroke(); }
+  }
+  function circle(x, y, r, fill, stroke, lw = 0.7) {
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); }
+  }
+  function ellipse(x, y, rx, ry, fill, stroke, lw = 0.7) {
+    g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); }
+  }
+  const tile = (i, j, inset = 0) => {
+    const c = [(i + 0.5), (j + 0.5)];
+    const k = 0.5 - inset;
+    return [L(c[0] - k, c[1] - k), L(c[0] + k, c[1] - k), L(c[0] + k, c[1] + k), L(c[0] - k, c[1] + k)];
+  };
+
+  // ----- the island: grass checkerboard with an earth edge -----
+  function drawGround() {
+    // earth under the front edges
+    const e = 9;
+    poly([L(N, 0), L(N, N), L(0, N), [L(0, N)[0], L(0, N)[1] + e], [L(N, N)[0], L(N, N)[1] + e], [L(N, 0)[0], L(N, 0)[1] + e]], "#9a6a3f", OUT);
+    poly([L(N, N), L(0, N), [L(0, N)[0], L(0, N)[1] + e], [L(N, N)[0], L(N, N)[1] + e]], "#87592f");
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) poly(tile(i, j), (i + j) % 2 ? "#8fd35c" : "#86ca54");
+    poly([L(0, 0), L(N, 0), L(N, N), L(0, N)], null, OUT, 1);
+  }
+
+  // ----- a fence along an edge -----
+  function fence(from, to, n) {
+    if (ready("fence")) {
+      // one wooden panel per tile edge; the picture rises to the right, so it
+      // is flipped for the edges that go down to the right
+      for (let k = 0; k < n; k++) {
+        const a = L(from[0] + (to[0] - from[0]) * k / n, from[1] + (to[1] - from[1]) * k / n);
+        const b = L(from[0] + (to[0] - from[0]) * (k + 1) / n, from[1] + (to[1] - from[1]) * (k + 1) / n);
+        art("fence", (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 1, 22, 0.5, 0.8, b[0] > a[0]);
+      }
+      return;
+    }
+    for (let k = 0; k <= n; k++) {
+      const i = from[0] + (to[0] - from[0]) * k / n, j = from[1] + (to[1] - from[1]) * k / n;
+      const [x, y] = L(i, j);
+      if (k < n) {
+        const [x2, y2] = L(from[0] + (to[0] - from[0]) * (k + 1) / n, from[1] + (to[1] - from[1]) * (k + 1) / n);
+        g.strokeStyle = OUT; g.lineWidth = 2.6; g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x2, y2 - 5); g.stroke();
+        g.strokeStyle = "#e8c48a"; g.lineWidth = 1.4; g.stroke();
+      }
+      poly([[x - 1.3, y], [x + 1.3, y], [x + 1.3, y - 8], [x, y - 9.5], [x - 1.3, y - 8]], "#f0d29c", OUT, 0.6);
+    }
+  }
+
+  function tree(i, j, s = 1) {
+    const [x, y] = L(i, j);
+    if (ready("tree")) { ellipse(x, y, 11 * s, 4 * s, "rgba(40,70,20,0.2)"); art("tree", x, y + 2 * s, 36 * s, 0.47, 0.95); return; }
+    ellipse(x + 2, y + 1, 9 * s, 3.5 * s, "rgba(40,70,20,0.25)");
+    poly([[x - 1.6 * s, y], [x + 1.6 * s, y], [x + 1.2 * s, y - 10 * s], [x - 1.2 * s, y - 10 * s]], "#8a5a33", OUT, 0.6);
+    circle(x - 5 * s, y - 13 * s, 6 * s, "#4a9e3c", OUT); circle(x + 5 * s, y - 13 * s, 6 * s, "#4a9e3c", OUT);
+    circle(x, y - 19 * s, 7.5 * s, "#57b046", OUT);
+    circle(x - 2.5 * s, y - 21 * s, 2.4 * s, "rgba(255,255,255,0.25)");
+  }
+  function bush(i, j) {
+    const [x, y] = L(i, j);
+    if (ready("bush")) { art("bush", x, y + 2, 22, 0.46, 0.92); return; }
+    circle(x - 3, y - 3, 3.6, "#4a9e3c", OUT, 0.6); circle(x + 3, y - 3, 3.6, "#4a9e3c", OUT, 0.6); circle(x, y - 5.5, 4, "#57b046", OUT, 0.6);
+  }
+  function flower(i, j, c) {
+    const [x, y] = L(i, j);
+    g.strokeStyle = "#3c8a35"; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 4); g.stroke();
+    for (let a = 0; a < 5; a++) circle(x + Math.cos(a * 1.26) * 1.5, y - 4.5 + Math.sin(a * 1.26) * 1.5, 1.1, c);
+    circle(x, y - 4.5, 0.8, "#ffd84d");
+  }
+  function prop(k, i, j, w, ax = 0.5, ay = 0.92) { if (!ready(k)) return; const [x, y] = L(i, j); art(k, x, y, w, ax, ay); }
+  function stone(i, j) { const [x, y] = L(i, j); ellipse(x, y, 4, 2, "#d9cdb8", "#a08e72", 0.6); }
+  function mailbox(i, j) {
+    const [x, y] = L(i, j);
+    if (ready("mailbox")) { art("mailbox", x, y + 1, 15, 0.46, 0.95); return; }
+    g.fillStyle = "#8a5a33"; g.fillRect(x - 0.8, y - 9, 1.6, 9);
+    poly([[x - 4, y - 9], [x + 4, y - 9], [x + 4, y - 14], [x, y - 16], [x - 4, y - 14]], "#e2453a", OUT, 0.6);
+    g.fillStyle = "#ffd84d"; g.fillRect(x + 3.5, y - 16, 1, 4);
+  }
+  function scarecrow(i, j, t) {
+    const [x, y] = L(i, j);
+    const sway = Math.sin(t / 900) * 0.6;
+    g.strokeStyle = "#8a5a33"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 20); g.moveTo(x - 8, y - 14 + sway); g.lineTo(x + 8, y - 14 - sway); g.stroke();
+    poly([[x - 5, y - 16], [x + 5, y - 16], [x + 4, y - 8], [x - 4, y - 8]], "#4a8fe0", OUT, 0.6);
+    circle(x, y - 20, 3.6, "#f3dfb0", OUT, 0.6);
+    poly([[x - 6, y - 21.5], [x + 6, y - 21.5], [x + 2.5, y - 23.5], [x, y - 28], [x - 2.5, y - 23.5]], "#d9b56b", OUT, 0.6);
+  }
+  function pond(level, t) {
+    const [x, y] = L(2.2, 7.6);
+    ellipse(x, y, 30, 14, "#7fcbe8", OUT, 1);
+    ellipse(x, y - 1, 25, 10.5, "#9ad9ef");
+    g.strokeStyle = "rgba(255,255,255,0.8)"; g.lineWidth = 0.8;
+    for (let k = 0; k < 3; k++) { const ph = (t / 1200 + k / 3) % 1; g.beginPath(); g.ellipse(x - 10 + k * 10, y - 1, 3 + ph * 5, 1.2 + ph * 2, 0, 0, Math.PI * 2); g.globalAlpha = 1 - ph; g.stroke(); g.globalAlpha = 1; }
+    // lily pads, and ducks at the villa
+    ellipse(x + 12, y + 3, 3.5, 1.6, "#4cae4c"); ellipse(x - 15, y + 2, 3, 1.4, "#4cae4c");
+    if (level >= 5) {
+      const dx = Math.sin(t / 2000) * 8;
+      ellipse(x + dx, y - 1, 3.2, 2, "#ffffff", OUT, 0.5); circle(x + dx + 2.6, y - 3.2, 1.6, "#ffffff", OUT, 0.5);
+      poly([[x + dx + 4, y - 3.4], [x + dx + 5.6, y - 3], [x + dx + 4, y - 2.6]], "#f39a3c");
+    }
+  }
+
+  // ----- the house: one look for each level -----
+  // Q(i, j, z): a point of the house's own 3 x 3 grid, z pixels up.
+  function wallBox(Q, i0, j0, i1, j1, z0, z1, left, right) {
+    poly([Q(i0, j1, z0), Q(i1, j1, z0), Q(i1, j1, z1), Q(i0, j1, z1)], left, OUT, 0.8);   // front-left face
+    poly([Q(i1, j1, z0), Q(i1, j0, z0), Q(i1, j0, z1), Q(i1, j1, z1)], right, OUT, 0.8);  // front-right face
+  }
+  // a rectangle drawn flat on the front-left face (u along the face, z up)
+  function onLeft(Q, i0, i1, j1, u0, u1, z0, z1, fill, stroke) {
+    const a = (u) => i0 + (i1 - i0) * u;
+    poly([Q(a(u0), j1, z0), Q(a(u1), j1, z0), Q(a(u1), j1, z1), Q(a(u0), j1, z1)], fill, stroke || OUT, 0.6);
+  }
+  function onRight(Q, i1, j0, j1, u0, u1, z0, z1, fill, stroke) {
+    const b = (u) => j1 - (j1 - j0) * u;
+    poly([Q(i1, b(u0), z0), Q(i1, b(u1), z0), Q(i1, b(u1), z1), Q(i1, b(u0), z1)], fill, stroke || OUT, 0.6);
+  }
+  function hipRoof(Q, i0, j0, i1, j1, z, rise, o, c1, c2) {
+    const im = (i0 + i1) / 2, jm = (j0 + j1) / 2, top = Q(im, jm, z + rise);
+    poly([Q(i0 - o, j1 + o, z - 1), Q(i1 + o, j1 + o, z - 1), top], c1, OUT, 0.8);
+    poly([Q(i1 + o, j1 + o, z - 1), Q(i1 + o, j0 - o, z - 1), top], c2, OUT, 0.8);
+  }
+  function gableRoof(Q, i0, j0, i1, j1, z, rise, o, c1, c2, wallR) {
+    const jm = (j0 + j1) / 2;
+    poly([Q(i1, j1, z), Q(i1, j0, z), Q(i1, jm, z + rise)], wallR, OUT, 0.8);                    // gable end
+    poly([Q(i0 - o, j1 + o, z - 1.5), Q(i1 + o, j1 + o, z - 1.5), Q(i1 + o, jm, z + rise), Q(i0 - o, jm, z + rise)], c1, OUT, 0.8);
+    poly([Q(i1 + o, j1 + o, z - 1.5), Q(i1 + o, jm, z + rise), Q(i1 + o + 0.08, jm, z + rise - 1), Q(i1 + o + 0.08, j1 + o, z - 2.5)], c2, OUT, 0.6);
+  }
+  function window2(Q, side, a0, a1, b0, b1, z0, z1, u0, u1, frame) {
+    const f = side === "L" ? onLeft : onRight;
+    if (side === "L") { f(Q, a0, a1, b1, u0, u1, z0, z1, "#9fd8f2", frame); f(Q, a0, a1, b1, (u0 + u1) / 2 - 0.004, (u0 + u1) / 2 + 0.004, z0, z1, frame, frame); }
+    else { f(Q, a1, b0, b1, u0, u1, z0, z1, "#86c4e0", frame); f(Q, a1, b0, b1, (u0 + u1) / 2 - 0.004, (u0 + u1) / 2 + 0.004, z0, z1, frame, frame); }
+  }
+
+  function house(level, Q, t) {
+    // shadow
+    poly([Q(-0.2, 3.3), Q(3.3, 3.3), Q(3.3, -0.2)].concat([Q(-0.2, -0.2)]), "rgba(40,70,20,0.18)");
+    // level 2 (small cottage) and level 3 (main house) come from the asset sheet
+    // [width (in house tiles), point of the picture that sits on the middle of the house's ground]
+    const HOUSE_FIT = { 1: [1.12, 0.74], 2: [1.12, 0.74], 3: [1.16, 0.74], 4: [1.2, 0.76], 5: [1.42, 0.66] };
+    if (ready("house" + level)) {
+      const [fw, ay] = HOUSE_FIT[level], mid = Q(1.5, 1.5), wide = (Q(3, 0)[0] - Q(0, 3)[0]) * fw;
+      art("house" + level, mid[0], mid[1] + 3, wide, 0.5, ay);
+      return;
+    }
+    if (level === 1 && ready("hut")) {
+      // the bamboo hut sits on its own little grass base
+      const mid = Q(1.5, 1.5), wide = (Q(3, 0)[0] - Q(0, 3)[0]) * 1.02;
+      art("hut", mid[0], mid[1] + 4, wide, 0.5, 0.67);
+      return;
+    }
+    const pic = level === 2 ? "house_small" : level === 3 ? "house_main" : null;
+    if (pic && ready(pic)) {
+      const front = Q(3, 3), wide = (Q(3, 0)[0] - Q(0, 3)[0]) * (level === 2 ? 0.86 : 0.96);
+      art(pic, front[0], front[1] + 5, wide, 0.47, 1);
+      return;
+    }
+    if (level === 1) {
+      // bamboo hut on stilts, thatched roof
+      const i0 = 0.5, j0 = 0.5, i1 = 2.5, j1 = 2.5;
+      for (const [a, b] of [[i0, j1], [i1, j1], [i1, j0]]) { const p = Q(a, b); g.fillStyle = "#8a5a33"; g.fillRect(p[0] - 1, p[1] - 6, 2, 6); }
+      wallBox(Q, i0, j0, i1, j1, 5, 24, "#e2c27a", "#c9a55e");
+      g.strokeStyle = "rgba(120,80,30,0.45)"; g.lineWidth = 0.6;
+      for (let u = 0.1; u < 1; u += 0.1) { const p0 = Q(i0 + (i1 - i0) * u, j1, 5), p1 = Q(i0 + (i1 - i0) * u, j1, 24); g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke(); }
+      for (let u = 0.1; u < 1; u += 0.1) { const p0 = Q(i1, j1 - (j1 - j0) * u, 5), p1 = Q(i1, j1 - (j1 - j0) * u, 24); g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke(); }
+      onLeft(Q, i0, i1, j1, 0.4, 0.62, 5, 19, "#6b4423");
+      onRight(Q, i1, j0, j1, 0.35, 0.65, 12, 19, "#3a2a1a");
+      hipRoof(Q, i0, j0, i1, j1, 24, 22, 0.35, "#d9b04f", "#b88f35");
+      g.strokeStyle = "rgba(120,80,20,0.5)"; g.lineWidth = 0.6;
+      for (let k = 1; k < 6; k++) { const p = Q(i0 - 0.35 + k * 0.5, j1 + 0.35, 23), q = Q(1.5, 1.5, 46); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0] + (p[0] - q[0]) * 0.3, q[1] + (p[1] - q[1]) * 0.3); g.stroke(); }
+      // steps
+      poly([Q(1.1, j1 + 0.1, 0), Q(1.6, j1 + 0.1, 0), Q(1.6, j1 + 0.1, 5), Q(1.1, j1 + 0.1, 5)], "#a8743f", OUT, 0.5);
+      return;
+    }
+    if (level === 2) {
+      const i0 = 0.3, j0 = 0.3, i1 = 2.7, j1 = 2.7;
+      wallBox(Q, i0, j0, i1, j1, 0, 26, "#c98a4b", "#a8703a");
+      g.strokeStyle = "rgba(90,58,34,0.45)"; g.lineWidth = 0.6;
+      for (let z = 4; z < 26; z += 4) { let a = Q(i0, j1, z), b = Q(i1, j1, z); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); a = Q(i1, j1, z); b = Q(i1, j0, z); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }
+      onLeft(Q, i0, i1, j1, 0.42, 0.6, 0, 17, "#7a3f22");
+      circle(...Q(i0 + (i1 - i0) * 0.57, j1, 8), 0.7, "#ffd84d");
+      window2(Q, "L", i0, i1, j0, j1, 9, 18, 0.12, 0.3, "#f5ead6");
+      window2(Q, "R", i0, i1, j0, j1, 9, 18, 0.3, 0.6, "#f5ead6");
+      // chimney
+      const c = Q(2.2, 0.9, 30); poly([[c[0] - 2, c[1]], [c[0] + 2, c[1]], [c[0] + 2, c[1] - 12], [c[0] - 2, c[1] - 12]], "#9a5a3a", OUT, 0.6);
+      gableRoof(Q, i0, j0, i1, j1, 26, 18, 0.25, "#b5472b", "#8f3720", "#a8703a");
+      const sm = (t / 1500) % 1; circle(c[0] + sm * 4, c[1] - 14 - sm * 10, 2 + sm * 2.5, `rgba(240,240,240,${(0.7 * (1 - sm)).toFixed(2)})`);
+      return;
+    }
+    if (level === 3) {
+      const i0 = 0.1, j0 = 0.1, i1 = 2.9, j1 = 2.9;
+      wallBox(Q, i0, j0, i1, j1, 0, 30, "#f4e4c4", "#dcc8a2");
+      wallBox(Q, i0, j0, i1, j1, 0, 6, "#c7764a", "#a8603a");                 // brick base
+      onLeft(Q, i0, i1, j1, 0.42, 0.58, 0, 20, "#2f6fb5");
+      circle(...Q(i0 + (i1 - i0) * 0.555, j1, 10), 0.7, "#ffd84d");
+      window2(Q, "L", i0, i1, j0, j1, 11, 22, 0.1, 0.28, "#ffffff");
+      window2(Q, "L", i0, i1, j0, j1, 11, 22, 0.72, 0.9, "#ffffff");
+      window2(Q, "R", i0, i1, j0, j1, 11, 22, 0.25, 0.45, "#ffffff");
+      window2(Q, "R", i0, i1, j0, j1, 11, 22, 0.6, 0.8, "#ffffff");
+      onLeft(Q, i0, i1, j1, 0.08, 0.3, 8, 11, "#7a4a2a");                       // flower box
+      for (let k = 0; k < 4; k++) { const p = Q(i0 + (i1 - i0) * (0.11 + k * 0.055), j1, 12); circle(p[0], p[1], 1.2, ["#ff6f9f", "#ffd84d", "#ff6f9f", "#b99cf2"][k]); }
+      gableRoof(Q, i0, j0, i1, j1, 30, 20, 0.3, "#d4553a", "#a8402a", "#dcc8a2");
+      g.strokeStyle = "rgba(120,30,20,0.4)"; g.lineWidth = 0.6;
+      for (let k = 1; k < 5; k++) { const a = Q(i0 - 0.3, j1 + 0.3 - k * 0.37, 30 - 1.5 + k * 4.3), b = Q(i1 + 0.3, j1 + 0.3 - k * 0.37, 30 - 1.5 + k * 4.3); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }
+      return;
+    }
+    if (level === 4) {
+      const i0 = 0.1, j0 = 0.1, i1 = 2.9, j1 = 2.9;
+      wallBox(Q, i0, j0, i1, j1, 0, 26, "#f7efe0", "#ded2ba");
+      onLeft(Q, i0, i1, j1, 0.42, 0.58, 0, 18, "#7a4a2a");
+      window2(Q, "L", i0, i1, j0, j1, 9, 19, 0.1, 0.3, "#ffffff");
+      window2(Q, "L", i0, i1, j0, j1, 9, 19, 0.7, 0.9, "#ffffff");
+      window2(Q, "R", i0, i1, j0, j1, 9, 19, 0.2, 0.42, "#ffffff");
+      window2(Q, "R", i0, i1, j0, j1, 9, 19, 0.58, 0.8, "#ffffff");
+      // second floor, a little smaller, with a balcony
+      const a0 = 0.4, b0 = 0.4, a1 = 2.6, b1 = 2.6;
+      poly([Q(i0, j1, 26), Q(i1, j1, 26), Q(i1, j0, 26), Q(i0, j0, 26)], "#c9b99a", OUT, 0.6);
+      wallBox(Q, a0, b0, a1, b1, 26, 48, "#fbf5ea", "#e3d8c4");
+      window2(Q, "L", a0, a1, b0, b1, 32, 43, 0.15, 0.4, "#ffffff");
+      window2(Q, "L", a0, a1, b0, b1, 32, 43, 0.6, 0.85, "#ffffff");
+      window2(Q, "R", a0, a1, b0, b1, 32, 43, 0.35, 0.65, "#ffffff");
+      g.strokeStyle = OUT; g.lineWidth = 0.7;
+      for (let u = 0; u <= 1.001; u += 0.1) { const p = Q(i0 + (i1 - i0) * u, j1, 26), q = Q(i0 + (i1 - i0) * u, j1, 31); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); }
+      let p = Q(i0, j1, 31), q = Q(i1, j1, 31); g.lineWidth = 1.2; g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+      hipRoof(Q, a0, b0, a1, b1, 48, 18, 0.3, "#5a7bb5", "#46629a");
+      return;
+    }
+    // level 5: villa with columns, a tower and a flag
+    const i0 = 0, j0 = 0, i1 = 3, j1 = 3;
+    wallBox(Q, i0, j0, i1, j1, 0, 30, "#fffaf0", "#e8dcc6");
+    wallBox(Q, i0, j0, i1, j1, 30, 34, "#d9b25a", "#bf9a46");                   // gold band
+    onLeft(Q, i0, i1, j1, 0.4, 0.6, 0, 22, "#8a4a2a");
+    circle(...Q(i0 + (i1 - i0) * 0.5, j1, 21), 1.2, "#ffd84d");
+    window2(Q, "L", i0, i1, j0, j1, 11, 24, 0.08, 0.26, "#ffffff");
+    window2(Q, "L", i0, i1, j0, j1, 11, 24, 0.74, 0.92, "#ffffff");
+    window2(Q, "R", i0, i1, j0, j1, 11, 24, 0.12, 0.32, "#ffffff");
+    window2(Q, "R", i0, i1, j0, j1, 11, 24, 0.42, 0.62, "#ffffff");
+    window2(Q, "R", i0, i1, j0, j1, 11, 24, 0.72, 0.92, "#ffffff");
+    // porch with columns
+    for (const u of [0.32, 0.68]) { const b = Q(i0 + (i1 - i0) * u, j1 + 0.35, 0), tp = Q(i0 + (i1 - i0) * u, j1 + 0.35, 30); poly([[b[0] - 1.5, b[1]], [b[0] + 1.5, b[1]], [tp[0] + 1.5, tp[1]], [tp[0] - 1.5, tp[1]]], "#ffffff", OUT, 0.6); }
+    poly([Q(0.85, j1 + 0.55, 30), Q(2.15, j1 + 0.55, 30), Q(1.5, j1 + 0.55, 40)], "#fffaf0", OUT, 0.8);
+    hipRoof(Q, i0, j0, i1, j1, 34, 16, 0.3, "#3f9e8f", "#2f7f73");
+    // tower
+    wallBox(Q, 1.0, 1.0, 2.0, 2.0, 40, 58, "#fffaf0", "#e8dcc6");
+    window2(Q, "L", 1.0, 2.0, 1.0, 2.0, 46, 54, 0.3, 0.7, "#ffffff");
+    hipRoof(Q, 1.0, 1.0, 2.0, 2.0, 58, 16, 0.2, "#3f9e8f", "#2f7f73");
+    const top = Q(1.5, 1.5, 74);
+    g.strokeStyle = OUT; g.lineWidth = 0.8; g.beginPath(); g.moveTo(top[0], top[1]); g.lineTo(top[0], top[1] - 12); g.stroke();
+    const wave = Math.sin(t / 250) * 1.2;
+    poly([[top[0], top[1] - 12], [top[0] + 9, top[1] - 10 + wave], [top[0], top[1] - 7]], "#e2453a", OUT, 0.5);
+  }
+  const HOUSE_AT = [1, 1];
+  const Qfarm = (i, j, z = 0) => L(HOUSE_AT[0] + i, HOUSE_AT[1] + j, z);
+
+  // ----- crops -----
+  function plant(crop, x, y, stage, t, k) {
+    // stage: 0 seed, 1 sprout, 2 growing, 3 ripe
+    if (stage === 0) { circle(x - 1.5, y, 0.8, "#5a3a22"); circle(x + 1.2, y + 0.5, 0.8, "#5a3a22"); return; }
+    const sway = Math.sin(t / 700 + k) * 0.6;
+    const leaf = (dx, dy, len, ang, c = "#5cbf46") => {
+      g.save(); g.translate(x + dx, y + dy); g.rotate(ang + sway * 0.05);
+      g.beginPath(); g.ellipse(0, -len / 2, len * 0.28, len / 2, 0, 0, Math.PI * 2);
+      g.fillStyle = c; g.fill(); g.strokeStyle = "#2f7d32"; g.lineWidth = 0.5; g.stroke(); g.restore();
+    };
+    if (stage === 1) { leaf(-1, 0, 4, -0.6); leaf(1, 0, 4, 0.6); return; }
+    const big = stage === 3;
+    switch (crop) {
+      case "carrot":
+        if (big) { poly([[x - 2.2, y], [x + 2.2, y], [x, y + 3]], "#f2852c", OUT, 0.5); }
+        leaf(-1.5, 0, big ? 7 : 5, -0.5, "#4fb843"); leaf(0, 0, big ? 8 : 6, 0); leaf(1.5, 0, big ? 7 : 5, 0.5, "#4fb843");
+        break;
+      case "wheat": {
+        const c = big ? "#e8b84a" : "#9ccf55";
+        for (let n = -1; n <= 1; n++) {
+          g.strokeStyle = big ? "#c9962e" : "#5ca83a"; g.lineWidth = 0.8;
+          g.beginPath(); g.moveTo(x + n * 2, y); g.lineTo(x + n * 2.5 + sway, y - (big ? 11 : 8)); g.stroke();
+          ellipse(x + n * 2.5 + sway, y - (big ? 12 : 8.5), 1.3, big ? 3.2 : 2, c, OUT, 0.4);
+        }
+        break;
+      }
+      case "corn":
+        g.strokeStyle = "#3f9a3a"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x, y); g.lineTo(x + sway, y - (big ? 14 : 10)); g.stroke();
+        leaf(-1, -3, 7, -0.9); leaf(1, -5, 7, 0.9);
+        if (big) { ellipse(x + 2 + sway, y - 9, 1.7, 3.6, "#ffd84d", OUT, 0.5); leaf(2, -6, 4, 0.3, "#9ccf55"); }
+        break;
+      case "tomato":
+        circle(x, y - 4, 4.4, "#4caf43", "#2f7d32", 0.5);
+        if (big) { circle(x - 2, y - 3.5, 1.6, "#e2453a", OUT, 0.4); circle(x + 2, y - 5, 1.6, "#e2453a", OUT, 0.4); circle(x + 0.5, y - 1.8, 1.5, "#ef5d4a", OUT, 0.4); }
+        break;
+      case "strawberry":
+        ellipse(x, y - 2, 4.6, 2.6, "#4caf43", "#2f7d32", 0.5);
+        if (big) for (const [dx, dy] of [[-2.5, -1], [2, -2], [0, 0.4]]) { poly([[x + dx - 1.4, y + dy - 1.4], [x + dx + 1.4, y + dy - 1.4], [x + dx, y + dy + 1.4]], "#e2453a", OUT, 0.4); }
+        break;
+      case "pumpkin":
+        leaf(-3, 0, 5, -1.1); leaf(3, 0, 5, 1.1);
+        if (big) { ellipse(x, y - 2.6, 4.6, 3.4, "#f39a3c", OUT, 0.6); g.strokeStyle = "rgba(160,80,20,0.6)"; g.lineWidth = 0.5; g.beginPath(); g.moveTo(x, y - 5.8); g.lineTo(x, y + 0.6); g.stroke(); g.fillStyle = "#3f7d32"; g.fillRect(x - 0.5, y - 7.4, 1, 2); }
+        else circle(x, y - 2, 2, "#9ccf55", OUT, 0.5);
+        break;
+    }
+  }
+
+  function drawPlot(k, t) {
+    const [i, j] = PLOTS[k];
+    if (!unlocked(k)) {
+      // still grass: a dashed outline, a small lock and the level that opens it
+      g.setLineDash([2, 1.6]); poly(tile(i, j, 0.08), "rgba(255,255,255,0.12)", "rgba(90,58,34,0.45)", 0.7); g.setLineDash([]);
+      const [x, y] = L(i + 0.5, j + 0.5);
+      g.strokeStyle = "rgba(90,58,34,0.7)"; g.lineWidth = 0.8; g.beginPath(); g.arc(x, y - 2.4, 1.6, Math.PI, 0); g.stroke();
+      poly([[x - 2.4, y - 2.4], [x + 2.4, y - 2.4], [x + 2.4, y + 1], [x - 2.4, y + 1]], "rgba(255,248,236,0.85)", "rgba(90,58,34,0.7)", 0.6);
+      g.fillStyle = "rgba(90,58,34,0.85)"; g.font = "800 3.6px 'Nunito', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(plotLevel(k)), x, y - 0.6);
+      return;
+    }
+    if (ready("bed_empty")) { const [cx, cy] = L(i + 0.5, j + 0.5); art("bed_empty", cx, cy + 11, 37, 0.5, 1); return; }
+    const tl = tile(i, j, 0.06);
+    poly([tl[3], tl[2], tl[1], [tl[1][0], tl[1][1] + 3], [tl[2][0], tl[2][1] + 3], [tl[3][0], tl[3][1] + 3]], "#7a4a26", OUT, 0.6);
+    poly(tile(i, j, 0.06), "#a86f3e", OUT, 0.7);
+    poly(tile(i, j, 0.14), "#9a6236");
+    g.strokeStyle = "rgba(90,58,34,0.35)"; g.lineWidth = 0.6;
+    for (const f of [0.3, 0.5, 0.7]) { const a = L(i + 0.14, j + f), b = L(i + 0.86, j + f); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }
+  }
+  const RIPE_ART = { wheat: "wheat", tomato: "tomato", carrot: "carrot", cabbage: "cabbage" };
+  // crops drawn stage by stage: sown, sprouting, growing, ripe (the fence keeps the same size)
+  const STAGE_ART = {
+    carrot: { pics: ["carrot_s0", "carrot_s1", "carrot_s2", "carrot_s3"], base: 284 },
+    wheat: { pics: ["wheat_s0", "wheat_s1", "wheat_s2", "wheat_s3"], base: 304 },
+    tomato: { pics: ["tomato_s0", "tomato_s1", "tomato_s2", "tomato_s3"], base: 245 },
+    cabbage: { pics: ["cabbage_s0", "cabbage_s1", "cabbage_s2", "cabbage_s3"], base: 287 },
+    corn: { pics: ["corn_s0", "corn_s1", "corn_s2", "corn_s3"], base: 319 },
+    strawberry: { pics: ["straw_s0", "straw_s1", "straw_s2", "straw_s3"], base: 265 },
+    pumpkin: { pics: ["pump_s0", "pump_s1", "pump_s2", "pump_s3"], base: 243 },
+  };
+  const ICON_ART = { carrot: "carrot_icon", wheat: "wheat_icon", corn: "corn_bag", cabbage: "cabbage_icon", tomato: "tomato_icon", strawberry: "straw_fruit", pumpkin: "pump_fruit" };
+  function drawCrop(k, t) {
+    const p = S.plots[k];
+    if (!p || !unlocked(k)) return;
+    const [i, j] = PLOTS[k];
+    const gr = growth(p), stage = gr >= 1 ? 3 : gr < 0.12 ? 0 : gr < 0.55 ? 1 : 2;
+    const [cx, cy] = L(i + 0.5, j + 0.5);
+    const st = STAGE_ART[p.crop];
+    let pic = stage === 3 ? RIPE_ART[p.crop] : null, top = null;
+    if (st && ready(st.pics[stage])) {
+      const k2 = st.pics[stage], w = (37 * ART[k2].w) / st.base;
+      art(k2, cx, cy + 11, w, 0.5, 1);
+      top = cy + 11 - (w * ART[k2].h) / ART[k2].w;
+      pic = k2;
+    } else if (pic && ready(pic)) art(pic, cx, cy + 1, 34, 0.5, 0.6);
+    else if (!(st && ready(st.pics[stage]))) [[0.32, 0.3], [0.7, 0.3], [0.32, 0.7], [0.7, 0.7]].forEach(([a, b], n) => { const [x, y] = L(i + a, j + b); plant(p.crop, x, y, stage, t, k * 4 + n); });
+    // growth clock (style B): a ring that fills round like a clock hand;
+    // when ripe it turns gold, shows the crop and bobs
+    const ripeNow = stage === 3;
+    const bob = ripeNow ? Math.sin(t / 300 + k) * 1.5 : 0;
+    const x = cx, y = (top != null ? Math.min(cy - 19, top - 3) : cy - (pic ? 27 : 19)) + bob, r = ripeNow ? 6 : 4.4;   // small while growing, bigger when ripe
+    circle(x, y + 1, r + 1.6, "rgba(60,40,20,0.25)");
+    poly([[x - 2.2, y + r + 0.6], [x + 2.2, y + r + 0.6], [x, y + r + 3.6]], "#fff8ec", OUT, 0.6);
+    circle(x, y, r + 1.6, "#fff8ec", OUT, 0.7);
+    g.fillStyle = "#fff8ec"; g.fillRect(x - 1.8, y + r - 0.2, 3.6, 1.6);
+    g.lineWidth = ripeNow ? 2.2 : 1.8; g.strokeStyle = "#e6d3b0"; g.beginPath(); g.arc(x, y, r - 0.6, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = ripeNow ? "#ffc93c" : "#4cb06a"; g.lineCap = "round";
+    g.beginPath(); g.arc(x, y, r - 0.6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, gr)); g.stroke(); g.lineCap = "butt";
+    g.font = (ripeNow ? 6.4 : 4.4) + "px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(ripeNow ? CROPS[p.crop].em : "🌱", x, y + 0.4);
+    if (ripeNow) { const tw = (t / 400 + k) % 1; circle(x + 9, y + 4 - tw * 6, 1.1 * (1 - tw), `rgba(255,255,200,${(1 - tw).toFixed(2)})`); }
+  }
+
+  // ----- two farmers walking round the fields -----
+  // Stops round the fields, all outside the house: right of it, along the
+  // back of the fields, the right side, the front and up the left side.
+  // The farmers walk from stop to stop and turn back at the ends, so they
+  // never cut across the corner where the house stands.
+  const ROUTE = [[5.0, 3.45], [9.35, 3.45], [9.35, 8.7], [3.6, 8.7], [3.6, 4.6]];
+  const farmers = [
+    { who: "boy", leg: 0, to: null, k: 0, wait: 0, x: 5.0, y: 3.45, face: 1, jumpAt: -9, dir: 1 },
+    { who: "girl", leg: 3, to: null, k: 0, wait: 7, x: 3.6, y: 8.7, face: -1, jumpAt: -9, dir: -1 },
+  ];
+  function nextStop(f) {
+    let n = f.leg + f.dir;
+    if (n < 0 || n >= ROUTE.length) { f.dir = -f.dir; n = f.leg + f.dir; }
+    return n;
+  }
+  const FARMER_H = 27;
+  function moveFarmers(dt) {
+    farmers.forEach((f) => {
+      if (f.wait > 0) { f.wait -= dt; return; }
+      if (f.to == null) f.to = nextStop(f);
+      const a = ROUTE[f.leg], b = ROUTE[f.to];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      f.k += (dt * 0.6) / len;                     // tiles per second (a slow stroll)
+      f.walked = (f.walked || 0) + dt * 0.6;
+      if (f.k >= 1) { f.k = 0; f.leg = f.to; f.to = null; f.x = b[0]; f.y = b[1]; f.wait = 6 + Math.random() * 8; return; }   // long rests: the farmers walk only now and then
+      f.x = a[0] + (b[0] - a[0]) * f.k; f.y = a[1] + (b[1] - a[1]) * f.k;
+      const dx = L(b[0], b[1])[0] - L(a[0], a[1])[0], dy = L(b[0], b[1])[1] - L(a[0], a[1])[1];
+      if (Math.abs(dx) > 1) f.face = dx > 0 ? 1 : -1;
+      f.away = dy < -1;                            // walking up the screen: seen from the back
+      f.look = (dy < 0 ? "u" : "d") + (dx < 0 ? "l" : "r");   // which way the walking pictures face
+    });
+  }
+  function drawFarmer(f, t) {
+    const [x, y] = L(f.x, f.y);
+    // jumping for joy after a harvest (only once the turn to jump has come)
+    const jumping = t >= f.jumpAt && t - f.jumpAt < 600;
+    const walking = !jumping && f.wait <= 0;
+    const step = Math.floor(t / 180) % 2;
+    const frame = jumping ? "jump" : walking ? (step ? "walk" : "stand") : "stand";
+    let k = f.who + "_" + frame;
+    ellipse(x, y, 6, 2.2, "rgba(40,70,20,0.25)");
+    if (ready(f.who + "_front")) {
+      // new farmer pictures: front when standing, two steps when walking, back when walking away
+      // one step every 0.25 tile walked: legs apart (walk1) then together (front), same 3/4 angle;
+      // walking away there is only a back picture, so it rocks from foot to foot
+      const ph = ((f.walked || 0) / 0.25) % 2;          // 0..2 = two steps
+      const stepPart = ph % 1;                           // 0..1 inside one step
+      const legsApart = walking && stepPart < 0.5;
+      k = !walking ? f.who + "_front"
+        : f.away ? f.who + (legsApart ? (ph < 1 ? "_backA" : "_backB") : "_back")
+        : f.who + (legsApart ? "_walk1" : "_front");
+      const sc = 30 / ART[f.who + "_front"].h;
+      const bob = walking ? Math.sin(stepPart * Math.PI) * 1.4 : 0;     // up in the middle of each step
+      const rock = walking ? (ph < 1 ? 1 : -1) * Math.sin(stepPart * Math.PI) * 0.05 : 0;
+      g.save(); g.translate(x, y); g.rotate(rock);
+      const flip = f.away ? false : f.face < 0;
+      art(k, 0, -bob, ART[k].w * sc, 0.5, 0.97, flip);
+      g.restore();
+      return;
+    }
+    if (!ready(k)) return;
+    const base = ART[f.who + "_stand"];
+    const scale = FARMER_H / base.h;
+    const lift = jumping ? Math.sin(Math.PI * Math.min(1, (t - f.jumpAt) / 600)) * 10 : walking ? Math.abs(Math.sin(t / 180 * Math.PI)) * 1 : 0;
+    art(k, x, y - lift, ART[k].w * scale, 0.5, 0.97, f.face < 0);
+  }
+  function cheer() {}   // the farmers no longer jump after a harvest (removed on request)
+
+  // floating "+25" and "+1 🥕"
+  const floats = [];
+  function floatText(x, y, text, color) { floats.push({ x, y, text, color, at: performance.now() }); }
+
+  function draw(t) {
+    g = ctx; L = (i, j, z = 0) => [OX + (i - j) * TW / 2, OY + (i + j) * TH / 2 - z];
+    ctx.setTransform(ZOOM, 0, 0, ZOOM, 0, 0);
+    ctx.fillStyle = "#7cc25a"; ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(ZOOM * CAM_S, 0, 0, ZOOM * CAM_S, ZOOM * (W / 2 - cam.x * CAM_S), ZOOM * (H / 2 - cam.y * CAM_S));
+    // sky band and far hills
+    const sky = ctx.createLinearGradient(0, 0, 0, 90);
+    sky.addColorStop(0, "#9fdcfb"); sky.addColorStop(1, "#d8f2ff");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    ellipse(60, 92, 110, 34, "#a6d977"); ellipse(300, 96, 120, 36, "#94cf68");
+    ctx.fillStyle = "#7cc25a"; ctx.fillRect(0, 100, WORLD_W, WORLD_H - 100);
+    for (let n = 0; n < 4; n++) { const x = ((n * 110 + t / 120) % 460) - 50; circle(x, 22 + (n % 2) * 10, 7, "#ffffff"); circle(x + 9, 19 + (n % 2) * 10, 9, "#ffffff"); circle(x + 18, 23 + (n % 2) * 10, 6.5, "#ffffff"); }
+    drawGround();
+    // the path from the door to the fields
+    for (const [a, b] of [[2.4, 4.35], [2.6, 4.9], [3.0, 5.4], [3.6, 5.6]]) stone(a, b);
+    // flat things first: the plots
+    for (let k = 0; k < 20; k++) drawPlot(k, t);
+    if (S.level >= 4) pond(S.level, t);
+    // things that stand up, back to front
+    const things = [];
+    things.push({ d: 0.1, paint: () => { fence([0, 0], [N, 0], 10); fence([0, 0], [0, N], 10); } });
+    things.push({ d: 5, paint: () => house(S.level, Qfarm, t) });
+    things.push({ d: 5.0, paint: () => tree(0.5, 4.6) });
+    things.push({ d: 6.8, paint: () => tree(6.3, 0.6, 0.95) });
+    things.push({ d: 9.2, paint: () => tree(8.6, 0.7, 1.05) });
+    things.push({ d: 9.9, paint: () => tree(0.6, 9.3, 0.9) });
+    things.push({ d: 7.6, paint: () => mailbox(4.4, 3.2) });
+    things.push({ d: 16.05, paint: () => scarecrow(9.75, 6.3, t) });
+    // bamboo-hut bits from the new sheet
+    things.push({ d: 2.4, paint: () => prop("clothesline", 0.55, 1.8, 26, 0.32, 0.86) });
+    things.push({ d: 4.95, paint: () => prop("jar", 0.7, 4.2, 10, 0.46, 0.78) });
+    things.push({ d: 7.5, paint: () => prop("lantern", 4.3, 3.15, 7, 0.48, 0.86) });
+    things.push({ d: 7.4, paint: () => prop("rocks", 0.5, 6.9, 17, 0.46, 0.68) });
+    things.push({ d: 7.95, paint: () => prop("basket", 1.55, 6.35, 10, 0.49, 0.9) });
+    things.push({ d: 12.6, paint: () => prop("guide_sign", 3.2, 9.4, 18, 0.48, 0.92) });
+    things.push({ d: 6.6, paint: () => prop("well", 1.0, 5.6, 30, 0.49, 0.9) });
+    things.push({ d: 6.9, paint: () => prop("bench", 5.0, 1.9, 22, 0.43, 0.85) });
+    things.push({ d: 8.6, paint: () => prop("crate", 6.0, 2.6, 18, 0.47, 0.88) });
+    things.push({ d: 9.8, paint: () => prop("sign", 7.6, 2.2, 19, 0.4, 0.95) });
+    farmers.forEach((f) => things.push({ d: f.x + f.y + 0.6, paint: () => drawFarmer(f, t) }));
+    things.push({ d: 4.2, paint: () => bush(0.4, 3.0) });
+    things.push({ d: 10.5, paint: () => bush(9.6, 0.9) });
+    if (S.level >= 3) for (let n = 0; n < 6; n++) things.push({ d: 5.6 + n * 0.01, paint: () => flower(1.0 + n * 0.45, 4.6, ["#ff6f9f", "#ffd84d", "#b99cf2"][n % 3]) });
+    for (let k = 0; k < 20; k++) { const [i, j] = PLOTS[k]; things.push({ d: i + j + 1, paint: () => drawCrop(k, t) }); }
+    things.push({ d: 30, paint: () => { fence([N, 0], [N, N], 10); fence([0, N], [N, N], 10); tree(9.4, 9.4, 1.0); } });
+    things.sort((a, b) => a.d - b.d).forEach((x) => x.paint());
+    // floating rewards
+    for (let n = floats.length - 1; n >= 0; n--) {
+      const f = floats[n], k = (performance.now() - f.at) / 1100;
+      if (k >= 1) { floats.splice(n, 1); continue; }
+      ctx.globalAlpha = 1 - k * k;
+      ctx.font = "800 11px 'Baloo 2', 'Nunito', sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.lineWidth = 3; ctx.strokeStyle = "#ffffff"; ctx.strokeText(f.text, f.x, f.y - k * 22);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - k * 22);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // the house of a level on its own small canvas (for the upgrade sheet)
+  function drawPreview(level) {
+    const c = $("houseCv"), x = c.getContext("2d");
+    x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, c.width, c.height);
+    x.setTransform(3, 0, 0, 3, 0, 0);
+    const keepG = g, keepL = L;
+    g = x;
+    L = (i, j, z = 0) => [75 + (i - j) * TW / 2, 44 + (i + j) * TH / 2 - z];
+    poly([L(-0.6, -0.6), L(3.6, -0.6), L(3.6, 3.6), L(-0.6, 3.6)], "#86ca54", OUT, 0.8);
+    house(level, (i, j, z = 0) => L(i, j, z), performance.now());
+    g = keepG; L = keepL;
+  }
+
+  // ------------------------------------------------------------------
+  // Actions
+  // ------------------------------------------------------------------
+  let toastTimer = null;
+  function toast(text, bad) {
+    const el = $("toast"); el.textContent = text; el.className = "toast" + (bad ? " bad" : ""); el.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+  }
+  function addGold(n) {
+    S.gold += n;
+    const c = $("coins"); c.classList.remove("pop"); void c.offsetWidth; c.classList.add("pop");
+  }
+  const seedCost = (id) => CROPS[id].seed;
+  function plantAt(k, id) {
+    if (!unlocked(k) || S.plots[k]) return false;
+    if (S.gold < seedCost(id)) return false;
+    S.gold -= seedCost(id);
+    const dur = CROPS[id].min * 60000 * (S.level >= 3 ? 0.9 : 1);
+    S.plots[k] = { crop: id, at: now(), dur };
+    return true;
+  }
+  function harvest(k) {
+    const p = S.plots[k];
+    if (!ripe(p)) return false;
+    S.store[p.crop] = (S.store[p.crop] || 0) + 1;
+    S.harvested++;
+    const [i, j] = PLOTS[k], [x, y] = L(i + 0.5, j + 0.5);
+    floatText(x, y - 14, "+1 " + CROPS[p.crop].em, "#2f7d48");
+    S.plots[k] = null;
+    return true;
+  }
+  function sell(id, n) {
+    const have = S.store[id] || 0, m = Math.min(have, n);
+    if (!m) return 0;
+    S.store[id] = have - m;
+    const got = m * CROPS[id].sell;
+    addGold(got);
+    return got;
+  }
+
+  // the seed picker: for one plot, or for every empty plot
+  let seedTarget = null;   // plot index, or "all"
+  function openSeeds(target) {
+    seedTarget = target;
+    const empty = emptyPlots().length;
+    $("seedTitle").textContent = target === "all" ? `Gieo hạt cho ${empty} ô trống` : "Chọn hạt giống";
+    const ul = $("seedList"); ul.innerHTML = "";
+    CROP_IDS.forEach((id) => {
+      const c = CROPS[id], open = S.level >= c.lv;
+      const li = document.createElement("li"); if (!open) li.className = "off";
+      const time = c.min >= 60 ? `${c.min / 60} giờ` : `${c.min} phút`;
+      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${c.name}<small>${time} · hạt ${c.seed} vàng · bán ${c.sell} vàng (lời ${c.sell - c.seed})</small></span>`;
+      const b = document.createElement("button"); b.type = "button"; b.className = "mini primary";
+      b.textContent = !open ? `Nhà cấp ${c.lv}` : target === "all" ? `Gieo (${money(c.seed * Math.min(empty, Math.floor(S.gold / c.seed)))})` : `Gieo (${c.seed})`;
+      b.disabled = !open || S.gold < c.seed || (target === "all" && !empty);
+      b.addEventListener("click", () => {
+        if (seedTarget === "all") {
+          let n = 0; emptyPlots().forEach((k) => { if (plantAt(k, id)) n++; });
+          toast(n ? `Đã gieo ${n} ô ${c.name.toLowerCase()}` : "Không đủ vàng để gieo", !n);
+        } else if (plantAt(seedTarget, id)) toast(`Đã gieo ${c.name.toLowerCase()} · chín sau ${time}`);
+        else toast("Không đủ vàng để mua hạt", true);
+        beep(523, 0.08); save(); refresh(); $("seedSheet").hidden = true;
+      });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    $("seedSheet").hidden = false;
+  }
+  const iconHTML = (id) => ICON_ART[id] ? `<img src="${ART_SRC[ICON_ART[id]][0]}" alt="">` : CROPS[id].em;
+  const emptyPlots = () => S.plots.map((p, k) => (!p && unlocked(k) ? k : -1)).filter((k) => k >= 0);
+
+  function openStore() {
+    const ul = $("storeList"); ul.innerHTML = "";
+    let total = 0;
+    CROP_IDS.forEach((id) => {
+      const n = S.store[id] || 0;
+      if (!n) return;
+      total += n * CROPS[id].sell;
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${CROPS[id].name} × ${n}<small>${CROPS[id].sell} vàng mỗi phần · <span class="price">${money(n * CROPS[id].sell)}</span> vàng</small></span>`;
+      const b = document.createElement("button"); b.type = "button"; b.className = "mini primary"; b.textContent = "Bán";
+      b.addEventListener("click", () => { const got = sell(id, n); coinSound(); toast(`Bán ${n} ${CROPS[id].name.toLowerCase()} được ${money(got)} vàng`); save(); refresh(); openStore(); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    if (!ul.children.length) ul.innerHTML = `<li><span class="em">🧺</span><span class="nm">Kho đang trống<small>Thu hoạch cây chín để có nông sản đem bán.</small></span><span></span></li>`;
+    $("sellAllBtn").disabled = !total;
+    $("sellAllBtn").textContent = total ? `Bán tất cả · ${money(total)} vàng` : "Bán tất cả";
+    $("storeSheet").hidden = false;
+  }
+
+  function openHouse() {
+    const next = Math.min(MAX_LV, S.level + 1), h = HOUSES[next];
+    drawPreview(next);
+    if (S.level >= MAX_LV) {
+      $("nextName").textContent = "Biệt thự · cấp cao nhất";
+      $("nextPerks").textContent = "Nông trại của bạn đã to đẹp nhất rồi.";
+      $("upgradeBtn").disabled = true; $("upgradeBtn").textContent = "Đã đạt cấp cao nhất";
+    } else {
+      $("nextName").textContent = `Cấp ${next} · ${h.name}`;
+      $("nextPerks").textContent = h.perks;
+      $("upgradeBtn").disabled = S.gold < h.cost;
+      $("upgradeBtn").textContent = S.gold >= h.cost ? `Nâng cấp · ${money(h.cost)} vàng` : `Cần ${money(h.cost)} vàng (thiếu ${money(h.cost - S.gold)})`;
+    }
+    const ul = $("levelList"); ul.innerHTML = "";
+    for (let lv = 1; lv <= MAX_LV; lv++) {
+      const x = HOUSES[lv], li = document.createElement("li");
+      if (lv === S.level) li.className = "now";
+      li.innerHTML = `<span class="lv">${lv}</span><span class="nm">${x.name}<small>${x.perks}</small></span>` +
+        (lv <= S.level ? `<span class="ok">✓ Đã có</span>` : `<span class="price">${money(x.cost)}</span>`);
+      ul.appendChild(li);
+    }
+    $("houseSheet").hidden = false;
+  }
+  function upgrade() {
+    if (S.level >= MAX_LV) return;
+    const h = HOUSES[S.level + 1];
+    if (S.gold < h.cost) return;
+    S.gold -= h.cost; S.level++;
+    save(); refresh();
+    $("houseSheet").hidden = true;
+    const [x, y] = Qfarm(1.5, 1.5, 30);
+    floatText(x, y, "Nhà mới!", "#e2453a");
+    [523, 659, 784, 1047].forEach((f, n) => setTimeout(() => beep(f, 0.18), n * 140));
+    toast(`Đã lên ${h.name}! Mở thêm ${h.plots - HOUSES[S.level - 1].plots} ô đất`);
+  }
+
+  // tapping the farm
+  function tapFarm(e) {
+    const r = cv.getBoundingClientRect();
+    const sx = ((e.clientX - r.left) * W) / r.width, sy = ((e.clientY - r.top) * H) / r.height;
+    const x = cam.x + (sx - W / 2) / CAM_S, y = cam.y + (sy - H / 2) / CAM_S;
+    const a = (x - OX) / (TW / 2), b = (y - OY) / (TH / 2);
+    const fi = (a + b) / 2, fj = (b - a) / 2;
+    // the house (it stands up, so also its roof area)
+    const hb = Qfarm(1.5, 1.5);
+    if ((fi >= 1 && fi <= 4 && fj >= 1 && fj <= 4) || (Math.abs(x - hb[0]) < 34 && y < hb[1] + 10 && y > hb[1] - 70)) { openHouse(); return; }
+    const k = PLOTS.findIndex(([i, j]) => fi >= i && fi < i + 1 && fj >= j && fj < j + 1);
+    if (k < 0) return;
+    if (!unlocked(k)) { toast(`Ô đất này mở khi nhà lên cấp ${plotLevel(k)}`, true); return; }
+    const p = S.plots[k];
+    if (!p) { openSeeds(k); return; }
+    if (ripe(p)) { harvest(k); beep(784, 0.1); cheer(); save(); refresh(); return; }
+    toast(`${CROPS[p.crop].em} ${CROPS[p.crop].name}: còn ${left(p)} nữa là chín`);
+  }
+
+  // ------------------------------------------------------------------
+  // Screen text
+  // ------------------------------------------------------------------
+  function tip() {
+    const ripeN = S.plots.filter((p, k) => unlocked(k) && ripe(p)).length;
+    const empty = emptyPlots().length;
+    const items = Object.values(S.store).reduce((a, b) => a + b, 0);
+    const next = S.level < MAX_LV ? HOUSES[S.level + 1] : null;
+    if (ripeN) return `Có ${ripeN} ô chín rồi, chạm vào để thu hoạch nhé!`;
+    if (items) return `Kho đang có ${items} món nông sản, đem bán lấy vàng nào!`;
+    if (next && S.gold >= next.cost) return `Đủ vàng rồi! Chạm vào nhà để lên ${next.name}.`;
+    if (empty) return `Còn ${empty} ô đất trống, gieo hạt đi bạn ơi!`;
+    return "Cây đang lớn. Kéo để ngắm nông trại, lát nữa quay lại thu hoạch nhé.";
+  }
+  function refresh() {
+    $("hint").textContent = tip();
+    $("gold").textContent = money(S.gold);
+    $("houseChip").textContent = `Nhà cấp ${S.level} · ${HOUSES[S.level].name}`;
+    $("houseLv").textContent = "Cấp " + S.level;
+    if (S.level >= MAX_LV) { $("houseFill").style.width = "100%"; $("houseNext").textContent = "Tối đa"; }
+    else { const c = HOUSES[S.level + 1].cost; $("houseFill").style.width = Math.min(100, (S.gold / c) * 100).toFixed(1) + "%"; $("houseNext").textContent = `${money(Math.min(S.gold, c))}/${money(c)}`; }
+    $("plotChip").textContent = `${HOUSES[S.level].plots}/20 ô đất`;
+    const ripeN = S.plots.filter((p, k) => unlocked(k) && ripe(p)).length;
+    $("ripeTxt").textContent = `${ripeN} ô chín`;
+    const items = Object.values(S.store).reduce((a, b) => a + b, 0);
+    $("storeTxt").textContent = `${items} món`;
+    $("houseTxt").textContent = S.level >= MAX_LV ? "cấp tối đa" : `${money(HOUSES[S.level + 1].cost)} vàng`;
+    $("fastBtn").textContent = `⏩ Tua nhanh ×${FAST}: ${S.fast ? "bật" : "tắt"}`;
+    $("fastBtn").classList.toggle("on", S.fast);
+    $("fastBtn").setAttribute("aria-pressed", String(S.fast));
+  }
+  let lastRipe = -1;
+  function tick() {
+    const d = new Date(now());
+    $("clockChip").textContent = (S.fast ? "⏩ " : "") + d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    const ripeN = S.plots.filter((p, k) => unlocked(k) && ripe(p)).length;
+    if (ripeN !== lastRipe) { lastRipe = ripeN; refresh(); }
+  }
+
+  // ------------------------------------------------------------------
+  // Buttons
+  // ------------------------------------------------------------------
+  // a tap opens or harvests; a drag moves the view
+  let drag = null;
+  cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const r = cv.getBoundingClientRect(), k = W / r.width / CAM_S;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+    if (drag.moved) { cam.x = drag.cx - dx * k; cam.y = drag.cy - dy * k; clampCam(); }
+  });
+  cv.addEventListener("pointerup", (e) => { if (drag && !drag.moved) tapFarm(e); drag = null; });
+  cv.addEventListener("pointercancel", () => { drag = null; });
+  $("plantAllBtn").addEventListener("click", () => { if (!emptyPlots().length) { toast("Không còn ô đất trống", true); return; } openSeeds("all"); });
+  $("harvestAllBtn").addEventListener("click", () => {
+    let n = 0; S.plots.forEach((p, k) => { if (unlocked(k) && harvest(k)) n++; });
+    if (n) { beep(784, 0.1); setTimeout(() => beep(988, 0.12), 90); cheer(); toast(`Đã thu hoạch ${n} ô, nông sản vào kho`); save(); refresh(); }
+    else toast("Chưa có ô nào chín", true);
+  });
+  $("storeBtn").addEventListener("click", openStore);
+  $("sellAllBtn").addEventListener("click", () => {
+    let got = 0; CROP_IDS.forEach((id) => { got += sell(id, S.store[id] || 0); });
+    if (got) { coinSound(); toast(`Bán hết được ${money(got)} vàng`); floatText(cam.x, cam.y - 30, "+" + money(got) + " vàng", "#b8860b"); }
+    save(); refresh(); $("storeSheet").hidden = true;
+  });
+  $("houseBtn").addEventListener("click", openHouse);
+  $("upgradeBtn").addEventListener("click", () => upgrade());
+  // ----- Hội thao: daily cups pay gold into the farm -----
+  const SPORT_GOLD = [0, 500, 350, 250];            // by final place; 4th to 6th get 150
+  const FULL_CUPS = 2;                              // full reward for the first 2 cups of a day
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+  const cupsToday = () => (S.cups && S.cups.day === today() ? S.cups.n : 0);
+  function drawSport() {
+    const n = cupsToday(), left = Math.max(0, FULL_CUPS - n);
+    $("sportTxt").textContent = left ? `còn ${left} giải thưởng đủ hôm nay` : "hôm nay chỉ còn thưởng 20%";
+    $("sportToday").textContent = `Hôm nay bạn đã đấu ${n} giải. ` + (left ? `Còn ${left} giải được thưởng đủ.` : "Từ giờ mỗi giải chỉ được 20% tiền thưởng.");
+    $("sportCount").textContent = `Hôm nay: ${n} giải`;
+  }
+  function openSport() {
+    $("sportSheet").hidden = true;
+    const f = $("sportFrame");
+    if (!f.getAttribute("src")) f.setAttribute("src", "hoithao.html");
+    drawSport();
+    $("sportWrap").hidden = false;
+  }
+  function closeSport() { $("sportWrap").hidden = true; $("rewardPop").hidden = true; refresh(); drawSport(); }
+  window.addEventListener("message", (e) => {
+    const m = e.data;
+    if (!m || m.type !== "hoithao-cup" || e.source !== $("sportFrame").contentWindow) return;
+    const n = cupsToday();
+    const base = SPORT_GOLD[m.place] || 150;
+    const share = n < FULL_CUPS ? 1 : 0.2;
+    const withFriends = m.friends > 0;
+    const gold = Math.round(base * share * (withFriends ? 1.5 : 1));
+    S.cups = { day: today(), n: n + 1 };
+    addGold(gold); save(); refresh(); drawSport();
+    $("rewardMedal").textContent = ["", "🥇", "🥈", "🥉"][m.place] || "🏃";
+    $("rewardMsg").textContent = `Bạn về hạng ${m.place}/${m.players} với ${m.points} điểm!`;
+    $("rewardGold").textContent = "+" + money(gold);
+    $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${base} vàng` + (share < 1 ? ` · giải thứ ${n + 1} hôm nay nên còn 20%` : ` · giải ${n + 1}/${FULL_CUPS} được thưởng đủ`) + (withFriends ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+    $("rewardPop").hidden = false;
+    coinSound();
+  });
+  $("sportBtn").addEventListener("click", () => { drawSport(); $("sportSheet").hidden = false; });
+  $("sportGo").addEventListener("click", openSport);
+  $("sportBack").addEventListener("click", closeSport);
+  $("rewardHome").addEventListener("click", closeSport);
+  $("rewardStay").addEventListener("click", () => { $("rewardPop").hidden = true; });
+  $("fastBtn").addEventListener("click", () => { S.fast = !S.fast; save(); refresh(); toast(S.fast ? "Thời gian trôi nhanh gấp 60 lần" : "Thời gian về bình thường"); });
+  $("resetBtn").addEventListener("click", () => { $("resetSheet").hidden = false; });
+  $("resetNo").addEventListener("click", () => { $("resetSheet").hidden = true; });
+  $("resetYes").addEventListener("click", () => { S = fresh(); save(); refresh(); $("resetSheet").hidden = true; toast("Bắt đầu lại với chòi tre và 300 vàng"); });
+  for (const [sheet, close] of [["seedSheet", "seedClose"], ["storeSheet", "storeClose"], ["houseSheet", "houseClose"], ["sportSheet", "sportClose"]]) {
+    $(close).addEventListener("click", () => { $(sheet).hidden = true; });
+    $(sheet).addEventListener("click", (e) => { if (e.target.id === sheet) $(sheet).hidden = true; });
+  }
+
+  // ------------------------------------------------------------------
+  // Main loop
+  // ------------------------------------------------------------------
+  let lastT = performance.now(), saveAt = 0;
+  function frame(t) {
+    const dt = Math.min(0.25, (t - lastT) / 1000); lastT = t;
+    if (S.fast) S.offset += dt * 1000 * (FAST - 1);
+    moveFarmers(dt);
+    draw(t);
+    if (t - saveAt > 2000) { saveAt = t; tick(); if (S.fast) save(); }
+    requestAnimationFrame(frame);
+  }
+  // pictures in the buttons, the coin, the farmer's face
+  function putArt() {
+    document.querySelectorAll("[data-art]").forEach((el) => {
+      const k = el.dataset.art;
+      if (ART[k]) { el.textContent = ""; const im = document.createElement("img"); im.src = ART_SRC[k][0]; im.alt = ""; el.appendChild(im); }
+    });
+    const c = document.createElement("img"); c.src = ART_SRC.ic_coin[0]; c.alt = ""; $("coinIc").replaceWith(c);
+    const f = document.createElement("img"); f.src = ART_SRC.ui_farmer[0]; f.alt = "Bác nông dân"; $("tipFace").replaceWith(f);
+    const rc = document.createElement("img"); rc.src = ART_SRC.ic_coin[0]; rc.alt = ""; $("rewardCoin").replaceWith(rc);
+    for (const [id, k] of [["pAva", "boy_front"], ["noteFace", "ui_farmer"]]) {
+      if (!ART_SRC[k]) continue;
+      const im = document.createElement("img"); im.src = ART_SRC[k][0]; im.alt = "";
+      if (id === "pAva") $(id).appendChild(im); else $(id).replaceWith(im);
+    }
+  }
+  putArt();
+  function ripeNotice() {
+    const ripeList = S.plots.filter((p, k) => unlocked(k) && ripe(p));
+    if (!ripeList.length) return;
+    const count = {}; ripeList.forEach((p) => { count[p.crop] = (count[p.crop] || 0) + 1; });
+    const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    const box = $("ripeArt"); box.innerHTML = "";
+    const ripePic = (STAGE_ART[top] && STAGE_ART[top].pics[3]) || RIPE_ART[top];
+    if (ripePic) { const im = document.createElement("img"); im.src = ART_SRC[ripePic][0]; im.alt = CROPS[top].name; box.appendChild(im); }
+    else box.innerHTML = `<span style="font-size:64px;line-height:1">${CROPS[top].em}</span>`;
+    const parts = Object.entries(count).map(([c, n]) => `${n} ô ${CROPS[c].name.toLowerCase()}`).join(", ");
+    $("ripeMsg").textContent = `Bạn có ${parts} sẵn sàng thu hoạch!`;
+    $("ripePop").hidden = false;
+  }
+  $("ripeLater").addEventListener("click", () => { $("ripePop").hidden = true; });
+  $("ripeGo").addEventListener("click", () => { $("ripePop").hidden = true; $("harvestAllBtn").click(); });
+  if (!APP) setTimeout(ripeNotice, 900);
+  refresh(); tick(); drawSport();
+  if (document.fonts && document.fonts.load) document.fonts.load("800 11px 'Baloo 2'").catch(() => {});
+  requestAnimationFrame(frame);
+
+  // ------------------------------------------------------------------
+  // Inside MayChat: the farm lives on the server. Every action shows at
+  // once on screen, then the server's answer replaces the farm (the server
+  // is the judge of gold and of time).
+  // ------------------------------------------------------------------
+  if (APP) (() => {
+    document.documentElement.classList.add("in-app");
+    const bridge = window.MayChatGame;
+    const mc = (window.__mc = window.__mc || {});
+
+    // ---- talking to the app: call(id, method, args) -> __mc.done(id, answer)
+    const waiting = new Map();
+    let nextId = 1;
+    mc.done = (id, text) => {
+      const w = waiting.get(id);
+      if (!w) return;
+      waiting.delete(id);
+      let r = null;
+      try { r = typeof text === "string" ? JSON.parse(text) : text; } catch (e) {}
+      if (r && r.ok) w.ok(r.data); else w.fail(new Error((r && r.error) || "error"));
+    };
+    const api = (method, args) => new Promise((ok, fail) => {
+      const id = nextId++;
+      waiting.set(id, { ok, fail });
+      try { bridge.call(id, method, JSON.stringify(args || {})); } catch (e) { waiting.delete(id); fail(e); }
+    });
+    const ERR = {
+      not_enough_gold: "Không đủ vàng",
+      crop_locked: "Hạt này cần nhà cấp cao hơn",
+      max_level: "Nhà đã ở cấp cao nhất",
+      cup_too_soon: "Giải vừa rồi đã được tính, đợi một lát",
+      bad_name: "Tên nông trại cần 2–20 ký tự",
+    };
+    const errText = (e) => {
+      const m = String((e && e.message) || "");
+      for (const k in ERR) if (m.includes(k)) return ERR[k];
+      return "Không kết nối được máy chủ, thử lại sau";
+    };
+
+    // ---- the server's farm -> the screen
+    let profile = { name: "", avatar: null };
+    let farm = null;                       // { name, farmer } once the farm exists
+    const pic = (k) => (ART_SRC[k] ? ART_SRC[k][0] : "");
+    function showCard() {
+      if (!farm) return;
+      const b = document.querySelector(".pinfo b");
+      if (b) b.textContent = "Nông trại " + farm.name;
+      const ava = $("pAva");
+      ava.className = "avawrap"; ava.innerHTML = "";
+      const acct = document.createElement("span"); acct.className = "acct";
+      acct.setAttribute("aria-label", "Ảnh đại diện tài khoản MayChat");
+      if (profile.avatar) { const im = document.createElement("img"); im.src = profile.avatar; im.alt = ""; acct.appendChild(im); }
+      else acct.textContent = ((profile.name || farm.name || "?").trim()[0] || "?").toUpperCase();
+      const badge = document.createElement("img"); badge.className = "badge"; badge.alt = ""; badge.src = pic(farm.farmer + "_front");
+      ava.appendChild(acct); ava.appendChild(badge);
+    }
+    function apply(st) {
+      if (!st) return;
+      const plots = Array.isArray(st.plots) ? st.plots.slice(0, 20) : [];
+      while (plots.length < 20) plots.push(null);
+      S.plots = plots.map((x) => (x && x.crop && CROPS[x.crop] ? { crop: x.crop, at: Number(x.at), dur: Number(x.dur) } : null));
+      S.gold = Number(st.gold) || 0;
+      S.level = Math.min(MAX_LV, Math.max(1, Number(st.level) || 1));
+      S.store = st.store || {};
+      S.harvested = st.harvested || 0;
+      S.offset = (Number(st.server_now) || Date.now()) - Date.now();   // the farm's clock = the server's clock
+      S.fast = false;
+      S.cups = { day: today(), n: st.cups_today || 0 };
+      farm = { name: st.name, farmer: st.farmer };
+      lastRipe = -1;
+      showCard(); refresh(); tick(); drawSport(); setAlarm();
+    }
+    // the phone rings when the next crop is ripe (the app sets the alarm)
+    function setAlarm() {
+      const t = now();
+      let soon = 0;
+      S.plots.forEach((p, k) => { if (p && unlocked(k)) { const r = p.at + p.dur; if (r > t && (!soon || r < soon)) soon = r; } });
+      try { bridge.setRipeAlarm(String(soon ? Math.round(soon - S.offset) : 0)); } catch (e) {}
+    }
+
+    // ---- actions go to the server one after another
+    let chain = Promise.resolve(), busy = 0;
+    function reload() { return api("farm_get", {}).then((st) => { if (!busy) apply(st); }, () => {}); }
+    function send(method, args, then) {
+      busy++;
+      chain = chain.then(() => api(method, args)).then(
+        (st) => { busy--; if (!busy) apply(st); if (then) then(st, null); },
+        (e) => { busy--; toast(errText(e), true); if (then) then(null, e); return reload(); },
+      );
+      return chain;
+    }
+    // what was done in one tap goes in one request
+    let todo = { harvest: [], sell: {}, plant: {} }, flushT = 0;
+    function flush() {
+      clearTimeout(flushT); flushT = 0;
+      const t = todo; todo = { harvest: [], sell: {}, plant: {} };
+      if (t.harvest.length) send("farm_harvest", { plots: t.harvest });
+      for (const crop in t.sell) send("farm_sell", { crop, n: t.sell[crop] });
+      for (const crop in t.plant) send("farm_plant", { plots: t.plant[crop], crop });
+    }
+    const soon = () => { if (!flushT) flushT = setTimeout(flush, 0); };
+    const plantLocal = plantAt, harvestLocal = harvest, sellLocal = sell, upgradeLocal = upgrade;
+    plantAt = (k, id) => { const ok = plantLocal(k, id); if (ok) { (todo.plant[id] = todo.plant[id] || []).push(k); soon(); } return ok; };
+    harvest = (k) => { const ok = harvestLocal(k); if (ok) { todo.harvest.push(k); soon(); } return ok; };
+    sell = (id, n) => { const got = sellLocal(id, n); if (got) { todo.sell[id] = (todo.sell[id] || 0) + got / CROPS[id].sell; soon(); } return got; };
+    upgrade = () => { const lv = S.level; upgradeLocal(); if (S.level > lv) { flush(); send("farm_upgrade", {}); } };
+
+    // ---- Hội thao: the server pays the gold of a cup
+    window.addEventListener("message", (e) => {
+      const m = e.data;
+      if (!m || m.type !== "hoithao-cup" || e.source !== $("sportFrame").contentWindow) return;
+      flush();
+      $("rewardNote").textContent = "Đang cộng vàng vào nông trại…";
+      send("farm_cup", { place: m.place, players: m.players, friends: m.friends || 0 }, (st, err) => {
+        if (err || !st || !st.reward) {
+          $("rewardGold").textContent = "+0";
+          $("rewardNote").textContent = errText(err) + ". Giải này chưa được cộng vàng.";
+          return;
+        }
+        const r = st.reward, share = Number(r.share);
+        $("rewardGold").textContent = "+" + money(r.gold);
+        $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${r.base} vàng` +
+          (share >= 1 ? ` · giải ${r.n}/${FULL_CUPS} được thưởng đủ` : share > 0 ? ` · giải thứ ${r.n} hôm nay nên còn 20%` : " · đã quá 10 giải hôm nay nên không còn thưởng") +
+          (m.friends > 0 && r.gold > 0 ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+      });
+    });
+
+    // ---- 30 pictures a second are enough for the farm (saves battery)
+    const drawAll = draw;
+    let lastDraw = -99;
+    draw = (t) => { if (t - lastDraw < 30) return; lastDraw = t; drawAll(t); };
+
+    // ---- first visit: name the farm and pick the farmer (also to change them later)
+    const IDEAS = ["Hoa Hướng Dương", "Cánh Đồng Vàng", "Vườn Cà Rốt", "Gió Đồng Quê", "Bình Minh Xanh", "Mùa Lúa Chín", "Đồi Cỏ May"];
+    let who = "boy", editing = false;
+    document.querySelectorAll("#setupWrap img[data-k]").forEach((im) => { im.src = pic(im.dataset.k); });
+    const cleanName = () => $("farmName").value.trim().replace(/\s+/g, " ");
+    function checkName() {
+      const v = cleanName(), ok = v.length >= 2 && v.length <= 20;
+      $("nameCount").textContent = v.length + "/20";
+      $("nameMsg").textContent = !v.length ? "2–20 ký tự, bạn bè sẽ thấy tên này." : ok ? "Tên đẹp đó!" : "Tên cần ít nhất 2 ký tự.";
+      $("nameMsg").className = v.length && !ok ? "err" : "";
+      $("setupGo").disabled = !ok;
+      return ok ? v : null;
+    }
+    function pickWho(w) { who = w; document.querySelectorAll(".su-pick").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.who === w))); }
+    function openSetup(edit) {
+      editing = edit;
+      $("setupTitle").textContent = edit ? "Đổi tên nông trại" : "Chào mừng tới Nông trại!";
+      $("setupSub").textContent = edit ? "Đổi tên hoặc bác nông dân" : "Đặt tên và chọn bác nông dân của bạn";
+      $("setupGift").hidden = edit;
+      $("setupCancel").hidden = !edit;
+      $("setupBtns").classList.toggle("one", !edit);
+      $("setupGo").textContent = edit ? "Lưu" : "Bắt đầu";
+      $("farmName").value = edit && farm ? farm.name : "";
+      pickWho(edit && farm ? farm.farmer : "boy");
+      checkName();
+      $("setupWrap").hidden = false;
+    }
+    $("farmName").addEventListener("input", checkName);
+    $("dice").addEventListener("click", () => { $("farmName").value = IDEAS[Math.floor(Math.random() * IDEAS.length)]; checkName(); });
+    document.querySelectorAll(".su-pick").forEach((b) => b.addEventListener("click", () => pickWho(b.dataset.who)));
+    $("setupCancel").addEventListener("click", () => { $("setupWrap").hidden = true; });
+    $("setupForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = checkName();
+      if (!name) return;
+      $("setupGo").disabled = true;
+      const wasEditing = editing;
+      api(wasEditing ? "farm_rename" : "farm_create", { name, farmer: who }).then((st) => {
+        $("setupWrap").hidden = true;
+        apply(st);
+        if (wasEditing) toast("Đã đổi tên nông trại");
+        else { toast(`Chào mừng tới Nông trại ${st.name}!`); setTimeout(ripeNotice, 1500); }
+      }, (err) => {
+        $("setupGo").disabled = false;
+        $("nameMsg").textContent = errText(err); $("nameMsg").className = "err";
+      });
+    });
+    document.querySelector(".pcard").addEventListener("click", () => { if (farm) openSetup(true); });
+
+    // ---- opening, coming back, leaving
+    const leave = () => { try { bridge.close(); } catch (e) {} };
+    $("exitBtn").addEventListener("click", leave);
+    $("bootExit").addEventListener("click", leave);
+    function start() {
+      $("bootMsg").textContent = "Đang mở nông trại…";
+      $("bootRetry").disabled = true;
+      $("bootWrap").hidden = false;
+      Promise.all([api("profile", {}).catch(() => null), api("farm_get", {})]).then(([pr, st]) => {
+        if (pr) profile = pr;
+        $("bootWrap").hidden = true;
+        if (st) { apply(st); setTimeout(ripeNotice, 600); }
+        else openSetup(false);
+      }, (e) => {
+        $("bootMsg").textContent = errText(e);
+        $("bootRetry").disabled = false;
+      });
+    }
+    $("bootRetry").addEventListener("click", start);
+    // the app is back on screen: time has passed, ask the server again
+    mc.resume = () => { if (farm && !busy) reload(); };
+    // the phone's Back button: close what is open first; false = leave the game
+    mc.back = () => {
+      if (!$("rewardPop").hidden) { $("rewardPop").hidden = true; return true; }
+      if (!$("sportWrap").hidden) { closeSport(); return true; }
+      for (const id of ["seedSheet", "storeSheet", "houseSheet", "sportSheet", "ripePop"]) if (!$(id).hidden) { $(id).hidden = true; return true; }
+      if (!$("setupWrap").hidden && editing) { $("setupWrap").hidden = true; return true; }
+      return false;
+    };
+    start();
+  })();
+
+  // Landscape on a phone: the farm fills the whole screen. The canvas takes
+  // the shape of the screen (sharp up to 2 pixels per dot) and shows a
+  // little more of the farm; drag to see the rest. Upright: as before.
+  const LAND = window.matchMedia("(orientation: landscape) and (max-height: 620px)");
+  function fitCanvas() {
+    const r = cv.getBoundingClientRect();
+    if (LAND.matches && r.width > 0 && r.height > 0) {
+      W = 360; H = Math.round(W * r.height / r.width);
+      ZOOM = Math.min(6, Math.max(2, (r.width * Math.min(2, window.devicePixelRatio || 1)) / W));
+      CAM_S = 1.1;
+    } else { W = 360; H = 280; ZOOM = 3; CAM_S = 1.3; }
+    const cw = Math.round(W * ZOOM), ch = Math.round(H * ZOOM);
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    clampCam();
+  }
+  window.addEventListener("resize", fitCanvas);
+  if (LAND.addEventListener) LAND.addEventListener("change", fitCanvas);
+  fitCanvas();
+  // test hook (demo only): lets an automatic check look at the farm
+  window.__farm = { get state() { return S; }, set level(v) { S.level = v; refresh(); } };
+})();
+</script>
+
+</body>
+</html>

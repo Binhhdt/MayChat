@@ -1060,6 +1060,20 @@ object ChatRepository {
     suspend fun downloadAvatar(path: String): ByteArray =
         supabase.storage.from(AVATAR_BUCKET).downloadAuthenticated(path)
 
+    // ------------------------------------------------------------------
+    // Farm game (supabase_migration_31_farm.sql). Only the farm_ functions
+    // can be called; the answer is the farm as JSON text ("null" = no farm).
+    // ------------------------------------------------------------------
+    private val farmFunctions = setOf(
+        "farm_get", "farm_create", "farm_rename", "farm_plant",
+        "farm_harvest", "farm_sell", "farm_upgrade", "farm_cup",
+    )
+
+    suspend fun farmCall(function: String, params: JsonObject): String {
+        require(function in farmFunctions) { "unknown_function" }
+        return supabase.postgrest.rpc(function, params).data
+    }
+
     // avatarPath: null keeps the current avatar, "" removes it.
     suspend fun updateMyProfile(displayName: String, avatarPath: String?) {
         supabase.postgrest.rpc(

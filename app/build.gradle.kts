@@ -182,8 +182,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 62
-        versionName = "0.34.0"
+        versionCode = 63
+        versionName = "0.35.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -296,4 +296,6 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Farm game: serves the packaged game pages (assets/game) to the WebView.
+    implementation("androidx.webkit:webkit:1.12.1")
 }

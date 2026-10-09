@@ -64,6 +64,7 @@ import com.maychat.app.ui.main.FriendsScreen
 import com.maychat.app.ui.main.FriendsState
 import com.maychat.app.ui.main.MainBottomBar
 import com.maychat.app.ui.main.MainTab
+import com.maychat.app.game.GameActivity
 import com.maychat.app.ui.main.QrScreen
 import com.maychat.app.ui.main.SearchScreen
 import com.maychat.app.ui.main.SettingsScreen
@@ -457,6 +458,10 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
         }
     }
 
+    // The farm game: "Mới" on the Game tab until it is opened once.
+    val gameContext = androidx.compose.ui.platform.LocalContext.current
+    var gameNew by remember { mutableStateOf(GameActivity.isNew(gameContext)) }
+
     val bottomBar: @Composable () -> Unit = {
         MainBottomBar(
             selected = tab,
@@ -465,6 +470,11 @@ private fun MainScreens(myId: String, sessionChecked: Boolean) {
             // "Trò chuyện" lists chats and groups, so it counts both.
             chatUnread = chatUnreadTotal + groupUnreadTotal,
             groupUnread = groupUnreadTotal,
+            onGame = {
+                gameNew = false
+                GameActivity.open(gameContext)
+            },
+            gameNew = gameNew,
         )
     }
 

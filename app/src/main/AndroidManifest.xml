@@ -122,6 +122,23 @@
             </intent-filter>
         </receiver>
 
+        <!-- The farm game (tab "Game"): its own screen, always sideways. -->
+        <activity
+            android:name=".game.GameActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density" />
+
+        <!-- "Cây đã chín" alarm of the farm, and "the phone has started". -->
+        <receiver
+            android:name=".game.FarmRipeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Receives events from Firebase Cloud Messaging. -->
         <service
             android:name=".push.PushService"

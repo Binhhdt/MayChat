@@ -66,6 +66,10 @@ fun MainBottomBar(
     onSelect: (MainTab) -> Unit,
     chatUnread: Int = 0,
     groupUnread: Int = 0,
+    // The farm game (version 0.35.0). Not a tab of this screen: tapping it
+    // opens the game in its own landscape screen, so the tab stays as it was.
+    onGame: (() -> Unit)? = null,
+    gameNew: Boolean = false,
 ) {
     NavigationBar {
         NavigationBarItem(
@@ -109,6 +113,24 @@ fun MainBottomBar(
             },
             label = { Text("Nhóm") },
         )
+        if (onGame != null) {
+            NavigationBarItem(
+                selected = false,
+                onClick = onGame,
+                icon = {
+                    BadgedBox(
+                        badge = { if (gameNew) Badge { Text("Mới") } },
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_game),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                },
+                label = { Text("Game") },
+            )
+        }
         NavigationBarItem(
             selected = selected == MainTab.CALLS,
             onClick = { onSelect(MainTab.CALLS) },
