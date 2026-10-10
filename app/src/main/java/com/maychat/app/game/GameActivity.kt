@@ -249,6 +249,23 @@ class GameActivity : ComponentActivity() {
         fun close() {
             runOnUiThread { finish() }
         }
+
+        // The phone's battery for the corner of the game (the game is full screen,
+        // so the phone's own bar is hidden): {"level":85,"charging":false}
+        @JavascriptInterface
+        fun battery(): String {
+            val info = applicationContext.registerReceiver(
+                null,
+                android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            ) ?: return "{}"
+            val level = info.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = info.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+            val status = info.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            if (level < 0 || scale <= 0) return "{}"
+            return "{\"level\":${level * 100 / scale},\"charging\":$charging}"
+        }
     }
 
     // {"ok":true,"data":...} or {"ok":false,"error":"..."}

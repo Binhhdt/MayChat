@@ -186,7 +186,21 @@ table.reward td, table.reward th { padding: 7px 10px; }
 .list li { background: #fffaf0; border: 2px solid #e6cfa8; border-radius: 16px; }
 .pop { background: linear-gradient(#fffaf0, #f7e7cb); }
 @media (prefers-reduced-motion: reduce) { .pointer { animation: none; } }
-/* ===== Nhìn hình đoán chữ ===== */
+/* the phone's battery, top right (the game is full screen) */
+.batt { position: fixed; z-index: 60; top: calc(4px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); display: inline-flex; align-items: center; gap: 3px; font: 800 11.5px var(--body); color: var(--ink); background: rgba(255, 250, 240, 0.92); border: 2px solid #b88a54; border-radius: 999px; padding: 1px 8px 1px 6px; pointer-events: none; font-variant-numeric: tabular-nums; }
+.batt i { position: relative; display: inline-block; width: 18px; height: 9px; border: 1.5px solid currentColor; border-radius: 2px; }
+.batt i::after { content: ""; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.batt i b { position: absolute; left: 1px; top: 1px; bottom: 1px; background: #43a447; border-radius: 1px; }
+.batt.low { color: #c2392f; } .batt.low i b { background: #e2453a; }
+.hud .coins { display: none !important; }   /* the gold is on the level bar */
+.has-batt .sporthead { padding-right: 108px; }
+/* ===== Đuổi hình bắt chữ ===== */
+.wordbanner { display: block; position: relative; width: 100%; max-width: 260px; margin: 0 auto; padding: 0; border: 0; background: none; cursor: pointer; filter: drop-shadow(0 3px 0 rgba(90, 58, 34, 0.35)); }
+.wordbanner img { display: block; width: 100%; height: auto; }
+.wordbanner small { position: absolute; left: 50%; bottom: 3%; transform: translateX(-34%); white-space: nowrap; font: 800 9.5px var(--body); color: #fff; background: rgba(90, 58, 34, 0.85); border-radius: 999px; padding: 1px 8px; }
+.wordbanner:active { transform: translateY(2px); }
+.wordbanner:focus-visible { outline: 3px solid var(--leaf); outline-offset: 2px; }
+.visiting .wordbanner { display: none !important; }
 .wordwrap { position: fixed; inset: 0; z-index: 15; background: radial-gradient(circle at 30% 20%, #fff6d8, #ffe2a6 60%, #f6c978); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
 .wordbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); overflow: auto; }
 .wpic { background: #fffaf0; border: 3px solid #b88a54; border-radius: 22px; box-shadow: 0 4px 0 #a8743f; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -227,8 +241,9 @@ table.reward td, table.reward th { padding: 7px 10px; }
   .wemoji { font-size: 52px; }
   .slot { width: 28px; height: 34px; font-size: 18px; }
   .tile { width: 34px; height: 36px; font-size: 18px; }
-  .sportbar.wordbar { top: calc(116px + env(safe-area-inset-top, 0px)); }
-  body .app .small-row { top: calc(172px + env(safe-area-inset-top, 0px)); }
+  .wordbanner { position: absolute; z-index: 5; right: calc(8px + env(safe-area-inset-right, 0px)); top: calc(114px + env(safe-area-inset-top, 0px)); width: 168px; margin: 0; }
+  .wordbanner small { font-size: 8.5px; padding: 0 6px; }
+  body .app .small-row { top: calc(176px + env(safe-area-inset-top, 0px)); }
 }
 /* ===== phone held sideways: farm on the left, everything else in a column on the right ===== */
 .side { display: contents; }
@@ -386,10 +401,9 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <span class="sb-text"><b>Hội thao hằng ngày</b><small id="sportTxt">kiếm vàng</small></span>
     <span class="sb-go" aria-hidden="true">›</span>
   </button>
-  <button class="sportbar wordbar" id="wordBtn" type="button">
-    <span class="sb-face" style="font-size:30px;line-height:1">🧩</span>
-    <span class="sb-text"><b>Nhìn hình đoán chữ</b><small id="wordTxt">10 câu mỗi ngày</small></span>
-    <span class="sb-go" aria-hidden="true">›</span>
+  <button class="wordbanner" id="wordBtn" type="button" aria-label="Đuổi hình bắt chữ">
+    <img src="img/pic_9b8a0a43dc.webp" alt="Đuổi hình bắt chữ">
+    <small id="wordTxt">10 câu mỗi ngày</small>
   </button>
 
   <div class="small-row">
@@ -458,10 +472,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
   </div>
   <iframe id="sportFrame" title="Hội thao" allow="autoplay"></iframe>
 </div>
-<!-- Nhìn hình đoán chữ -->
+<span class="batt" id="batt" hidden aria-label="Pin điện thoại"></span>
+<!-- Đuổi hình bắt chữ -->
 <div class="wordwrap" id="wordWrap" hidden>
   <div class="sporthead">
-    <b>🧩 Nhìn hình đoán chữ</b>
+    <b>🧩 Đuổi hình bắt chữ</b>
     <span class="chip" id="wordCount"></span>
     <button class="mini primary" id="wordBack" type="button">Về nông trại</button>
   </div>
@@ -472,7 +487,6 @@ table.reward td, table.reward th { padding: 7px 10px; }
       <div class="wemoji" id="wordPics" aria-label="Hình gợi ý"></div>
       <div class="whints">
         <button class="mini" id="hintLetter" type="button">💡 Mở 1 chữ · 20</button>
-        <button class="mini" id="hintCut" type="button">✂️ Bỏ chữ thừa · 30</button>
         <button class="mini" id="hintSkip" type="button">⏭️ Bỏ qua · 50</button>
       </div>
     </div>
@@ -1500,8 +1514,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     $("gold").textContent = money(S.gold);
     $("houseChip").textContent = `Nhà cấp ${S.level} · ${HOUSES[S.level].name}`;
     $("houseLv").textContent = "Cấp " + S.level;
-    if (S.level >= MAX_LV) { $("houseFill").style.width = "100%"; $("houseNext").textContent = "Tối đa"; }
-    else { const c = HOUSES[S.level + 1].cost; $("houseFill").style.width = Math.min(100, (S.gold / c) * 100).toFixed(1) + "%"; $("houseNext").textContent = `${money(Math.min(S.gold, c))}/${money(c)}`; }
+    if (S.level >= MAX_LV) { $("houseFill").style.width = "100%"; $("houseNext").textContent = `${money(S.gold)} vàng`; }
+    else { const c = HOUSES[S.level + 1].cost; $("houseFill").style.width = Math.min(100, (S.gold / c) * 100).toFixed(1) + "%"; $("houseNext").textContent = `${money(S.gold)}/${money(c)}`; }
     $("plotChip").textContent = `${HOUSES[S.level].plots}/20 ô đất`;
     const ripeN = S.plots.filter((p, k) => unlocked(k) && ripe(p)).length;
     $("ripeTxt").textContent = `${ripeN} ô chín`;
@@ -1626,7 +1640,6 @@ table.reward td, table.reward th { padding: 7px 10px; }
     if (!q) return Object.assign({ n: w.n, max: WORD_MAX, finished: false, waiting: true }, demoRules(w));
     const ans = q[1].replace(/ /g, ""), rnd = seeded(w.cur * 97 + 7), ABC = "ABCDEGHIKLMNOPQRSTUVXY";
     const tiles = ans.split("").map((l, k) => [l, k]);
-    for (let i = 0; i < Math.max(4, 14 - ans.length); i++) tiles.push([ABC[Math.floor(rnd() * ABC.length)], ans.length + i]);
     tiles.forEach((t) => (t[2] = rnd()));
     tiles.sort((a, b) => a[2] - b[2]);
     return { n: w.n, max: WORD_MAX, finished: false, id: w.cur + 1, no: w.n + 1, level: q[3], pics: q[0], img: q[4] || null,
@@ -1761,7 +1774,6 @@ table.reward td, table.reward th { padding: 7px 10px; }
       tb.appendChild(b);
     });
     $("hintLetter").textContent = `💡 Mở 1 chữ · ${wv.costs.letter}`;
-    $("hintCut").textContent = `✂️ Bỏ chữ thừa · ${wv.costs.cut}`; $("hintCut").disabled = wv.cut;
     $("hintSkip").textContent = wv.skip_left === 0 ? "⏭️ Đã bỏ qua hôm nay" : `⏭️ Bỏ qua · ${wv.costs.skip} (1 lần)`;
     $("hintSkip").disabled = wv.skip_left === 0;
   }
@@ -1865,7 +1877,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       $("wordMsg").className = "wmsg bad"; drawWord();
     });
   }
-  [["hintLetter", "letter"], ["hintCut", "cut"], ["hintSkip", "skip"]].forEach(([id, kind]) => $(id).addEventListener("click", () => askHint(kind)));
+  [["hintLetter", "letter"], ["hintSkip", "skip"]].forEach(([id, kind]) => $(id).addEventListener("click", () => askHint(kind)));
   $("hintNo").addEventListener("click", () => { $("hintPop").hidden = true; hintKind = null; });
   $("hintYes").addEventListener("click", () => {
     $("hintPop").hidden = true;
@@ -1876,6 +1888,26 @@ table.reward td, table.reward th { padding: 7px 10px; }
     $("wordWrap").hidden = false; wv = wv || null; drawWord();
     wordApi.get().then((st) => wordTake(st, "get"), (e) => { $("wordDoneMsg").textContent = wordApi.err(e); });
   }
+  // ---- the battery (inside MayChat the app tells it; in a browser, if it can)
+  function showBattery(level, charging) {
+    const b = $("batt");
+    if (!(level >= 0)) { b.hidden = true; document.documentElement.classList.remove("has-batt"); return; }
+    const pct = Math.round(level);
+    b.innerHTML = `${charging ? "⚡" : ""}<i><b style="width:${Math.max(1, Math.round(15 * pct / 100))}px"></b></i>${pct}%`;
+    b.classList.toggle("low", pct <= 15 && !charging);
+    b.hidden = false; document.documentElement.classList.add("has-batt");
+  }
+  function readBattery() {
+    try {
+      if (window.MayChatGame && window.MayChatGame.battery) {
+        const x = JSON.parse(window.MayChatGame.battery() || "{}");
+        showBattery(Number(x.level), !!x.charging); return;
+      }
+    } catch (e) {}
+    try { if (navigator.getBattery) navigator.getBattery().then((bt) => showBattery(bt.level * 100, bt.charging), () => {}); } catch (e) {}
+  }
+  readBattery(); setInterval(readBattery, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) readBattery(); });
   function closeWord() { wRun = false; $("hintPop").hidden = true; $("wordWrap").hidden = true; $("wordPop").hidden = true; refresh(); }
   $("wordBtn").addEventListener("click", openWord);
   $("wordBack").addEventListener("click", closeWord);
@@ -2254,8 +2286,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     // ------------------------------------------------------------------
     let daily = null, quests = null, helps = { water: 10, steal: 10 };
     let visiting = null, home = null, looked = false;
-    const QUEST_TEXT = { 1: "Thu hoạch 10 ô đất", 2: "Bán nông sản được 300 vàng", 3: "Đấu 1 giải Hội thao" };
-    const QUEST_HAVE = { 1: "harvest", 2: "sold", 3: "cups" };
+    const QUEST_TEXT = { 1: "Thu hoạch 10 ô đất", 2: "Bán nông sản được 300 vàng", 3: "Đấu 1 giải Hội thao", 4: "Chơi Đuổi hình bắt chữ" };
+    const QUEST_HAVE = { 1: "harvest", 2: "sold", 3: "cups", 4: "word" };
     function normPlots(list) {
       const out = (Array.isArray(list) ? list.slice(0, 20) : []).map((x) =>
         x && x.crop && CROPS[x.crop] ? { crop: x.crop, at: Number(x.at), dur: Number(x.dur), w: !!x.w, s: Number(x.s) || 0 } : null);
@@ -2282,7 +2314,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       quests.list.forEach((q) => {
         const have = Math.min(q.target, quests[QUEST_HAVE[q.id]] || 0), done = questDone(q), claimed = questClaimed(q);
         const li = document.createElement("li");
-        li.innerHTML = `<span class="em">${["", "🧺", "🪙", "🏃"][q.id]}</span><span class="nm">${QUEST_TEXT[q.id]}<small>${money(have)}/${money(q.target)} · thưởng ${q.gold} vàng${q.gach ? ` + ${q.gach} 🧱 gạch` : ""}</small><i class="qbar"><i style="width:${(100 * have / q.target).toFixed(0)}%"></i></i></span>`;
+        li.innerHTML = `<span class="em">${["", "🧺", "🪙", "🏃", "🧩"][q.id] || "📋"}</span><span class="nm">${QUEST_TEXT[q.id]}<small>${money(have)}/${money(q.target)} · thưởng ${q.gold} vàng${q.gach ? ` + ${q.gach} 🧱 gạch` : ""}</small><i class="qbar"><i style="width:${(100 * have / q.target).toFixed(0)}%"></i></i></span>`;
         const b = document.createElement("button"); b.type = "button";
         b.className = "mini" + (done && !claimed ? " primary" : "");
         b.textContent = claimed ? "Đã nhận" : done ? "Nhận" : "Chưa xong";
