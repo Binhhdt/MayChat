@@ -1075,6 +1075,8 @@ object ChatRepository {
         "farm_water", "farm_steal", "farm_news",
         // Hội thao characters bought with gold (supabase_migration_37_heroes.sql)
         "farm_buy_hero",
+        // Nhìn hình đoán chữ (supabase_migration_39_word_game.sql)
+        "farm_word_get", "farm_word_answer", "farm_word_hint",
     )
 
     // The farm of a person for their profile page: (farm name, house level),

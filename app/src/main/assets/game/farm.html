@@ -121,6 +121,11 @@ canvas.scene { display: block; width: 100%; height: auto; aspect-ratio: 360 / 28
 .need span { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font: 800 12px var(--body); background: #effbe8; color: #2f7d48; border: 1.5px solid #9fd79a; }
 .need span.miss { background: #fff1ee; color: #c2392f; border-color: #f2b2a8; }
 .mat-ic { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -0.25em; }
+.pop img.mat-ic { width: 1.25em; height: 1.25em; object-fit: contain; }
+#wordPop .pop { max-height: calc(100% - 16px); overflow-y: auto; gap: 6px; }
+#wordPop .reward-medal { font-size: 40px; }
+#wordPop .ribbon { margin-top: 2px; }
+#wordPop .reward-gold { font-size: 26px; }
 .list li.subhead { display: block; padding: 6px 4px 2px; font: 800 13px var(--body); color: var(--muted); background: none; border: 0; box-shadow: none; }
 .reward-mats { margin: 2px 0 0; font: 800 16px var(--body); color: #8a5a2b; }
 .levels .lv { font: 800 16px var(--display); text-align: center; }
@@ -181,6 +186,50 @@ table.reward td, table.reward th { padding: 7px 10px; }
 .list li { background: #fffaf0; border: 2px solid #e6cfa8; border-radius: 16px; }
 .pop { background: linear-gradient(#fffaf0, #f7e7cb); }
 @media (prefers-reduced-motion: reduce) { .pointer { animation: none; } }
+/* ===== Nhìn hình đoán chữ ===== */
+.wordwrap { position: fixed; inset: 0; z-index: 15; background: radial-gradient(circle at 30% 20%, #fff6d8, #ffe2a6 60%, #f6c978); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+.wordbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); overflow: auto; }
+.wpic { background: #fffaf0; border: 3px solid #b88a54; border-radius: 22px; box-shadow: 0 4px 0 #a8743f; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.wlv { align-self: flex-start; font: 800 12px var(--body); color: #fff; background: #43a447; border-radius: 999px; padding: 2px 10px; }
+.wlv.l2 { background: #e8a21b; } .wlv.l3 { background: #e2453a; }
+.wemoji { font-size: 58px; line-height: 1.15; text-align: center; letter-spacing: 6px; min-height: 70px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 10px; }
+.wtime { width: 100%; display: flex; align-items: center; gap: 8px; }
+.wtime .wbar { flex: 1; height: 10px; border-radius: 99px; background: #eadbc2; overflow: hidden; }
+.wtime .wbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #43a447, #7fd35f); border-radius: 99px; transition: width 0.2s linear; }
+.wtime b { font: 800 16px var(--display); min-width: 42px; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.wtime.low .wbar i { background: linear-gradient(90deg, #e2453a, #ff8a5c); }
+.wtime.low b { color: #c2392f; }
+.wemoji .wimg { width: min(190px, 46vh); height: min(190px, 46vh); border-radius: 18px; border: 3px solid #e6cfa8; object-fit: cover; display: block; }
+.reward-medal .wpopimg { width: 120px; height: 120px; border-radius: 16px; border: 3px solid #e6cfa8; object-fit: cover; display: block; }
+#wordPopMean { max-width: 260px; }
+.whints { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.whints .mini { font-size: 12px; padding: 5px 10px; }
+.wplay { display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; }
+.wslots { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px; }
+.wword { display: flex; gap: 4px; }
+.slot { width: 32px; height: 38px; border-radius: 9px; background: #fff; border: 2.5px solid #d9b27a; display: grid; place-items: center; font: 800 20px var(--display); color: var(--ink); cursor: pointer; box-shadow: inset 0 -3px 0 #f1e2c6; }
+.slot.fill { border-color: #4a8fe0; background: #eef5ff; }
+.slot.open { border-color: #43a447; background: #effbe8; color: #2f7d48; cursor: default; }
+.wslots.bad .slot.fill { border-color: #e2453a; background: #fff1ee; color: #c2392f; }
+.wslots.bad { animation: wshake 0.4s; }
+.wslots.good .slot { border-color: #43a447; background: #effbe8; color: #2f7d48; }
+@keyframes wshake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.wtiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 460px; }
+.tile { width: 38px; height: 40px; border-radius: 10px; border: 2.5px solid #c98a1b; background: linear-gradient(#ffe27a, #ffc93c); box-shadow: 0 3px 0 #b8860b; font: 800 20px var(--display); color: #5a3a22; cursor: pointer; }
+.tile:active { transform: translateY(2px); box-shadow: 0 1px 0 #b8860b; }
+.tile.used { visibility: hidden; }
+.wmsg { margin: 0; min-height: 1.3em; font: 800 14px var(--body); color: var(--muted); text-align: center; }
+.wmsg.bad { color: #c2392f; }
+.wdone { flex: 1; display: grid; place-items: center; padding: 20px; text-align: center; }
+.wdone .pop { position: static; }
+@media (orientation: landscape) and (max-height: 620px) {
+  .wordbody { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); align-items: center; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .wemoji { font-size: 52px; }
+  .slot { width: 28px; height: 34px; font-size: 18px; }
+  .tile { width: 34px; height: 36px; font-size: 18px; }
+  .sportbar.wordbar { top: calc(116px + env(safe-area-inset-top, 0px)); }
+  body .app .small-row { top: calc(172px + env(safe-area-inset-top, 0px)); }
+}
 /* ===== phone held sideways: farm on the left, everything else in a column on the right ===== */
 .side { display: contents; }
 @media (orientation: landscape) and (max-height: 620px) {
@@ -337,6 +386,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <span class="sb-text"><b>Hội thao hằng ngày</b><small id="sportTxt">kiếm vàng</small></span>
     <span class="sb-go" aria-hidden="true">›</span>
   </button>
+  <button class="sportbar wordbar" id="wordBtn" type="button">
+    <span class="sb-face" style="font-size:30px;line-height:1">🧩</span>
+    <span class="sb-text"><b>Nhìn hình đoán chữ</b><small id="wordTxt">10 câu mỗi ngày</small></span>
+    <span class="sb-go" aria-hidden="true">›</span>
+  </button>
 
   <div class="small-row">
     <button class="mini fast" id="fastBtn" type="button" aria-pressed="false">⏩ Tua nhanh ×60: tắt</button>
@@ -403,6 +457,66 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <button class="mini primary" id="sportBack" type="button">Về nông trại</button>
   </div>
   <iframe id="sportFrame" title="Hội thao" allow="autoplay"></iframe>
+</div>
+<!-- Nhìn hình đoán chữ -->
+<div class="wordwrap" id="wordWrap" hidden>
+  <div class="sporthead">
+    <b>🧩 Nhìn hình đoán chữ</b>
+    <span class="chip" id="wordCount"></span>
+    <button class="mini primary" id="wordBack" type="button">Về nông trại</button>
+  </div>
+  <div class="wordbody" id="wordBody">
+    <div class="wpic">
+      <span class="wlv" id="wordLv">Dễ</span>
+      <div class="wtime" id="wordTime"><span class="wbar"><i id="wordBar"></i></span><b id="wordSec">1:00</b></div>
+      <div class="wemoji" id="wordPics" aria-label="Hình gợi ý"></div>
+      <div class="whints">
+        <button class="mini" id="hintLetter" type="button">💡 Mở 1 chữ · 20</button>
+        <button class="mini" id="hintCut" type="button">✂️ Bỏ chữ thừa · 30</button>
+        <button class="mini" id="hintSkip" type="button">⏭️ Bỏ qua · 50</button>
+      </div>
+    </div>
+    <div class="wplay">
+      <div class="wslots" id="wordSlots"></div>
+      <p class="wmsg" id="wordMsg">Chạm chữ cái để điền vào ô</p>
+      <div class="wtiles" id="wordTiles"></div>
+    </div>
+  </div>
+  <div class="wdone" id="wordDone" hidden>
+    <div class="pop">
+      <div class="reward-medal" id="wordDoneIc">🌙</div>
+      <p id="wordDoneMsg"></p>
+      <div class="btns"><button class="btn green" id="wordDoneHome" type="button">Về nông trại</button></div>
+    </div>
+  </div>
+</div>
+<div class="popwrap" id="wordPop" hidden>
+  <div class="pop" role="dialog" aria-label="Đoán đúng">
+    <div class="ribbon" id="wordPopTitle">Chính xác!</div>
+    <div class="reward-medal" id="wordPopPics"></div>
+    <p><b id="wordPopShown"></b></p>
+    <p class="note" id="wordPopMean" hidden></p>
+    <p id="wordPopNote" hidden style="color:#c2392f"></p>
+    <div class="reward-gold" id="wordPopGoldRow"><span class="coin-sm" id="wordCoin"></span><b id="wordPopGold">+10</b></div>
+    <p class="reward-mats" id="wordPopMat" hidden></p>
+    <div class="btns">
+      <button class="btn ghost" id="wordPopHome" type="button">Về nông trại</button>
+      <button class="btn green" id="wordPopNext" type="button">Câu tiếp</button>
+    </div>
+  </div>
+</div>
+<div class="popwrap" id="hintPop" hidden style="z-index:25">
+  <div class="pop" role="dialog" aria-label="Dùng gợi ý">
+    <div class="ribbon" id="hintPopTitle">Dùng gợi ý?</div>
+    <div class="reward-medal" id="hintPopIc">💡</div>
+    <p id="hintPopMsg"></p>
+    <div class="reward-gold"><span class="coin-sm" id="hintCoin"></span><b id="hintPopCost">−20</b></div>
+    <p class="note" id="hintPopLeft"></p>
+    <div class="btns">
+      <button class="btn ghost" id="hintNo" type="button">Thôi</button>
+      <button class="btn green" id="hintYes" type="button">Đồng ý</button>
+    </div>
+  </div>
 </div>
 <!-- gold from Hội thao -->
 <div class="popwrap" id="rewardPop" hidden>
@@ -1480,6 +1594,295 @@ table.reward td, table.reward th { padding: 7px 10px; }
     $("rewardPop").hidden = false;
     coinSound();
   });
+  // ------------------------------------------------------------------
+  // Nhìn hình đoán chữ: pictures -> a word, typed with letter tiles.
+  // 10 a day, 10 gold each, 1 time in 10 a building material. Inside the
+  // app the server has the answers; here (outside) a few to try.
+  // ------------------------------------------------------------------
+  const WORD_DEMO = [["🐘 ➕ 🐭", "DAU VOI DUOI CHUOT", "Đầu voi đuôi chuột", 2, null, "Bắt đầu thì to tát, kết thúc thì nhỏ nhặt, không ra gì."], ["💧 🦆", "NUOC DO DAU VIT", "Nước đổ đầu vịt", 1, null, "Nói mãi mà người nghe không tiếp thu gì."], ["🐸 🕳️", "ECH NGOI DAY GIENG", "Ếch ngồi đáy giếng", 2, null, "Hiểu biết hạn hẹp mà tưởng mình biết nhiều."], ["🎻 👂 🐃", "DAN GAY TAI TRAU", "Đàn gảy tai trâu", 2, null, "Nói điều hay với người không hiểu, uổng công."], ["🏇 👀 🌸", "CUOI NGUA XEM HOA", "Cưỡi ngựa xem hoa", 2, null, "Làm việc qua loa, xem vội vàng không kỹ."], ["🔍 📍 🌊", "MO KIM DAY BIEN", "Mò kim đáy biển", 1, null, "Tìm một thứ gần như không thể tìm thấy."], ["💧 ⛰️ ⏳", "NUOC CHAY DA MON", "Nước chảy đá mòn", 2, null, "Kiên trì bền bỉ thì việc khó cũng thành."], ["👴 ↩️ 💥", "GAY ONG DAP LUNG ONG", "Gậy ông đập lưng ông", 2, null, "Hại người lại hóa hại mình."], ["🎨 🐍 ➕ 🦵", "VE RAN THEM CHAN", "Vẽ rắn thêm chân", 2, null, "Làm thừa, làm hỏng việc vốn đã ổn."], ["🔓 🐯 🌳", "THA HO VE RUNG", "Thả hổ về rừng", 1, null, "Để kẻ nguy hiểm thoát, sau này mang họa."], ["🍚 🥣 🦶 🍽️", "AN CHAO DA BAT", "Ăn cháo đá bát", 1, null, "Vô ơn với người đã giúp mình."], ["🐝 👕", "NUOI ONG TAY AO", "Nuôi ong tay áo", 1, null, "Nuôi dưỡng kẻ sau này hại mình."], ["🌳 😮 ⏳", "HA MIENG CHO SUNG", "Há miệng chờ sung", 2, null, "Lười biếng, chỉ trông chờ may mắn."], ["🤗 🌳 ⏳ 🐇", "OM CAY DOI THO", "Ôm cây đợi thỏ", 1, null, "Chờ may mắn lặp lại một cách viển vông."], ["🪓 🛣️ 🗣️", "DEO CAY GIUA DUONG", "Đẽo cày giữa đường", 2, null, "Không có chủ kiến, nghe ai cũng làm theo."], ["🐓 🐥 🐥", "GA TRONG NUOI CON", "Gà trống nuôi con", 2, null, "Người cha một mình nuôi con."], ["🐟 🏺 🐦 🔒", "CA CHAU CHIM LONG", "Cá chậu chim lồng", 2, null, "Bị gò bó, mất tự do."], ["🐟 💧 😄", "NHU CA GAP NUOC", "Như cá gặp nước", 1, null, "Gặp được hoàn cảnh rất thuận lợi."], ["🌦️ 🌬️ 🌾", "MUA THUAN GIO HOA", "Mưa thuận gió hòa", 2, null, "Thời tiết thuận lợi, mùa màng tốt."], ["⬆️ 🐘 ⬇️ 🐕", "LEN VOI XUONG CHO", "Lên voi xuống chó", 2, null, "Lúc sang lúc hèn, thay đổi thất thường."], ["🤰 ⭕ 👶", "ME TRON CON VUONG", "Mẹ tròn con vuông", 2, null, "Sinh nở bình an, mọi việc trọn vẹn."], ["🦶 💪 ⛰️", "CHAN CUNG DA MEM", "Chân cứng đá mềm", 2, null, "Lời chúc đi đường xa bình an, vượt mọi khó khăn."], ["1️⃣ 💪 2️⃣ ✅", "MOT CONG DOI VIEC", "Một công đôi việc", 2, null, "Làm một lần mà được hai việc."], ["3️⃣ 🦵 4️⃣ 🏃", "BA CHAN BON CANG", "Ba chân bốn cẳng", 2, null, "Chạy rất vội vàng."], ["👖 🤏 💸", "THAT LUNG BUOC BUNG", "Thắt lưng buộc bụng", 2, null, "Tiết kiệm, chi tiêu dè sẻn."], ["👂 🧱 🌲", "TAI VACH MACH RUNG", "Tai vách mạch rừng", 2, null, "Nói gì cũng có thể bị người khác nghe được."], ["🌲 🥇 🌊 🥈", "RUNG VANG BIEN BAC", "Rừng vàng biển bạc", 2, null, "Đất nước giàu tài nguyên."], ["🐌 🗣️ ❓", "AN OC NOI MO", "Ăn ốc nói mò", 1, null, "Nói không có căn cứ."], ["🦗 🦶 🚗", "CHAU CHAU DA XE", "Châu chấu đá xe", 1, null, "Sức yếu mà dám chống lại kẻ mạnh hơn nhiều."], ["🐟 🐟 🐟 1️⃣", "CA ME MOT LUA", "Cá mè một lứa", 1, null, "Những người cùng một giuộc, như nhau."], ["🐭 ⬇️ 🍚", "CHUOT SA CHINH GAO", "Chuột sa chĩnh gạo", 2, null, "Gặp được chỗ sung sướng bất ngờ."], ["🥓 👄 🐱", "MO DE MIENG MEO", "Mỡ để miệng mèo", 1, null, "Để thứ quý ngay chỗ dễ mất."], ["🤚 🥌 🙈", "NEM DA GIAU TAY", "Ném đá giấu tay", 1, null, "Hại người một cách lén lút."], ["🥁 🏃 🥢", "DANH TRONG BO DUI", "Đánh trống bỏ dùi", 2, null, "Làm dở dang rồi bỏ."], ["🐱 ➡️ 🕳️ ✅", "DAU XUOI DUOI LOT", "Đầu xuôi đuôi lọt", 2, null, "Khởi đầu suôn sẻ thì cuối cùng cũng xong."], ["🐘 ➕ 🧚", "DUOC VOI DOI TIEN", "Được voi đòi tiên", 2, null, "Tham lam, được cái này đòi cái khác."], ["🆕 😍 🗑️", "CO MOI NOI CU", "Có mới nới cũ", 1, null, "Có cái mới thì bỏ rơi cái cũ."], ["🐕 🍖 🐱 🍲", "CHO TREO MEO DAY", "Chó treo mèo đậy", 2, null, "Cất giữ đồ ăn cẩn thận."], ["🍲 🍲 🤝", "NOI NAO UP VUNG NAY", "Nồi nào úp vung nấy", 2, null, "Ai cũng có người hợp với mình."], ["🍯 🦟 💀", "MAT NGOT CHET RUOI", "Mật ngọt chết ruồi", 2, null, "Lời ngọt ngào dễ làm người ta mắc bẫy."], ["☀️ 🌫️ 👨‍🌾", "MOT NANG HAI SUONG", "Một nắng hai sương", 2, null, "Lao động vất vả."], ["9️⃣ 👥 🔟 💭", "CHIN NGUOI MUOI Y", "Chín người mười ý", 2, null, "Mỗi người một ý, khó thống nhất."], ["🏚️ 🥬 💸", "NGHEO ROT MONG TOI", "Nghèo rớt mồng tơi", 2, null, "Rất nghèo."], ["🌧️ 🐭 💦", "UOT NHU CHUOT LOT", "Ướt như chuột lột", 2, null, "Ướt sũng."], ["🐰 😨", "NHAT NHU THO DE", "Nhát như thỏ đế", 1, null, "Rất nhút nhát."], ["🐢 ⏳", "CHAM NHU RUA", "Chậm như rùa", 1, null, "Rất chậm chạp."], ["🐘 💪", "KHOE NHU VOI", "Khỏe như voi", 1, null, "Rất khỏe."], ["🐿️ 💨", "NHANH NHU SOC", "Nhanh như sóc", 1, null, "Rất nhanh nhẹn."], ["👥 👥 🐜 🐜", "DONG NHU KIEN", "Đông như kiến", 1, null, "Rất đông người."], ["🌿 💰 📉", "RE NHU BEO", "Rẻ như bèo", 1, null, "Rất rẻ."], ["🐚 🤐", "CAM NHU HEN", "Câm như hến", 1, null, "Im lặng không nói gì."], ["😄 🧧 🎆", "VUI NHU TET", "Vui như Tết", 1, null, "Rất vui."], ["💧 🔥", "NUOC SOI LUA BONG", "Nước sôi lửa bỏng", 2, null, "Hoàn cảnh rất gấp gáp, nguy hiểm."], ["⛵ 🌬️", "THUAN BUOM XUOI GIO", "Thuận buồm xuôi gió", 2, null, "Mọi việc suôn sẻ."], ["🧙‍♂️ 👀 🐘", "THAY BOI XEM VOI", "Thầy bói xem voi", 2, null, "Chỉ thấy một phần mà tưởng biết hết."], ["🐋 🐟", "CA LON NUOT CA BE", "Cá lớn nuốt cá bé", 2, null, "Kẻ mạnh ăn hiếp kẻ yếu."], ["🔦 🏃 🚗", "CAM DEN CHAY TRUOC O TO", "Cầm đèn chạy trước ô tô", 2, null, "Làm việc vội vàng, đi trước khi chưa đến lúc."], ["🥢 🦠 🍽️ ✨", "DUA MOC CHOI MAM SON", "Đũa mốc chòi mâm son", 2, null, "Thân phận thấp mà muốn trèo cao."], ["🐍 🐔 🏠", "CONG RAN CAN GA NHA", "Cõng rắn cắn gà nhà", 2, null, "Đưa kẻ xấu về hại người nhà."], ["🧶 👋 🌳 🌳", "RUT DAY DONG RUNG", "Rút dây động rừng", 2, null, "Đụng tới một việc thì ảnh hưởng nhiều việc khác."], ["🍚 👕 💪", "AN CHAC MAC BEN", "Ăn chắc mặc bền", 1, null, "Chọn thứ thiết thực, lâu bền."], ["🏞️ ➡️ 🥇", "TAC DAT TAC VANG", "Tấc đất tấc vàng", 2, null, "Đất đai rất quý."], ["🌧️ ⏳ 🌱", "MUA DAM THAM LAU", "Mưa dầm thấm lâu", 2, null, "Dạy bảo từ từ thì thấm sâu."], ["🍃 🤗 🍂", "LA LANH DUM LA RACH", "Lá lành đùm lá rách", 2, null, "Người khá giúp người khó."], ["🎋 👴 🌱", "TRE GIA MANG MOC", "Tre già măng mọc", 2, null, "Thế hệ trước qua đi, thế hệ sau nối tiếp."], ["🥤 🧠 ⛰️ 💧", "UONG NUOC NHO NGUON", "Uống nước nhớ nguồn", 2, null, "Nhớ ơn người đi trước."], ["🍎 🧠 👨‍🌾 🌳", "AN QUA NHO KE TRONG CAY", "Ăn quả nhớ kẻ trồng cây", 2, null, "Hưởng thành quả thì nhớ ơn người làm ra."], ["⚙️ 🔧 ⏳ 📍", "CO CONG MAI SAT CO NGAY NEN KIM", "Có công mài sắt có ngày nên kim", 3, null, "Kiên trì thì việc gì cũng thành."], ["1️⃣ 🌳 ❌ ⛰️", "MOT CAY LAM CHANG NEN NON", "Một cây làm chẳng nên non", 3, null, "Một mình thì khó làm nên việc lớn."], ["🌳 🌳 🌳 ⛰️", "BA CAY CHUM LAI NEN HON NUI CAO", "Ba cây chụm lại nên hòn núi cao", 3, null, "Đoàn kết thì sức mạnh lớn."], ["🖋️ ⚫ 💡 ✨", "GAN MUC THI DEN GAN DEN THI SANG", "Gần mực thì đen gần đèn thì sáng", 3, null, "Bạn bè, môi trường ảnh hưởng tới mình."], ["🌳 👍 🎨 👎", "TOT GO HON TOT NUOC SON", "Tốt gỗ hơn tốt nước sơn", 2, null, "Phẩm chất bên trong quý hơn vẻ ngoài."], ["🍽️ 🧼 👕 🌸", "DOI CHO SACH RACH CHO THOM", "Đói cho sạch rách cho thơm", 3, null, "Nghèo vẫn giữ trong sạch."], ["👧 🤕 👧 🤝", "CHI NGA EM NANG", "Chị ngã em nâng", 1, null, "Anh chị em thương yêu giúp đỡ nhau."], ["👦 👦 ✋ 🦶", "ANH EM NHU THE TAY CHAN", "Anh em như thể tay chân", 2, null, "Anh em ruột thịt gắn bó."], ["👦 📈 👨 🏠 🍀", "CON HON CHA LA NHA CO PHUC", "Con hơn cha là nhà có phúc", 3, null, "Con giỏi hơn cha mẹ là điều đáng mừng."], ["👨‍🏫 📚 👫", "HOC THAY KHONG TAY HOC BAN", "Học thầy không tày học bạn", 3, null, "Học từ bạn bè cũng rất quý."], ["👨‍🏫 ❌ 🤷", "KHONG THAY DO MAY LAM NEN", "Không thầy đố mày làm nên", 3, null, "Phải có thầy dạy mới thành công."], ["🙇 ➡️ 📖", "TIEN HOC LE HAU HOC VAN", "Tiên học lễ hậu học văn", 2, null, "Học lễ phép trước, học kiến thức sau."], ["🗣️ 💬 💰 ❌", "LOI NOI CHANG MAT TIEN MUA", "Lời nói chẳng mất tiền mua", 3, null, "Hãy nói lời hay, ý đẹp."], ["😇 🍀", "O HIEN GAP LANH", "Ở hiền gặp lành", 1, null, "Sống tốt sẽ gặp điều tốt."], ["🌬️ ➡️ 🌪️", "GIEO GIO GAT BAO", "Gieo gió gặt bão", 2, null, "Làm điều xấu sẽ nhận hậu quả lớn."], ["🤑 🤕", "THAM THI THAM", "Tham thì thâm", 1, null, "Tham lam sẽ chịu thiệt."], ["💧 🔭 🔥 🏠", "NUOC XA KHONG CUU DUOC LUA GAN", "Nước xa không cứu được lửa gần", 3, null, "Thứ ở xa không giúp được lúc gấp."], ["👨‍👩‍👦 ✈️ 🏡 🤝 🏡", "BAN ANH EM XA MUA LANG GIENG GAN", "Bán anh em xa mua láng giềng gần", 3, null, "Hàng xóm gần gũi giúp nhau kịp thời."], ["🐴 🤒 🐴 🐴 🌾 ❌", "MOT CON NGUA DAU CA TAU BO CO", "Một con ngựa đau cả tàu bỏ cỏ", 3, null, "Đồng cảm, thương nhau khi một người gặp nạn."], ["🐓 😠 🐓 📢", "CON GA TUC NHAU TIENG GAY", "Con gà tức nhau tiếng gáy", 3, null, "Ganh đua nhau, không chịu thua."], ["🦋 ⬇️ 🌧️", "CHUON CHUON BAY THAP THI MUA", "Chuồn chuồn bay thấp thì mưa", 3, null, "Kinh nghiệm xem thời tiết."], ["🐜 🌾 ⏳ 🏠", "KIEN THA LAU CUNG DAY TO", "Kiến tha lâu cũng đầy tổ", 3, null, "Góp nhặt từng chút sẽ thành nhiều."], ["📏 ❌ ➡️ 🛣️", "SAI MOT LY DI MOT DAM", "Sai một ly đi một dặm", 2, null, "Sai một chút lúc đầu thành sai rất nhiều về sau."], ["🙋 ⛰️ 👀 🏔️", "DUNG NUI NAY TRONG NUI NO", "Đứng núi này trông núi nọ", 3, null, "Không bằng lòng với cái mình có."], ["🦀 🏖️ 🌊", "DA TRANG XE CAT BIEN DONG", "Dã tràng xe cát biển Đông", 3, null, "Làm việc vất vả mà uổng công."], ["🍎 🌳 🚧", "AN CAY NAO RAO CAY NAY", "Ăn cây nào rào cây nấy", 2, null, "Được lợi từ đâu thì bảo vệ nơi đó."], ["🐴 🛤️ 🔁", "NGUA QUEN DUONG CU", "Ngựa quen đường cũ", 2, null, "Quen thói cũ, khó bỏ."], ["🐛 👟 😤", "CON GIUN XEO LAM CUNG QUAN", "Con giun xéo lắm cũng quằn", 3, null, "Bị ép quá thì người hiền cũng phản kháng."], ["💧 👐 🏠", "NUOC LA MA VA NEN HO", "Nước lã mà vã nên hồ", 2, null, "Tay trắng làm nên sự nghiệp."], ["🥚 🧠 🦆", "TRUNG KHON HON VIT", "Trứng khôn hơn vịt", 2, null, "Con nhỏ mà muốn dạy người lớn."], ["🐃 ⏳ 💧 🌫️", "TRAU CHAM UONG NUOC DUC", "Trâu chậm uống nước đục", 3, null, "Chậm chân thì chịu phần kém."], ["🐔 🤕 🔄", "GA QUE AN QUAN COI XAY", "Gà què ăn quẩn cối xay", 2, null, "Chỉ quanh quẩn một chỗ, không dám đi xa."], ["🍱 🏃 🌊 🐢", "AN CO DI TRUOC LOI NUOC THEO SAU", "Ăn cỗ đi trước lội nước theo sau", 3, null, "Hưởng thì tranh trước, khó thì lùi sau."], ["🐕 🗣️ 🦷 ❌", "CHO SUA LA CHO KHONG CAN", "Chó sủa là chó không cắn", 3, null, "Người hay to tiếng thường không làm hại ai."], ["✋ 🌱 🌳", "UON CAY TU THUO CON NON", "Uốn cây từ thuở còn non", 2, null, "Dạy con từ khi còn nhỏ."], ["🔥 🥇 🧗 💪", "LUA THU VANG GIAN NAN THU SUC", "Lửa thử vàng gian nan thử sức", 3, null, "Khó khăn giúp biết sức mạnh thật."], ["❤️ 👥 🤗", "THUONG NGUOI NHU THE THUONG THAN", "Thương người như thể thương thân", 3, null, "Yêu thương người khác như bản thân."], ["🧗 ⛰️ 🚩", "CO CHI THI NEN", "Có chí thì nên", 1, null, "Có ý chí thì sẽ thành công."], ["🦷 💇 👤", "CAI RANG CAI TOC LA GOC CON NGUOI", "Cái răng cái tóc là góc con người", 3, null, "Răng, tóc thể hiện vẻ đẹp con người."], ["🐄 🏃 🔨 🏠", "MAT BO MOI LO LAM CHUONG", "Mất bò mới lo làm chuồng", 3, null, "Xảy ra chuyện rồi mới lo phòng tránh."]];
+  const WORD_MAX = 10, WORD_LV = { 1: "Dễ", 2: "Vừa", 3: "Khó" };
+  const seeded = (seed) => () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const demoWord = () => {
+    const w = (S.word = S.word || { last: 0, day: "", n: 0, open: [], cut: false, at: 0 });
+    if (w.day !== today()) { w.day = today(); w.n = 0; }
+    if (!Array.isArray(w.seen)) { w.seen = []; w.cur = -1; }
+    return w;
+  };
+  // the next puzzle: at random among those not had yet (then a new round)
+  // the level of the n-th puzzle of the day: 1-4 Dễ, 5-7 Vừa, 8-10 Khó
+  const levelFor = (n) => (n < 4 ? 1 : n < 7 ? 2 : 3);
+  function demoPick(w) {
+    const lv = levelFor(w.n), ofLv = WORD_DEMO.map((q, k) => k).filter((k) => WORD_DEMO[k][3] === lv);
+    let left = ofLv.filter((k) => !w.seen.includes(k));
+    if (!left.length) { w.seen = w.seen.filter((k) => !ofLv.includes(k)); left = ofLv.filter((k) => k !== w.last); }
+    w.cur = left[Math.floor(Math.random() * left.length)]; w.at = 0; w.open = []; w.cut = false;
+  }
+  function demoDone(w) { w.last = w.cur; w.seen.push(w.cur); w.cur = -1; w.n++; w.open = []; w.cut = false; w.at = 0; save(); }
+  // time ran out: no more puzzles today; a skip: another puzzle of the same level
+  function demoDrop(w, lost) { w.last = w.cur; w.seen.push(w.cur); w.cur = -1; w.open = []; w.cut = false; w.at = 0; if (lost) w.lost = today(); else w.skipDay = today(); save(); }
+  const demoRules = (w) => ({ over: w.lost === today(), skip_left: w.skipDay === today() ? 0 : 1 });
+  function demoView() {
+    const w = demoWord(), q = WORD_DEMO[w.cur];
+    if (!q) return Object.assign({ n: w.n, max: WORD_MAX, finished: false, waiting: true }, demoRules(w));
+    const ans = q[1].replace(/ /g, ""), rnd = seeded(w.cur * 97 + 7), ABC = "ABCDEGHIKLMNOPQRSTUVXY";
+    const tiles = ans.split("").map((l, k) => [l, k]);
+    for (let i = 0; i < Math.max(4, 14 - ans.length); i++) tiles.push([ABC[Math.floor(rnd() * ABC.length)], ans.length + i]);
+    tiles.forEach((t) => (t[2] = rnd()));
+    tiles.sort((a, b) => a[2] - b[2]);
+    return { n: w.n, max: WORD_MAX, finished: false, id: w.cur + 1, no: w.n + 1, level: q[3], pics: q[0], img: q[4] || null,
+      words: q[1].split(" ").map((x) => x.length), letters: tiles.filter((t) => !w.cut || t[1] < ans.length).map((t) => t[0]),
+      open: w.open.map((i) => ({ i, c: ans[i] })), cut: w.cut, costs: { letter: 20, cut: 30, skip: 50 },
+      limit: 60, left_ms: w.at ? Math.max(0, 60000 - (Date.now() - w.at)) : 60000, ...demoRules(w) };
+  }
+  let wordApi = {
+    get: () => {
+      const w = demoWord();
+      if (w.n < WORD_MAX && w.lost !== today()) {
+        const q = WORD_DEMO[w.cur];
+        if (q && w.at && Date.now() >= w.at + 60000) {   // the minute ran out: no more puzzles today
+          demoDrop(w, true);
+          return Promise.resolve({ word: demoView(), result: { timeout: true, over: true, shown: q[2], pics: q[0], img: q[4], mean: q[5] } });
+        }
+        if (!q) demoPick(w);
+        if (!w.at) { w.at = Date.now(); save(); }
+      }
+      return Promise.resolve({ word: demoView() });
+    },
+    answer: (letters) => {
+      const w = demoWord(), q = WORD_DEMO[w.cur];
+      if (w.n >= WORD_MAX) return Promise.reject(new Error("word_day_done"));
+      if (w.lost === today()) return Promise.reject(new Error("word_over"));
+      if (!q || !w.at) return Promise.reject(new Error("word_not_started"));
+      if (Date.now() > w.at + 62000) { demoDrop(w, true); return Promise.resolve({ word: demoView(), result: { ok: false, timeout: true, over: true, shown: q[2], pics: q[0], img: q[4], mean: q[5] } }); }
+      if (letters !== q[1].replace(/ /g, "")) return Promise.resolve({ word: demoView(), result: { ok: false } });
+      const mat = Math.random() < 0.1 ? MAT_IDS[Math.floor(Math.random() * 3)] : null;
+      addGold(10); if (mat) matsOf()[mat] = haveMat(mat) + 1;
+      demoDone(w);
+      let bonus = null;
+      if (w.n >= WORD_MAX) {   // all 10 right: 300 gold more and 20 materials at random
+        const add = {};
+        for (let i = 0; i < 20; i++) { const k = MAT_IDS[Math.floor(Math.random() * 3)]; add[k] = (add[k] || 0) + 1; }
+        addGold(300); for (const k in add) matsOf()[k] = haveMat(k) + add[k];
+        bonus = { gold: 300, mats: add }; save();
+      }
+      return Promise.resolve({ word: demoView(), result: { ok: true, shown: q[2], gold: 10, mat, img: q[4], mean: q[5], bonus } });
+    },
+    hint: (kind) => {
+      const w = demoWord(), q = WORD_DEMO[w.cur], cost = { letter: 20, cut: 30, skip: 50 }[kind];
+      if (w.n >= WORD_MAX) return Promise.reject(new Error("word_day_done"));
+      if (w.lost === today()) return Promise.reject(new Error("word_over"));
+      if (kind === "skip" && w.skipDay === today()) return Promise.reject(new Error("no_skip_left"));
+      if (!q) return Promise.reject(new Error("word_timeout"));
+      if (!w.at || Date.now() > w.at + 62000) return Promise.reject(new Error("word_timeout"));
+      if (S.gold < cost) return Promise.reject(new Error("not_enough_gold"));
+      const len = q[1].replace(/ /g, "").length;
+      if (kind === "letter") { if (w.open.length >= len - 1) return Promise.reject(new Error("no_more_hint")); let i = 0; while (w.open.includes(i)) i++; w.open.push(i); }
+      if (kind === "cut") { if (w.cut) return Promise.reject(new Error("no_more_hint")); w.cut = true; }
+      S.gold -= cost;
+      if (kind === "skip") { demoDrop(w, false); return Promise.resolve({ word: demoView(), result: { skipped: true, shown: q[2], img: q[4], mean: q[5] } }); }
+      save();
+      return Promise.resolve({ word: demoView() });
+    },
+    took: () => {},                       // (inside the app: the farm from the server)
+    err: (e) => String((e && e.message) || e),
+  };
+  let wv = null, wFill = [], wUsed = [], wBusy = false;
+  // the minute of a puzzle: the server counts it; the screen shows it
+  let wEnd = 0, wRun = false, wAsked = false;
+  function wordClock() {
+    if (!wRun || $("wordWrap").hidden) return;
+    const ms = Math.max(0, wEnd - performance.now()), sec = Math.ceil(ms / 1000);
+    $("wordBar").style.width = (ms / 600).toFixed(1) + "%";
+    $("wordSec").textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    $("wordTime").classList.toggle("low", sec <= 10);
+    if (sec <= 5 && sec > 0 && wordClock.last !== sec) beep(880, 0.06);
+    wordClock.last = sec;
+    if (ms <= 0 && !wAsked && !wBusy) {
+      // time is up: the server writes the puzzle as lost
+      wAsked = true; wRun = false; $("hintPop").hidden = true;
+      wordApi.get().then((st) => { wAsked = false; wordTake(st, "get"); }, () => { wAsked = false; });
+    }
+  }
+  setInterval(wordClock, 200);
+  function wordStatus() {
+    const n = wv ? wv.n : 0;
+    $("wordTxt").textContent = wv && wv.finished ? "chưa có câu đố" : wv && wv.over ? "hôm nay đã hết lượt" : n >= WORD_MAX ? "hôm nay đã đủ 10 câu" : `hôm nay ${n}/${WORD_MAX} câu`;
+  }
+  function drawWord() {
+    wordStatus();
+    $("wordCount").textContent = wv ? `Hôm nay ${wv.n}/${wv.max} câu` : "";
+    const done = !wv || wv.finished || wv.n >= wv.max || wv.over || !wv.id;
+    $("wordBody").hidden = done; $("wordDone").hidden = !done;
+    if (done) {
+      $("wordDoneIc").textContent = wv && wv.finished ? "🏆" : "🌙";
+      $("wordDoneMsg").textContent = !wv ? "Đang tải câu đố…" : wv.finished ? "Chưa có câu đố nào, chờ câu mới nhé!" : wv.n >= wv.max ? `Bạn đã đoán đúng cả ${wv.max} câu hôm nay. Mai quay lại đoán tiếp nhé!` : wv.over ? "Hết giờ! Bạn đã hết lượt chơi hôm nay. Mai quay lại đoán tiếp nhé!" : "Bấm Câu tiếp để chơi câu mới";
+      $("wordDoneIc").textContent = !wv ? "🧩" : wv.n >= wv.max ? "🏆" : wv.over ? "⏰" : wv.finished ? "🌙" : "🧩";
+      return;
+    }
+    $("wordLv").textContent = `Câu ${wv.no || wv.n + 1}/${wv.max} · ${WORD_LV[wv.level] || "Dễ"}`;
+    $("wordLv").className = "wlv l" + wv.level;
+    $("wordPics").innerHTML = "";
+    if (wv.img) { const im = document.createElement("img"); im.className = "wimg"; im.src = wv.img; im.alt = "Hình gợi ý"; $("wordPics").appendChild(im); }
+    else (wv.pics || "").split(" ").forEach((e) => { const sp = document.createElement("span"); sp.textContent = e; $("wordPics").appendChild(sp); });
+    // slots: one per letter, grouped by word; opened letters (hints) are fixed
+    const total = wv.words.reduce((a, b) => a + b, 0);
+    if (wFill.length !== total) wFill = Array(total).fill(null);
+    if (wUsed.length !== wv.letters.length) wUsed = wv.letters.map(() => false);
+    const opened = {};
+    wv.open.forEach((o) => {
+      opened[o.i] = o.c;
+      if (wFill[o.i] != null && wFill[o.i] !== -1) wUsed[wFill[o.i]] = false;
+      if (wFill[o.i] !== -1) { const t = wv.letters.findIndex((l, k) => l === o.c && !wUsed[k]); if (t >= 0) wUsed[t] = true; wFill[o.i] = -1; }
+    });
+    const box = $("wordSlots"); box.innerHTML = ""; box.className = "wslots";
+    let k = 0;
+    wv.words.forEach((len) => {
+      const ww = document.createElement("div"); ww.className = "wword";
+      for (let j = 0; j < len; j++, k++) {
+        const i = k, sl = document.createElement("span");
+        sl.className = "slot" + (opened[i] ? " open" : wFill[i] != null ? " fill" : "");
+        sl.textContent = opened[i] || (wFill[i] != null ? wv.letters[wFill[i]] : "");
+        if (!opened[i]) sl.addEventListener("click", () => { if (wBusy || wFill[i] == null) return; wUsed[wFill[i]] = false; wFill[i] = null; $("wordMsg").className = "wmsg"; drawWord(); });
+        ww.appendChild(sl);
+      }
+      box.appendChild(ww);
+    });
+    const tb = $("wordTiles"); tb.innerHTML = "";
+    wv.letters.forEach((l, t) => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "tile" + (wUsed[t] ? " used" : ""); b.textContent = l;
+      b.addEventListener("click", () => {
+        if (wBusy || wUsed[t]) return;
+        const i = wFill.findIndex((x) => x == null);
+        if (i < 0) return;
+        wFill[i] = t; wUsed[t] = true; beep(660, 0.04);
+        drawWord();
+        if (wFill.every((x) => x != null)) wordSubmit();
+      });
+      tb.appendChild(b);
+    });
+    $("hintLetter").textContent = `💡 Mở 1 chữ · ${wv.costs.letter}`;
+    $("hintCut").textContent = `✂️ Bỏ chữ thừa · ${wv.costs.cut}`; $("hintCut").disabled = wv.cut;
+    $("hintSkip").textContent = wv.skip_left === 0 ? "⏭️ Đã bỏ qua hôm nay" : `⏭️ Bỏ qua · ${wv.costs.skip} (1 lần)`;
+    $("hintSkip").disabled = wv.skip_left === 0;
+  }
+  function wordTake(st, how) {
+    if (!st) return;
+    const oldPics = wv && wv.pics, oldImg = wv && wv.img;
+    wordApi.took(st);
+    if (st.word) {
+      if (!wv || st.word.id !== wv.id || (wv.letters || []).length !== (st.word.letters || []).length) { wFill = []; wUsed = []; }
+      wv = st.word;
+    }
+    const r = st.result || {};
+    const live = wv && !wv.finished && wv.n < wv.max && !wv.over && !!wv.id;
+    if (r.timeout || r.skipped || r.ok) wRun = false;
+    else if (live && (how === "get" || wRun)) { wEnd = performance.now() + (wv.left_ms != null ? Number(wv.left_ms) : 60000); wRun = true; }
+    if (!live) wRun = false;
+    refresh(); drawWord(); wordClock();
+    if (r.timeout) { wFill = []; wUsed = []; drawWord(); wordPop(r.pics || oldPics || "", r.shown, "Hết giờ!", 0, null, r.img || oldImg, r.mean, "Bạn đã hết lượt chơi hôm nay. Mai quay lại đoán tiếp nhé!"); }
+  }
+  function wordSubmit() {
+    const letters = wFill.map((t, i) => (t === -1 ? wv.open.find((o) => o.i === i).c : wv.letters[t])).join("");
+    wBusy = true; $("wordMsg").textContent = "Đang chấm…"; $("wordMsg").className = "wmsg";
+    const pics = wv.pics, img = wv.img;
+    wordApi.answer(letters).then((st) => {
+      wBusy = false;
+      const r = st.result || {};
+      if (r.timeout) { wordTake(st, "answer"); return; }
+      if (!r.ok) {
+        wordTake(st, "answer");
+        $("wordSlots").className = "wslots bad"; $("wordMsg").textContent = "Chưa đúng rồi, chạm ô để sửa chữ nhé"; $("wordMsg").className = "wmsg bad";
+        beep(220, 0.15);
+        return;
+      }
+      $("wordSlots").className = "wslots good"; $("wordMsg").textContent = "Chạm chữ cái để điền vào ô";
+      coinSound();
+      setTimeout(() => {
+        wFill = []; wUsed = [];
+        wordTake(st, "answer");
+        if (r.bonus) { wordPop(pics, r.shown, "Hoàn thành 10 câu! 🏆", 10, r.mat, r.img || img, r.mean, null, r.bonus); coinSound(); }
+        else wordPop(pics, r.shown, "Chính xác!", 10, r.mat, r.img || img, r.mean);
+      }, 450);
+    }, (e) => { wBusy = false; $("wordMsg").textContent = wordApi.err(e); $("wordMsg").className = "wmsg bad"; wordApi.get().then((st) => wordTake(st, "get"), () => {}); });
+  }
+  function wordPop(pics, shown, title, gold, mat, img, mean, note, bonus) {
+    $("wordPopTitle").textContent = title;
+    $("wordPopNote").hidden = !note; $("wordPopNote").textContent = note || "";
+    $("wordPopPics").innerHTML = "";
+    if (img) { const im = document.createElement("img"); im.className = "wpopimg"; im.src = img; im.alt = ""; $("wordPopPics").appendChild(im); }
+    else $("wordPopPics").textContent = (pics || "").replace(/ /g, "");
+    $("wordPopMean").hidden = !mean; $("wordPopMean").textContent = mean ? "Ý nghĩa: " + mean : "";
+    $("wordPopShown").textContent = "Đáp án: " + shown;
+    $("wordPopGoldRow").hidden = !gold; $("wordPopGold").textContent = "+" + gold;
+    $("wordPopMat").hidden = !mat && !bonus;
+    if (mat) $("wordPopMat").innerHTML = `Nhặt được +1 ${matIcon(mat)} ${MATS[mat].name.toLowerCase()} để xây nhà!`;
+    if (bonus) {
+      $("wordPopGold").textContent = "+" + (gold + bonus.gold);
+      const ms = MAT_IDS.filter((k) => bonus.mats && bonus.mats[k]).map((k) => `+${bonus.mats[k]} ${matIcon(k)} ${MATS[k].name.toLowerCase()}`).join(", ");
+      $("wordPopMat").innerHTML = `Thưởng hoàn thành: +${bonus.gold} vàng và ${ms}` + (mat ? `<br>Nhặt thêm +1 ${matIcon(mat)} ${MATS[mat].name.toLowerCase()}` : "");
+    }
+    const more = wv && !wv.finished && wv.n < wv.max && !wv.over;
+    $("wordPopNext").hidden = !more;
+    $("wordPopHome").parentElement.style.gridTemplateColumns = more ? "" : "1fr";
+    $("wordPop").hidden = false;
+  }
+  // a hint costs gold: a window asks first, then it is bought
+  const HINT_INFO = {
+    letter: ["💡", "Mở 1 chữ", "Mở sẵn 1 chữ cái đúng trong đáp án."],
+    cut: ["✂️", "Bỏ chữ thừa", "Bỏ hết các chữ cái không có trong đáp án."],
+    skip: ["⏭️", "Bỏ qua câu này", "Đổi sang một câu khác cùng mức (xem đáp án câu này). Mỗi ngày chỉ được bỏ qua 1 lần."],
+  };
+  let hintKind = null;
+  function askHint(kind) {
+    if (wBusy || !wv) return;
+    const cost = wv.costs[kind];
+    if (kind === "skip" && wv.skip_left === 0) { $("wordMsg").textContent = "Hôm nay bạn đã bỏ qua 1 lần rồi"; $("wordMsg").className = "wmsg bad"; return; }
+    if (S.gold < cost) { $("wordMsg").textContent = `Không đủ vàng để dùng gợi ý (cần ${cost} vàng)`; $("wordMsg").className = "wmsg bad"; return; }
+    hintKind = kind;
+    const [ic, name, text] = HINT_INFO[kind];
+    $("hintPopIc").textContent = ic;
+    $("hintPopTitle").textContent = name + "?";
+    $("hintPopMsg").textContent = text;
+    $("hintPopCost").textContent = "−" + cost;
+    $("hintPopLeft").textContent = `Bạn đang có ${money(S.gold)} vàng, dùng xong còn ${money(S.gold - cost)} vàng.`;
+    $("hintPop").hidden = false;
+  }
+  function useHint(kind) {
+    wBusy = true;
+    const pics = wv.pics, img = wv.img;
+    wordApi.hint(kind).then((st) => {
+      wBusy = false;
+      if (kind !== "letter") { wFill = []; wUsed = []; }
+      wordTake(st, "hint");
+      if (st.result && st.result.skipped) wordPop(pics, st.result.shown, "Đã bỏ qua", 0, null, st.result.img || img, st.result.mean, "Bấm Câu tiếp để đổi sang câu khác cùng mức.");
+      else $("wordMsg").textContent = kind === "letter" ? "Đã mở 1 chữ" : "Đã bỏ các chữ thừa";
+      $("wordMsg").className = "wmsg";
+    }, (e) => {
+      wBusy = false;
+      const m = wordApi.err(e);
+      if (m.includes("word_timeout")) { wordApi.get().then((st) => wordTake(st, "get"), () => {}); return; }
+      $("wordMsg").textContent = m.includes("no_skip_left") ? "Hôm nay bạn đã bỏ qua 1 lần rồi" : m.includes("word_over") ? "Hôm nay đã hết lượt chơi" : m.includes("no_more_hint") ? "Không mở thêm được nữa" : m.includes("not_enough_gold") ? "Không đủ vàng để dùng gợi ý" : m.includes("word_day_done") ? "Hôm nay đã đủ 10 câu" : m;
+      $("wordMsg").className = "wmsg bad"; drawWord();
+    });
+  }
+  [["hintLetter", "letter"], ["hintCut", "cut"], ["hintSkip", "skip"]].forEach(([id, kind]) => $(id).addEventListener("click", () => askHint(kind)));
+  $("hintNo").addEventListener("click", () => { $("hintPop").hidden = true; hintKind = null; });
+  $("hintYes").addEventListener("click", () => {
+    $("hintPop").hidden = true;
+    const k = hintKind; hintKind = null;
+    if (k && wv && wv.id && wRun) useHint(k);
+  });
+  function openWord() {
+    $("wordWrap").hidden = false; wv = wv || null; drawWord();
+    wordApi.get().then((st) => wordTake(st, "get"), (e) => { $("wordDoneMsg").textContent = wordApi.err(e); });
+  }
+  function closeWord() { wRun = false; $("hintPop").hidden = true; $("wordWrap").hidden = true; $("wordPop").hidden = true; refresh(); }
+  $("wordBtn").addEventListener("click", openWord);
+  $("wordBack").addEventListener("click", closeWord);
+  $("wordDoneHome").addEventListener("click", closeWord);
+  $("wordDone").addEventListener("click", (e) => { if (e.target.id !== "wordDoneHome" && wv && !wv.id && !wv.finished && wv.n < wv.max) $("wordPopNext").click(); });
+  $("wordPopHome").addEventListener("click", closeWord);
+  $("wordPopNext").addEventListener("click", () => { $("wordPop").hidden = true; wordApi.get().then((st) => wordTake(st, "get"), (e) => { $("wordMsg").textContent = wordApi.err(e); }); });
   $("sportBtn").addEventListener("click", () => { drawSport(); $("sportSheet").hidden = false; });
   $("sportGo").addEventListener("click", openSport);
   $("sportBack").addEventListener("click", () => leaveSport());
@@ -1515,6 +1918,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const c = document.createElement("img"); c.src = ART_SRC.ic_coin[0]; c.alt = ""; $("coinIc").replaceWith(c);
     const f = document.createElement("img"); f.src = ART_SRC.ui_farmer[0]; f.alt = "Bác nông dân"; $("tipFace").replaceWith(f);
     const rc = document.createElement("img"); rc.src = ART_SRC.ic_coin[0]; rc.alt = ""; $("rewardCoin").replaceWith(rc);
+    const wc = rc.cloneNode(); $("wordCoin").replaceWith(wc);
+    const hc = rc.cloneNode(); $("hintCoin").replaceWith(hc);
     for (const [id, k] of [["pAva", "boy_front"], ["noteFace", "ui_farmer"]]) {
       if (!ART_SRC[k]) continue;
       const im = document.createElement("img"); im.src = ART_SRC[k][0]; im.alt = "";
@@ -1524,6 +1929,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   putArt();
   function ripeNotice() {
     if (document.documentElement.classList.contains("visiting")) return;
+    if (!$("wordWrap").hidden) return;   // not over a puzzle being played
     const ripeList = S.plots.filter((p, k) => unlocked(k) && ripe(p));
     if (!ripeList.length) return;
     const count = {}; ripeList.forEach((p) => { count[p.crop] = (count[p.crop] || 0) + 1; });
@@ -1745,6 +2151,18 @@ table.reward td, table.reward th { padding: 7px 10px; }
       });
     });
 
+    // ---- Nhìn hình đoán chữ: the server has the puzzles and the answers
+    wordApi = {
+      get: () => { flush(); return api("farm_word_get", {}); },
+      answer: (letters) => api("farm_word_answer", { letters }),
+      hint: (kind) => api("farm_word_hint", { kind }),
+      took: (st) => { if (!busy) apply(st); },
+      err: (e) => {
+        const m = String((e && e.message) || "");
+        return m.includes("word_day_done") ? "Hôm nay đã đủ 10 câu" : m.includes("word_finished") ? "Đã hết câu đố" : m.includes("no_more_hint") ? "no_more_hint" : m.includes("not_enough_gold") ? "not_enough_gold" : m.includes("word_timeout") ? "word_timeout" : m.includes("no_skip_left") ? "no_skip_left" : m.includes("word_over") ? "word_over" : errText(e);
+      },
+    };
+
     // ---- 30 pictures a second are enough for the farm (saves battery)
     const drawAll = draw;
     let lastDraw = -99;
@@ -1761,6 +2179,15 @@ table.reward td, table.reward th { padding: 7px 10px; }
       $("nameMsg").textContent = !v.length ? "2–20 ký tự, bạn bè sẽ thấy tên này." : ok ? "Tên đẹp đó!" : "Tên cần ít nhất 2 ký tự.";
       $("nameMsg").className = v.length && !ok ? "err" : "";
       $("setupGo").disabled = !ok;
+      if (editing) {
+        const RENAME = 10000, gold = (visiting ? home : S).gold, paid = ok && farm && v !== farm.name;
+        $("setupGo").textContent = paid ? `Lưu · ${money(RENAME)} vàng` : "Lưu";
+        if (paid) {
+          $("nameMsg").textContent = gold >= RENAME ? `Đổi tên tốn ${money(RENAME)} vàng. Đổi bác nông dân thì miễn phí.` : `Đổi tên cần ${money(RENAME)} vàng (còn thiếu ${money(RENAME - gold)}).`;
+          $("nameMsg").className = gold >= RENAME ? "" : "err";
+          if (gold < RENAME) { $("setupGo").disabled = true; return null; }
+        }
+      }
       return ok ? v : null;
     }
     function pickWho(w) { who = w; document.querySelectorAll(".su-pick").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.who === w))); }
@@ -1786,11 +2213,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
       const name = checkName();
       if (!name) return;
       $("setupGo").disabled = true;
-      const wasEditing = editing;
+      const wasEditing = editing, renamed = !!(farm && name !== farm.name);
       api(wasEditing ? "farm_rename" : "farm_create", { name, farmer: who }).then((st) => {
         $("setupWrap").hidden = true;
         apply(st);
-        if (wasEditing) toast("Đã đổi tên nông trại");
+        if (wasEditing) toast(farm && renamed ? "Đã đổi tên nông trại (−10.000 vàng)" : "Đã lưu");
         else { toast(`Chào mừng tới Nông trại ${st.name}!`); setTimeout(ripeNotice, 1500); }
       }, (err) => {
         $("setupGo").disabled = false;
@@ -2051,6 +2478,9 @@ table.reward td, table.reward th { padding: 7px 10px; }
     // the phone's Back button: close what is open first; false = leave the game
     mc.back = () => {
       if (!$("rewardPop").hidden) { $("rewardPop").hidden = true; return true; }
+      if (!$("hintPop").hidden) { $("hintPop").hidden = true; return true; }
+      if (!$("wordPop").hidden) { $("wordPop").hidden = true; return true; }
+      if (!$("wordWrap").hidden) { closeWord(); return true; }
       for (const id of ["dailySheet", "friendsSheet"]) if (!$(id).hidden) { $(id).hidden = true; return true; }
       if (visiting) { endVisit(); return true; }
       if (!$("invitePop").hidden) { $("invitePop").hidden = true; return true; }
