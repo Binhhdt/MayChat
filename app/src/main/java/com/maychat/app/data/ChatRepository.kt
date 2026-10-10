@@ -1070,7 +1070,21 @@ object ChatRepository {
         // Hội thao between phones (supabase_migration_33_hoithao_rooms.sql)
         "hoithao_create", "hoithao_invite", "hoithao_join", "hoithao_leave",
         "hoithao_start", "hoithao_finish", "farm_cup_room",
+        // daily gift and tasks, friends' farms (supabase_migration_36_farm_daily_friends.sql)
+        "farm_daily_claim", "farm_quest_claim", "farm_leaderboard", "farm_visit",
+        "farm_water", "farm_steal", "farm_news",
     )
+
+    // The farm of a person for their profile page: (farm name, house level),
+    // or null when they have none or are not my friend.
+    suspend fun farmProfile(userId: String): Pair<String, Int>? {
+        val text = supabase.postgrest.rpc("farm_profile", buildJsonObject { put("p_user", userId) }).data.trim()
+        if (text.isEmpty() || text == "null") return null
+        val obj = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return null
+        val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: return null
+        val level = obj["level"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 1
+        return name to level
+    }
 
     suspend fun farmCall(function: String, params: JsonObject): String {
         require(function in farmFunctions) { "unknown_function" }

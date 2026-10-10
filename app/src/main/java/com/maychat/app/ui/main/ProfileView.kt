@@ -212,6 +212,11 @@ fun ProfileViewDialog(
                                 Text("👤  Tên người dùng: @${person.username}")
                             }
                         }
+                        // The farm game: house and farm name (me and my friends only).
+                        com.maychat.app.game.FarmProfileCard(
+                            userId = person.id,
+                            isMe = person.id == ChatRepository.currentUserId(),
+                        )
 
                         if (onEdit != null) {
                             Spacer(Modifier.height(20.dp))

@@ -262,6 +262,33 @@ table.reward td, table.reward th { padding: 7px 10px; }
   .su-title b { font-size: 19px; }
   .avawrap { width: 42px; height: 42px; }
 }
+/* ---- stages 3 and 4 (inside MayChat) ---- */
+.chip.appbtn { display: none; cursor: pointer; font: 800 13px var(--display); position: relative; }
+.in-app .chip.appbtn { display: inline-flex; align-items: center; }
+.chip.appbtn.dot::after { content: ""; position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: #e2453a; border: 2px solid #fff; }
+.giftrow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.gift { background: #fff; border: 2px solid #e6cfa8; border-radius: 12px; text-align: center; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; font-weight: 800; }
+.gift small { font-size: 10px; color: var(--muted); }
+.gift b { font-size: 18px; line-height: 1.2; }
+.gift span { font-size: 12px; }
+.gift.got { background: #effbe8; border-color: var(--leaf); }
+.gift.today { border-color: #f2b632; box-shadow: 0 0 0 3px #ffe66b; }
+.qbar { display: block; height: 6px; border-radius: 99px; background: #eadbc2; margin-top: 4px; overflow: hidden; }
+.qbar i { display: block; height: 100%; background: var(--leaf); border-radius: 99px; }
+.tabs2 { display: flex; gap: 6px; }
+.tabs2 .mini.on { background: var(--leaf); color: #fff; border-color: var(--leaf-dark); }
+.list li.rrow { grid-template-columns: 24px 38px minmax(0, 1fr) auto auto; }
+.list li.nrow { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.list .price { font: 800 15px var(--display); color: #b8860b; white-space: nowrap; }
+.visiting .ptrack em { visibility: hidden; }
+.list .rank { width: 24px; text-align: center; font: 800 16px var(--display); color: var(--muted); }
+.rface, .rf2 { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex: none; display: grid; place-items: center; background: linear-gradient(135deg, #4a8fe0, #0b74e5); color: #fff; font: 800 16px var(--body); border: 2px solid var(--wood); box-sizing: border-box; }
+.rf2 { width: 100%; height: 100%; border: 0; }
+.visitbar { display: none; }
+.visiting .visitbar { display: flex; position: fixed; z-index: 12; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); align-items: center; gap: 10px; background: linear-gradient(#fffaf0, #f7e7cb); border: 3px solid #b88a54; border-radius: 18px; box-shadow: 0 4px 0 #a8743f; padding: 6px 8px 6px 14px; max-width: calc(100% - 24px); }
+.visitbar b { display: block; font: 800 14px var(--display); }
+.visitbar small { display: block; font-weight: 700; font-size: 12px; color: var(--muted); }
+.visiting .bar, .visiting .sportbar, .visiting .tipbox, .visiting .coins, .visiting .chip.appbtn, .visiting .chip.exit, .visiting .small-row { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .coins.bump { animation: none; } .tool:active { transform: none; } }
 </style>
 
@@ -281,6 +308,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <span class="chip" id="plotChip">6/20 ô đất</span>
     <span class="chip time" id="clockChip"></span>
     <button class="chip exit" id="exitBtn" type="button">← Về MayChat</button>
+    <button class="chip appbtn" id="dailyBtn" type="button">🎁 Quà &amp; nhiệm vụ</button>
+    <button class="chip appbtn" id="friendsBtn" type="button">👥 Bạn bè</button>
   </div>
 
   <div class="stage">
@@ -418,6 +447,31 @@ table.reward td, table.reward th { padding: 7px 10px; }
     </div>
   </form>
 </div>
+<!-- inside MayChat only: daily gift and tasks -->
+<div class="sheet" id="dailySheet" hidden>
+  <div class="card" role="dialog" aria-label="Quà và nhiệm vụ">
+    <div class="sheet-head"><b>🎁 Quà mỗi ngày</b><button class="mini" id="dailyClose" type="button">Đóng</button></div>
+    <p class="note">Vào game mỗi ngày để nhận quà, quà lớn dần tới ngày 7. Bỏ 1 ngày thì tính lại từ ngày 1.</p>
+    <div class="giftrow" id="giftRow"></div>
+    <button class="btn green" id="giftBtn" type="button">Nhận quà</button>
+    <div class="sheet-head"><b>📋 Nhiệm vụ hôm nay</b></div>
+    <ul class="list" id="questList"></ul>
+  </div>
+</div>
+<!-- inside MayChat only: friends (ranking of the week, what happened) -->
+<div class="sheet" id="friendsSheet" hidden>
+  <div class="card" role="dialog" aria-label="Bạn bè">
+    <div class="sheet-head"><b>👥 Bạn bè</b><button class="mini" id="friendsClose" type="button">Đóng</button></div>
+    <div class="tabs2"><button class="mini on" id="tabRank" type="button">🏆 Xếp hạng tuần</button><button class="mini" id="tabNews" type="button">🔔 Hoạt động</button></div>
+    <ul class="list" id="friendsList"></ul>
+    <p class="note">Xếp hạng theo số vàng kiếm được từ thứ Hai tuần này. Thăm nông trại bạn bè: tưới ô đang lớn (chín sớm hơn, bạn được 5 vàng) hoặc hái trộm 1 phần ô đã chín, mỗi việc 10 lần một ngày.</p>
+  </div>
+</div>
+<!-- inside MayChat only: visiting a friend's farm -->
+<div class="visitbar" id="visitBar">
+  <span><b id="visitWho"></b><small id="visitLeft"></small></span>
+  <button class="mini primary" id="visitHome" type="button">🏠 Về nông trại của tôi</button>
+</div>
 <!-- inside MayChat only: an invite to a Hội thao room, while playing -->
 <div class="popwrap" id="invitePop" hidden style="z-index:40">
   <div class="pop" role="dialog" aria-label="Lời mời Hội thao">
@@ -494,6 +548,10 @@ table.reward td, table.reward th { padding: 7px 10px; }
     { name: "Biệt thự",  cost: 200000, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
   ];
   const MAX_LV = 5;
+  // A harvested plot gives 5 parts; a part sells for a fifth of the price
+  // (friends may take 1 part of a ripe plot: "hái trộm").
+  const PARTS = 5;
+  const partPrice = (id) => CROPS[id].sell / PARTS;
   const FAST = 60;
   // The 20 plots (grid corner i, j), in the order they open with the house.
   const PLOTS = [];
@@ -964,6 +1022,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     g.font = (ripeNow ? 6.4 : 4.4) + "px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(ripeNow ? CROPS[p.crop].em : "🌱", x, y + 0.4);
     if (ripeNow) { const tw = (t / 400 + k) % 1; circle(x + 9, y + 4 - tw * 6, 1.1 * (1 - tw), `rgba(255,255,200,${(1 - tw).toFixed(2)})`); }
+    if (p.w && !ripeNow) { g.font = "4px sans-serif"; g.fillText("💧", x + 7.5, y - 3); }
+    if (p.s) { g.font = "4px sans-serif"; g.fillText("✋", x - 8, y - 3); }
   }
 
   // ----- two farmers walking round the fields -----
@@ -1133,10 +1193,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
   function harvest(k) {
     const p = S.plots[k];
     if (!ripe(p)) return false;
-    S.store[p.crop] = (S.store[p.crop] || 0) + 1;
+    const parts = PARTS - Math.min(PARTS - 1, p.s || 0);   // minus what friends took
+    S.store[p.crop] = (S.store[p.crop] || 0) + parts;
     S.harvested++;
     const [i, j] = PLOTS[k], [x, y] = L(i + 0.5, j + 0.5);
-    floatText(x, y - 14, "+1 " + CROPS[p.crop].em, "#2f7d48");
+    floatText(x, y - 14, "+" + parts + " " + CROPS[p.crop].em, "#2f7d48");
     S.plots[k] = null;
     return true;
   }
@@ -1144,7 +1205,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const have = S.store[id] || 0, m = Math.min(have, n);
     if (!m) return 0;
     S.store[id] = have - m;
-    const got = m * CROPS[id].sell;
+    const got = m * partPrice(id);
     addGold(got);
     return got;
   }
@@ -1160,7 +1221,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       const c = CROPS[id], open = S.level >= c.lv;
       const li = document.createElement("li"); if (!open) li.className = "off";
       const time = c.min >= 60 ? `${c.min / 60} giờ` : `${c.min} phút`;
-      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${c.name}<small>${time} · hạt ${c.seed} vàng · bán ${c.sell} vàng (lời ${c.sell - c.seed})</small></span>`;
+      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${c.name}<small>${time} · hạt ${c.seed} vàng · thu ${PARTS} phần, bán ${c.sell} vàng (lời ${c.sell - c.seed})</small></span>`;
       const b = document.createElement("button"); b.type = "button"; b.className = "mini primary";
       b.textContent = !open ? `Nhà cấp ${c.lv}` : target === "all" ? `Gieo (${money(c.seed * Math.min(empty, Math.floor(S.gold / c.seed)))})` : `Gieo (${c.seed})`;
       b.disabled = !open || S.gold < c.seed || (target === "all" && !empty);
@@ -1185,11 +1246,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
     CROP_IDS.forEach((id) => {
       const n = S.store[id] || 0;
       if (!n) return;
-      total += n * CROPS[id].sell;
+      total += n * partPrice(id);
       const li = document.createElement("li");
-      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${CROPS[id].name} × ${n}<small>${CROPS[id].sell} vàng mỗi phần · <span class="price">${money(n * CROPS[id].sell)}</span> vàng</small></span>`;
+      li.innerHTML = `<span class="em">${iconHTML(id)}</span><span class="nm">${CROPS[id].name} × ${n} phần<small>${partPrice(id)} vàng mỗi phần · <span class="price">${money(n * partPrice(id))}</span> vàng</small></span>`;
       const b = document.createElement("button"); b.type = "button"; b.className = "mini primary"; b.textContent = "Bán";
-      b.addEventListener("click", () => { const got = sell(id, n); coinSound(); toast(`Bán ${n} ${CROPS[id].name.toLowerCase()} được ${money(got)} vàng`); save(); refresh(); openStore(); });
+      b.addEventListener("click", () => { const got = sell(id, n); coinSound(); toast(`Bán ${n} phần ${CROPS[id].name.toLowerCase()} được ${money(got)} vàng`); save(); refresh(); openStore(); });
       li.appendChild(b); ul.appendChild(li);
     });
     if (!ul.children.length) ul.innerHTML = `<li><span class="em">🧺</span><span class="nm">Kho đang trống<small>Thu hoạch cây chín để có nông sản đem bán.</small></span><span></span></li>`;
@@ -1278,7 +1339,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const ripeN = S.plots.filter((p, k) => unlocked(k) && ripe(p)).length;
     $("ripeTxt").textContent = `${ripeN} ô chín`;
     const items = Object.values(S.store).reduce((a, b) => a + b, 0);
-    $("storeTxt").textContent = `${items} món`;
+    $("storeTxt").textContent = `${items} phần`;
     $("houseTxt").textContent = S.level >= MAX_LV ? "cấp tối đa" : `${money(HOUSES[S.level + 1].cost)} vàng`;
     $("fastBtn").textContent = `⏩ Tua nhanh ×${FAST}: ${S.fast ? "bật" : "tắt"}`;
     $("fastBtn").classList.toggle("on", S.fast);
@@ -1402,6 +1463,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   }
   putArt();
   function ripeNotice() {
+    if (document.documentElement.classList.contains("visiting")) return;
     const ripeList = S.plots.filter((p, k) => unlocked(k) && ripe(p));
     if (!ripeList.length) return;
     const count = {}; ripeList.forEach((p) => { count[p.crop] = (count[p.crop] || 0) + 1; });
@@ -1488,19 +1550,25 @@ table.reward td, table.reward th { padding: 7px 10px; }
       if (!st) return;
       const plots = Array.isArray(st.plots) ? st.plots.slice(0, 20) : [];
       while (plots.length < 20) plots.push(null);
-      S.plots = plots.map((x) => (x && x.crop && CROPS[x.crop] ? { crop: x.crop, at: Number(x.at), dur: Number(x.dur) } : null));
-      S.gold = Number(st.gold) || 0;
-      S.level = Math.min(MAX_LV, Math.max(1, Number(st.level) || 1));
-      S.store = st.store || {};
-      S.harvested = st.harvested || 0;
-      S.offset = (Number(st.server_now) || Date.now()) - Date.now();   // the farm's clock = the server's clock
-      S.fast = false;
-      S.cups = { day: today(), n: st.cups_today || 0 };
+      // while visiting a friend, my own farm is kept aside (home) and updated there
+      const T = visiting ? home : S;
+      T.plots = normPlots(plots);
+      T.gold = Number(st.gold) || 0;
+      T.level = Math.min(MAX_LV, Math.max(1, Number(st.level) || 1));
+      T.store = st.store || {};
+      T.harvested = st.harvested || 0;
+      T.offset = (Number(st.server_now) || Date.now()) - Date.now();   // the farm's clock = the server's clock
+      T.fast = false;
+      T.cups = { day: today(), n: st.cups_today || 0 };
       farm = { name: st.name, farmer: st.farmer };
+      daily = st.daily || null; quests = st.quests || null;
+      if (st.water_left != null) helps = { water: st.water_left, steal: st.steal_left };
+      if (visiting) { drawDaily(); return; }
       // only the farmer chosen for this farm walks around
       farmers.forEach((f) => { f.off = f.who !== (st.farmer === "girl" ? "girl" : "boy"); });
       lastRipe = -1;
-      showCard(); refresh(); tick(); drawSport(); setAlarm();
+      showCard(); refresh(); tick(); drawSport(); setAlarm(); drawDaily();
+      firstLook();
       if (roomWanted) { const id = roomWanted; roomWanted = null; setTimeout(() => openRoom(id), 300); }
     }
     // "Vào" on an invite card in a chat: straight into that Hội thao room
@@ -1580,7 +1648,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const plantLocal = plantAt, harvestLocal = harvest, sellLocal = sell, upgradeLocal = upgrade;
     plantAt = (k, id) => { const ok = plantLocal(k, id); if (ok) { (todo.plant[id] = todo.plant[id] || []).push(k); soon(); } return ok; };
     harvest = (k) => { const ok = harvestLocal(k); if (ok) { todo.harvest.push(k); soon(); } return ok; };
-    sell = (id, n) => { const got = sellLocal(id, n); if (got) { todo.sell[id] = (todo.sell[id] || 0) + got / CROPS[id].sell; soon(); } return got; };
+    sell = (id, n) => { const got = sellLocal(id, n); if (got) { todo.sell[id] = (todo.sell[id] || 0) + Math.round(got / partPrice(id)); soon(); } return got; };
     upgrade = () => { const lv = S.level; upgradeLocal(); if (S.level > lv) { flush(); send("farm_upgrade", {}); } };
 
     // ---- Hội thao: the server pays the gold of a cup
@@ -1671,7 +1739,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       Promise.all([api("profile", {}).catch(() => null), api("farm_get", {})]).then(([pr, st]) => {
         if (pr) { profile = pr; mc.profile = pr; }
         $("bootWrap").hidden = true;
-        if (st) { apply(st); setTimeout(ripeNotice, 600); }
+        if (st) { apply(st); setTimeout(() => { if (daily && !daily.claimed) ripeAfterDaily = true; else ripeNotice(); }, 600); }
         else openSetup(false);
       }, (e) => {
         $("bootMsg").textContent = errText(e);
@@ -1679,11 +1747,239 @@ table.reward td, table.reward th { padding: 7px 10px; }
       });
     }
     $("bootRetry").addEventListener("click", start);
+
+    // ------------------------------------------------------------------
+    // Stage 3: the daily gift (7 days in a row), 3 tasks a day, the weekly
+    // ranking of friends. Stage 4: visiting a friend's farm, watering
+    // (ripe sooner) and taking 1 part of a ripe plot. The server decides
+    // everything; the page shows it.
+    // ------------------------------------------------------------------
+    let daily = null, quests = null, helps = { water: 10, steal: 10 };
+    let visiting = null, home = null, looked = false;
+    const QUEST_TEXT = { 1: "Thu hoạch 10 ô đất", 2: "Bán nông sản được 300 vàng", 3: "Đấu 1 giải Hội thao" };
+    const QUEST_HAVE = { 1: "harvest", 2: "sold", 3: "cups" };
+    function normPlots(list) {
+      const out = (Array.isArray(list) ? list.slice(0, 20) : []).map((x) =>
+        x && x.crop && CROPS[x.crop] ? { crop: x.crop, at: Number(x.at), dur: Number(x.dur), w: !!x.w, s: Number(x.s) || 0 } : null);
+      while (out.length < 20) out.push(null);
+      return out;
+    }
+    const questDone = (q) => quests && (quests[QUEST_HAVE[q.id]] || 0) >= q.target;
+    const questClaimed = (q) => quests && (quests.claimed & (1 << (q.id - 1))) !== 0;
+    function drawDaily() {
+      const can = (daily && !daily.claimed) || (quests && quests.list.some((q) => questDone(q) && !questClaimed(q)));
+      $("dailyBtn").classList.toggle("dot", !!can);
+      if ($("dailySheet").hidden || !daily || !quests) return;
+      const row = $("giftRow"); row.innerHTML = "";
+      (daily.gifts || []).forEach((g, i) => {
+        const d = i + 1, el = document.createElement("div");
+        const got = daily.claimed ? d <= daily.day : d < daily.day;
+        el.className = "gift" + (got ? " got" : "") + (!daily.claimed && d === daily.day ? " today" : "");
+        el.innerHTML = `<small>Ngày ${d}</small><b>${got ? "✓" : "🪙"}</b><span>${g}</span>`;
+        row.appendChild(el);
+      });
+      $("giftBtn").disabled = !!daily.claimed;
+      $("giftBtn").textContent = daily.claimed ? "Hôm nay đã nhận, mai quay lại nhé" : `Nhận quà ngày ${daily.day} · ${daily.gifts[daily.day - 1]} vàng`;
+      const ul = $("questList"); ul.innerHTML = "";
+      quests.list.forEach((q) => {
+        const have = Math.min(q.target, quests[QUEST_HAVE[q.id]] || 0), done = questDone(q), claimed = questClaimed(q);
+        const li = document.createElement("li");
+        li.innerHTML = `<span class="em">${["", "🧺", "🪙", "🏃"][q.id]}</span><span class="nm">${QUEST_TEXT[q.id]}<small>${money(have)}/${money(q.target)} · thưởng ${q.gold} vàng</small><i class="qbar"><i style="width:${(100 * have / q.target).toFixed(0)}%"></i></i></span>`;
+        const b = document.createElement("button"); b.type = "button";
+        b.className = "mini" + (done && !claimed ? " primary" : "");
+        b.textContent = claimed ? "Đã nhận" : done ? "Nhận" : "Chưa xong";
+        b.disabled = claimed || !done;
+        b.addEventListener("click", () => {
+          b.disabled = true;
+          api("farm_quest_claim", { quest: q.id }).then((st) => { apply(st); coinSound(); toast(`Xong nhiệm vụ! +${st.quest_gold} vàng`); }, (e) => { toast(errText(e), true); reload(); });
+        });
+        li.appendChild(b); ul.appendChild(li);
+      });
+    }
+    function openDaily() { $("dailySheet").hidden = false; drawDaily(); }
+    $("dailyBtn").addEventListener("click", openDaily);
+    // the "ripe" notice waits until the daily gift sheet is closed (one window at a time)
+    let ripeAfterDaily = false;
+    $("dailyClose").addEventListener("click", () => {
+      $("dailySheet").hidden = true;
+      if (ripeAfterDaily) { ripeAfterDaily = false; setTimeout(ripeNotice, 300); }
+    });
+    $("giftBtn").addEventListener("click", () => {
+      $("giftBtn").disabled = true;
+      api("farm_daily_claim", {}).then((st) => { apply(st); coinSound(); toast(`Quà ngày ${st.gift.day}: +${st.gift.gold} vàng`); }, (e) => { toast(errText(e), true); reload(); });
+    });
+
+    // ----- friends: ranking of the week, what happened on my farm -----
+    const pics = {};
+    function loadPics(ids) {
+      const want = ids.filter((id) => id && !(id in pics));
+      if (!want.length) return Promise.resolve();
+      want.forEach((id) => { pics[id] = null; });
+      return api("avatars", { ids: want }).then((got) => { Object.assign(pics, got || {}); }, () => {});
+    }
+    const face = (id, name) => pics[id] ? `<img class="rface" src="${pics[id]}" alt="">` : `<span class="rface">${((name || "?").trim()[0] || "?").toUpperCase()}</span>`;
+    const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    let friendsTab = "rank";
+    async function openFriends(tab) {
+      friendsTab = tab || friendsTab;
+      $("friendsSheet").hidden = false;
+      $("tabRank").classList.toggle("on", friendsTab === "rank");
+      $("tabNews").classList.toggle("on", friendsTab === "news");
+      const ul = $("friendsList"); ul.innerHTML = "<li><span class=\"nm\">Đang tải…</span></li>";
+      try {
+        if (friendsTab === "rank") {
+          const list = await api("farm_leaderboard", {});
+          await loadPics(list.map((r) => r.id));
+          ul.innerHTML = "";
+          if (list.length < 2) ul.innerHTML = "<li><span class=\"nm\">Chưa có bạn bè nào chơi nông trại. Mời bạn bè vào Hội thao để cùng chơi nhé!</span></li>";
+          list.forEach((r, i) => {
+            const li = document.createElement("li");
+            li.className = "rrow" + (r.me ? " now" : "");
+            li.innerHTML = `<span class="rank">${i + 1}</span>${face(r.id, r.display_name)}<span class="nm">${esc(r.me ? "Bạn" : r.display_name)}<small>Nông trại ${esc(r.name)} · nhà cấp ${r.level}</small></span><span class="price">🪙 ${money(r.week_gold)}</span>`;
+            if (!r.me) {
+              const b = document.createElement("button"); b.type = "button"; b.className = "mini primary"; b.textContent = "Thăm";
+              b.addEventListener("click", () => startVisit(r.id));
+              li.appendChild(b);
+            } else li.appendChild(document.createElement("span"));
+            ul.appendChild(li);
+          });
+        } else {
+          const news = await api("farm_news", {});
+          await loadPics(news.map((n) => n.who_id));
+          ul.innerHTML = "";
+          if (!news.length) ul.innerHTML = "<li><span class=\"nm\">Chưa có ai ghé nông trại của bạn trong 3 ngày qua.</span></li>";
+          news.forEach((n) => {
+            const li = document.createElement("li"); li.className = "nrow";
+            const c = CROPS[n.crop] ? CROPS[n.crop].name.toLowerCase() : n.crop;
+            li.innerHTML = `${face(n.who_id, n.who)}<span class="nm">${esc(n.who)} ${n.kind === "water" ? `đã tưới ô ${c} 💧` : `đã hái trộm 1 phần ${c} ✋`}<small>${ago(n.at)}</small></span>`;
+            const b = document.createElement("button"); b.type = "button"; b.className = "mini"; b.textContent = "Thăm lại";
+            b.addEventListener("click", () => startVisit(n.who_id));
+            li.appendChild(b);
+            ul.appendChild(li);
+          });
+          try { localStorage.setItem("farm-news-seen", String(Date.now())); } catch (e) {}
+          $("friendsBtn").classList.remove("dot");
+        }
+      } catch (e) { ul.innerHTML = `<li><span class="nm">${esc(errText(e))}</span></li>`; }
+    }
+    function ago(ms) {
+      const m = Math.max(0, Math.round((Date.now() + (S.offset || 0) - ms) / 60000));
+      return m < 1 ? "vừa xong" : m < 60 ? `${m} phút trước` : m < 1440 ? `${Math.floor(m / 60)} giờ trước` : `${Math.floor(m / 1440)} ngày trước`;
+    }
+    $("friendsBtn").addEventListener("click", () => openFriends());
+    $("friendsClose").addEventListener("click", () => { $("friendsSheet").hidden = true; });
+    $("tabRank").addEventListener("click", () => openFriends("rank"));
+    $("tabNews").addEventListener("click", () => openFriends("news"));
+    // the first time the farm is shown: the daily gift, and news of friends
+    function firstLook() {
+      if (looked) return;
+      looked = true;
+      if (daily && !daily.claimed) setTimeout(openDaily, 500);
+      api("farm_news", {}).then((news) => {
+        let seen = 0; try { seen = Number(localStorage.getItem("farm-news-seen")) || 0; } catch (e) {}
+        const fresh = news.filter((n) => n.at > seen);
+        if (fresh.length) {
+          $("friendsBtn").classList.add("dot");
+          const steal = fresh.filter((n) => n.kind === "steal").length, water = fresh.length - steal;
+          setTimeout(() => toast(`Bạn bè đã ghé: ${water ? water + " lần tưới cây" : ""}${water && steal ? ", " : ""}${steal ? steal + " lần hái trộm" : ""}`), 2600);
+        }
+      }, () => {});
+      if (visitWanted) { const id = visitWanted; visitWanted = null; setTimeout(() => startVisit(id), 400); }
+    }
+
+    // ----- visiting a friend's farm -----
+    let visitWanted = new URLSearchParams(location.search).get("visit");
+    function showVisit(v) {
+      visiting = v;
+      helps = { water: v.water_left, steal: v.steal_left };
+      S = { v: 1, gold: 0, level: Math.min(MAX_LV, Math.max(1, Number(v.level) || 1)), plots: normPlots(v.plots), store: {},
+        offset: (Number(v.server_now) || Date.now()) - Date.now(), fast: false, harvested: 0, cups: home.cups };
+      farmers.forEach((f) => { f.off = f.who !== (v.farmer === "girl" ? "girl" : "boy"); });
+      document.documentElement.classList.add("visiting");
+      const b = document.querySelector(".pinfo b"); if (b) b.textContent = "Nông trại " + v.name;
+      const ava = $("pAva"); ava.innerHTML = "";
+      const acct = document.createElement("span"); acct.className = "acct"; acct.innerHTML = face(v.id, v.owner).replace("rface", "rf2");
+      ava.appendChild(acct);
+      $("visitWho").textContent = `Đang thăm Nông trại ${v.name} của ${v.owner || "bạn bè"}`;
+      $("visitLeft").textContent = `💧 Tưới còn ${helps.water} lần · ✋ Hái trộm còn ${helps.steal} lần hôm nay`;
+      lastRipe = -1; refresh();
+    }
+    async function startVisit(id) {
+      if (!farm || !id) { visitWanted = id; return; }
+      $("friendsSheet").hidden = true; $("dailySheet").hidden = true;
+      try {
+        flush();
+        const v = await api("farm_visit", { friend: id });
+        await loadPics([v.id]);
+        if (!visiting) home = S;
+        showVisit(v);
+        toast("Chạm ô đang lớn để tưới, ô đã chín để hái trộm 1 phần");
+      } catch (e) { toast(errText(e), true); }
+    }
+    function endVisit() {
+      if (!visiting) return;
+      visiting = null; S = home; home = null;
+      document.documentElement.classList.remove("visiting");
+      farmers.forEach((f) => { f.off = f.who !== (farm && farm.farmer === "girl" ? "girl" : "boy"); });
+      lastRipe = -1; showCard(); refresh(); tick();
+      reload();
+    }
+    mc.visit = startVisit;
+    $("visitHome").addEventListener("click", endVisit);
+    // which plot was tapped (same as on my own farm)
+    function plotAt(e) {
+      const r = cv.getBoundingClientRect();
+      const sx = ((e.clientX - r.left) * W) / r.width, sy = ((e.clientY - r.top) * H) / r.height;
+      const x = cam.x + (sx - W / 2) / CAM_S, y = cam.y + (sy - H / 2) / CAM_S;
+      const a = (x - OX) / (TW / 2), b = (y - OY) / (TH / 2);
+      const fi = (a + b) / 2, fj = (b - a) / 2;
+      return PLOTS.findIndex(([i, j]) => fi >= i && fi < i + 1 && fj >= j && fj < j + 1);
+    }
+    let helping = false;
+    function tapVisit(e) {
+      const k = plotAt(e);
+      if (k < 0 || helping) return;
+      const p = S.plots[k];
+      if (!unlocked(k) || !p) { toast("Ô này đang trống", true); return; }
+      const c = CROPS[p.crop];
+      let method;
+      if (ripe(p)) {
+        if (p.s) { toast("Ô này đã bị hái trộm rồi", true); return; }
+        if (helps.steal <= 0) { toast("Hôm nay bạn đã hái trộm đủ 10 lần", true); return; }
+        method = "farm_steal";
+      } else {
+        if (p.w) { toast(`${c.em} Đã được tưới rồi · còn ${left(p)} nữa là chín`, true); return; }
+        if (helps.water <= 0) { toast("Hôm nay bạn đã tưới đủ 10 lần", true); return; }
+        method = "farm_water";
+      }
+      helping = true;
+      const id = visiting.id;
+      api(method, { friend: id, plot: k }).then((v) => {
+        if (!visiting || visiting.id !== id) return;
+        showVisit(v);
+        const [i, j] = PLOTS[k], [x, y] = L(i + 0.5, j + 0.5);
+        if (method === "farm_steal") { floatText(x, y - 14, "+1 " + c.em, "#2f7d48"); beep(784, 0.1); toast(`Hái được 1 phần ${c.name.toLowerCase()}, đã vào kho của bạn`); }
+        else { floatText(x, y - 14, "💧 +5 vàng", "#2f6fb5"); coinSound(); toast(`Đã tưới ${c.name.toLowerCase()}: chín sớm hơn · bạn được 5 vàng`); }
+      }, (err) => {
+        const m = String((err && err.message) || "");
+        toast(m.includes("taken") ? "Ô này vừa bị người khác hái mất" : m.includes("watered") ? "Ô này vừa được người khác tưới" :
+          m.includes("not_ripe") ? "Cây chưa chín" : m.includes("already_ripe") ? "Cây đã chín, không cần tưới nữa" : errText(err), true);
+        api("farm_visit", { friend: id }).then((v) => { if (visiting && visiting.id === id) showVisit(v); }, () => {});
+      }).finally(() => { helping = false; });
+    }
+    const tapHome = tapFarm;
+    tapFarm = (e) => (visiting ? tapVisit(e) : tapHome(e));
+    // while visiting nothing of my own farm is saved or shown as mine
+    const tickHome = tick;
+    tick = () => { tickHome(); if (visiting) $("hint").textContent = "Chạm ô đang lớn để tưới, ô đã chín để hái trộm"; };
+
     // the app is back on screen: time has passed, ask the server again
-    mc.resume = () => { if (farm && !busy) reload(); };
+    mc.resume = () => { if (farm && !busy) reload(); if (visiting) api("farm_visit", { friend: visiting.id }).then((v) => { if (visiting) showVisit(v); }, () => {}); };
     // the phone's Back button: close what is open first; false = leave the game
     mc.back = () => {
       if (!$("rewardPop").hidden) { $("rewardPop").hidden = true; return true; }
+      for (const id of ["dailySheet", "friendsSheet"]) if (!$(id).hidden) { $(id).hidden = true; return true; }
+      if (visiting) { endVisit(); return true; }
       if (!$("invitePop").hidden) { $("invitePop").hidden = true; return true; }
       if (!$("leavePop").hidden) { $("leavePop").hidden = true; return true; }
       if (!$("sportWrap").hidden) { leaveSport(); return true; }

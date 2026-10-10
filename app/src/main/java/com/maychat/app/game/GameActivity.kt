@@ -64,9 +64,14 @@ class GameActivity : ComponentActivity() {
         fun isNew(context: Context): Boolean =
             !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("opened", false)
 
-        fun open(context: Context, roomId: String? = null) {
+        fun open(context: Context, roomId: String? = null, visitUserId: String? = null) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("opened", true).apply()
             val intent = Intent(context, GameActivity::class.java)
+            if (visitUserId != null) {
+                // "Thăm nông trại" on a friend's profile page
+                intent.putExtra(EXTRA_VISIT, visitUserId)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
             if (roomId != null) {
                 // "Vào" on an invite card: straight into that Hội thao room
                 intent.putExtra(EXTRA_ROOM, roomId)
@@ -76,6 +81,7 @@ class GameActivity : ComponentActivity() {
         }
 
         const val EXTRA_ROOM = "room"
+        const val EXTRA_VISIT = "visit"
         private val ROOM_ID = Regex("^[0-9a-fA-F-]{36}$")
     }
 
@@ -163,12 +169,22 @@ class GameActivity : ComponentActivity() {
 
     private fun pageFor(intent: Intent?): String {
         val room = intent?.getStringExtra(EXTRA_ROOM)?.takeIf { ROOM_ID.matches(it) }
-        return if (room != null) "$PAGE?room=$room" else PAGE
+        val visit = intent?.getStringExtra(EXTRA_VISIT)?.takeIf { ROOM_ID.matches(it) }
+        return when {
+            room != null -> "$PAGE?room=$room"
+            visit != null -> "$PAGE?visit=$visit"
+            else -> PAGE
+        }
     }
 
     // The game is already open and an invite card was tapped.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        val visit = intent.getStringExtra(EXTRA_VISIT)?.takeIf { ROOM_ID.matches(it) }
+        if (visit != null) {
+            web?.evaluateJavascript("window.__mc && window.__mc.visit && window.__mc.visit(${JSONObject.quote(visit)})", null)
+            return
+        }
         val room = intent.getStringExtra(EXTRA_ROOM)?.takeIf { ROOM_ID.matches(it) } ?: return
         web?.evaluateJavascript("window.__mc && window.__mc.joinRoom && window.__mc.joinRoom(${JSONObject.quote(room)})", null)
     }
