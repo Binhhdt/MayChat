@@ -349,12 +349,12 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <button class="btn green" id="sportGo" type="button">Vào Hội thao</button>
     <table class="reward">
       <tr><th>Hạng chung cuộc</th><th>Vàng</th></tr>
-      <tr><td>🥇 Hạng 1</td><td>500</td></tr>
-      <tr><td>🥈 Hạng 2</td><td>350</td></tr>
-      <tr><td>🥉 Hạng 3</td><td>250</td></tr>
-      <tr><td>Hạng 4–6</td><td>150</td></tr>
+      <tr><td>🥇 Hạng 1</td><td>250</td></tr>
+      <tr><td>🥈 Hạng 2</td><td>180</td></tr>
+      <tr><td>🥉 Hạng 3</td><td>120</td></tr>
+      <tr><td>Hạng 4–6</td><td>80</td></tr>
     </table>
-    <p class="note">Đấu với bot Vừa được đủ số vàng trên, bot Dễ được 60%. 2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè được thưởng ×1,5 (trong bản thử, bạn bè là người mẫu do máy điều khiển).</p>
+    <p class="note">Đấu với bot Vừa được đủ số vàng trên, bot Dễ được 60%. 2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè vẫn được thưởng như thường.</p>
   </div>
 </div>
 <!-- Hội thao, opened inside the farm -->
@@ -418,6 +418,29 @@ table.reward td, table.reward th { padding: 7px 10px; }
     </div>
   </form>
 </div>
+<!-- inside MayChat only: an invite to a Hội thao room, while playing -->
+<div class="popwrap" id="invitePop" hidden style="z-index:40">
+  <div class="pop" role="dialog" aria-label="Lời mời Hội thao">
+    <div class="ribbon">Lời mời</div>
+    <p id="inviteMsg">Bạn bè mời bạn vào phòng Hội thao!</p>
+    <p class="note" id="inviteNote" hidden></p>
+    <div class="btns">
+      <button class="btn ghost" id="inviteLater" type="button">Để sau</button>
+      <button class="btn green" id="inviteGo" type="button">Vào</button>
+    </div>
+  </div>
+</div>
+<!-- inside MayChat only: leaving a cup with friends -->
+<div class="popwrap" id="leavePop" hidden style="z-index:40">
+  <div class="pop" role="dialog" aria-label="Rời giải">
+    <div class="ribbon">Rời giải?</div>
+    <p id="leaveMsg"></p>
+    <div class="btns">
+      <button class="btn ghost" id="leaveStay" type="button">Ở lại</button>
+      <button class="btn" id="leaveGo" type="button">Rời giải</button>
+    </div>
+  </div>
+</div>
 <!-- inside MayChat only: opening the farm, or no connection -->
 <div class="popwrap" id="bootWrap" hidden>
   <div class="pop" role="dialog" aria-label="Nông trại">
@@ -453,22 +476,22 @@ table.reward td, table.reward th { padding: 7px 10px; }
   // ------------------------------------------------------------------
   // min: minutes to grow · seed: cost · sell: price of one harvest · lv: house level needed
   const CROPS = {
-    carrot:     { name: "Cà rốt",   em: "🥕", min: 5,   seed: 10,  sell: 25,  lv: 1 },
-    wheat:      { name: "Lúa mì",   em: "🌾", min: 30,  seed: 20,  sell: 60,  lv: 1 },
-    corn:       { name: "Ngô",      em: "🌽", min: 60,  seed: 30,  sell: 100, lv: 1 },
-    cabbage:    { name: "Bắp cải",  em: "🥬", min: 90,  seed: 40,  sell: 135, lv: 2 },
-    tomato:     { name: "Cà chua",  em: "🍅", min: 120, seed: 50,  sell: 170, lv: 2 },
-    strawberry: { name: "Dâu tây",  em: "🍓", min: 240, seed: 80,  sell: 300, lv: 3 },
-    pumpkin:    { name: "Bí ngô",   em: "🎃", min: 480, seed: 120, sell: 520, lv: 4 },
+    carrot:     { name: "Cà rốt",   em: "🥕", min: 5,   seed: 10,  sell: 15,  lv: 1 },
+    wheat:      { name: "Lúa mì",   em: "🌾", min: 30,  seed: 20,  sell: 35,  lv: 1 },
+    corn:       { name: "Ngô",      em: "🌽", min: 60,  seed: 30,  sell: 65,  lv: 1 },
+    cabbage:    { name: "Bắp cải",  em: "🥬", min: 90,  seed: 40,  sell: 100, lv: 2 },
+    tomato:     { name: "Cà chua",  em: "🍅", min: 120, seed: 50,  sell: 140, lv: 2 },
+    strawberry: { name: "Dâu tây",  em: "🍓", min: 240, seed: 80,  sell: 280, lv: 3 },
+    pumpkin:    { name: "Bí ngô",   em: "🎃", min: 480, seed: 120, sell: 560, lv: 4 },
   };
   const CROP_IDS = Object.keys(CROPS);
   const HOUSES = [
     null,
     { name: "Chòi tre",  cost: 0,     plots: 6,  perks: "6 ô đất. Trồng cà rốt, lúa mì, ngô." },
-    { name: "Nhà gỗ",    cost: 1000,  plots: 9,  perks: "9 ô đất. Mở hạt bắp cải và cà chua." },
-    { name: "Nhà ngói",  cost: 3000,  plots: 12, perks: "12 ô đất. Mở hạt dâu tây. Cây gieo mới lớn nhanh hơn 10%. Thêm bồn hoa trước nhà." },
-    { name: "Nhà lầu",   cost: 8000,  plots: 16, perks: "16 ô đất. Mở hạt bí ngô. Thêm hồ cá cạnh nhà." },
-    { name: "Biệt thự",  cost: 25000, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
+    { name: "Nhà gỗ",    cost: 5000,  plots: 9,  perks: "9 ô đất. Mở hạt bắp cải và cà chua." },
+    { name: "Nhà ngói",  cost: 25000, plots: 12, perks: "12 ô đất. Mở hạt dâu tây. Cây gieo mới lớn nhanh hơn 10%. Thêm bồn hoa trước nhà." },
+    { name: "Nhà lầu",   cost: 80000, plots: 16, perks: "16 ô đất. Mở hạt bí ngô. Thêm hồ cá cạnh nhà." },
+    { name: "Biệt thự",  cost: 200000, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
   ];
   const MAX_LV = 5;
   const FAST = 60;
@@ -1054,7 +1077,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     things.push({ d: 6.9, paint: () => prop("bench", 5.0, 1.9, 22, 0.43, 0.85) });
     things.push({ d: 8.6, paint: () => prop("crate", 6.0, 2.6, 18, 0.47, 0.88) });
     things.push({ d: 9.8, paint: () => prop("sign", 7.6, 2.2, 19, 0.4, 0.95) });
-    farmers.forEach((f) => things.push({ d: f.x + f.y + 0.6, paint: () => drawFarmer(f, t) }));
+    farmers.forEach((f) => { if (!f.off) things.push({ d: f.x + f.y + 0.6, paint: () => drawFarmer(f, t) }); });   // (off: not the farmer chosen in the app)
     things.push({ d: 4.2, paint: () => bush(0.4, 3.0) });
     things.push({ d: 10.5, paint: () => bush(9.6, 0.9) });
     if (S.level >= 3) for (let n = 0; n < 6; n++) things.push({ d: 5.6 + n * 0.01, paint: () => flower(1.0 + n * 0.45, 4.6, ["#ff6f9f", "#ffd84d", "#b99cf2"][n % 3]) });
@@ -1299,7 +1322,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
   $("houseBtn").addEventListener("click", openHouse);
   $("upgradeBtn").addEventListener("click", () => upgrade());
   // ----- Hội thao: daily cups pay gold into the farm -----
-  const SPORT_GOLD = [0, 500, 350, 250];            // by final place; 4th to 6th get 150
+  const SPORT_GOLD = [0, 250, 180, 120];            // by final place; 4th to 6th get 80 (lowered in 0.36.3)
   const FULL_CUPS = 2;                              // full reward for the first 2 cups of a day
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
   const cupsToday = () => (S.cups && S.cups.day === today() ? S.cups.n : 0);
@@ -1317,27 +1340,28 @@ table.reward td, table.reward th { padding: 7px 10px; }
     $("sportWrap").hidden = false;
   }
   function closeSport() { $("sportWrap").hidden = true; $("rewardPop").hidden = true; refresh(); drawSport(); }
+  function leaveSport() { closeSport(); }   // (inside MayChat: asks first during a cup with friends)
   window.addEventListener("message", (e) => {
     const m = e.data;
     if (!m || m.type !== "hoithao-cup" || e.source !== $("sportFrame").contentWindow) return;
     const n = cupsToday();
-    const base = SPORT_GOLD[m.place] || 150;
+    const base = SPORT_GOLD[m.place] || 80;
     const share = n < FULL_CUPS ? 1 : 0.2;
     const withFriends = m.friends > 0;
     const easy = m.level === "easy";                // bots Dễ: 60% of the gold
-    const gold = Math.round(base * share * (easy ? 0.6 : 1) * (withFriends ? 1.5 : 1));
+    const gold = Math.round(base * share * (easy ? 0.6 : 1));   // (no ×1.5 with friends since 0.36.4)
     S.cups = { day: today(), n: n + 1 };
     addGold(gold); save(); refresh(); drawSport();
     $("rewardMedal").textContent = ["", "🥇", "🥈", "🥉"][m.place] || "🏃";
     $("rewardMsg").textContent = `Bạn về hạng ${m.place}/${m.players} với ${m.points} điểm!`;
     $("rewardGold").textContent = "+" + money(gold);
-    $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${base} vàng` + (share < 1 ? ` · giải thứ ${n + 1} hôm nay nên còn 20%` : ` · giải ${n + 1}/${FULL_CUPS} được thưởng đủ`) + (easy ? " · bot Dễ nên 60%" : "") + (withFriends ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+    $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${base} vàng` + (share < 1 ? ` · giải thứ ${n + 1} hôm nay nên còn 20%` : ` · giải ${n + 1}/${FULL_CUPS} được thưởng đủ`) + (easy ? " · bot Dễ nên 60%" : "") + ". Vàng đã vào nông trại.";
     $("rewardPop").hidden = false;
     coinSound();
   });
   $("sportBtn").addEventListener("click", () => { drawSport(); $("sportSheet").hidden = false; });
   $("sportGo").addEventListener("click", openSport);
-  $("sportBack").addEventListener("click", closeSport);
+  $("sportBack").addEventListener("click", () => leaveSport());
   $("rewardHome").addEventListener("click", closeSport);
   $("rewardStay").addEventListener("click", () => { $("rewardPop").hidden = true; });
   $("fastBtn").addEventListener("click", () => { S.fast = !S.fast; save(); refresh(); toast(S.fast ? "Thời gian trôi nhanh gấp 60 lần" : "Thời gian về bình thường"); });
@@ -1458,7 +1482,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       if (profile.avatar) { const im = document.createElement("img"); im.src = profile.avatar; im.alt = ""; acct.appendChild(im); }
       else acct.textContent = ((profile.name || farm.name || "?").trim()[0] || "?").toUpperCase();
       const badge = document.createElement("img"); badge.className = "badge"; badge.alt = ""; badge.src = pic(farm.farmer + "_front");
-      ava.appendChild(acct); ava.appendChild(badge);
+      ava.appendChild(acct);   // (no farmer badge on the picture: it covered the face)
     }
     function apply(st) {
       if (!st) return;
@@ -1473,6 +1497,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
       S.fast = false;
       S.cups = { day: today(), n: st.cups_today || 0 };
       farm = { name: st.name, farmer: st.farmer };
+      // only the farmer chosen for this farm walks around
+      farmers.forEach((f) => { f.off = f.who !== (st.farmer === "girl" ? "girl" : "boy"); });
       lastRipe = -1;
       showCard(); refresh(); tick(); drawSport(); setAlarm();
       if (roomWanted) { const id = roomWanted; roomWanted = null; setTimeout(() => openRoom(id), 300); }
@@ -1489,6 +1515,39 @@ table.reward td, table.reward th { padding: 7px 10px; }
       drawSport(); $("sportWrap").hidden = false;
     }
     mc.joinRoom = openRoom;
+
+    // ---- Hội thao with friends: leaving in the middle of a cup, and invites
+    const raceWin = () => { try { return $("sportFrame").contentWindow; } catch (e) { return null; } };
+    const busyWith = () => { const w = raceWin(); try { return (w && w.__netBusy && w.__netBusy()) || null; } catch (e) { return null; } };
+    leaveSport = () => {
+      // a cup with friends is on: leaving the Hội thao page means leaving the cup
+      if (busyWith() === "cup") {
+        $("leaveMsg").textContent = "Giải đang đấu với bạn bè. Về nông trại là rời giải này và không được thưởng.";
+        $("leavePop").hidden = false;
+        return;
+      }
+      closeSport();
+    };
+    $("leaveStay").addEventListener("click", () => { $("leavePop").hidden = true; });
+    $("leaveGo").addEventListener("click", () => {
+      $("leavePop").hidden = true;
+      const w = raceWin();
+      try { if (w && w.__netLeaveCup) w.__netLeaveCup(); } catch (e) {}
+      closeSport();
+    });
+    // an invite arrives while the game is open: shown right here
+    let inviteRoom = null;
+    mc.invite = (m) => {
+      if (!m || !m.room) return;
+      inviteRoom = m.room;
+      $("inviteMsg").textContent = `${m.name || "Bạn bè"} mời bạn vào phòng Hội thao` + (/#\d+/.test(m.text || "") ? " " + m.text.match(/#\d+/)[0] : "") + "!";
+      $("inviteNote").textContent = busyWith() === "cup" ? "Bạn đang đấu một giải: vào phòng mới là rời giải đó." : busyWith() === "room" ? "Bạn sẽ rời phòng đang ở để vào phòng này." : "";
+      $("inviteNote").hidden = !$("inviteNote").textContent;
+      $("invitePop").hidden = false;
+      coinSound();
+    };
+    $("inviteLater").addEventListener("click", () => { $("invitePop").hidden = true; });
+    $("inviteGo").addEventListener("click", () => { $("invitePop").hidden = true; if (inviteRoom) openRoom(inviteRoom); });
     // the phone rings when the next crop is ripe (the app sets the alarm)
     function setAlarm() {
       const t = now();
@@ -1543,7 +1602,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
         $("rewardGold").textContent = "+" + money(r.gold);
         $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${r.base} vàng` +
           (share >= 1 ? ` · giải ${r.n}/${FULL_CUPS} được thưởng đủ` : share > 0 ? ` · giải thứ ${r.n} hôm nay nên còn 20%` : " · đã quá 10 giải hôm nay nên không còn thưởng") +
-          (r.level === "easy" && r.gold > 0 ? " · bot Dễ nên 60%" : "") + ((r.friends != null ? r.friends : m.friends) > 0 && r.gold > 0 ? " · có bạn bè ×1,5" : "") + ". Vàng đã vào nông trại.";
+          (r.level === "easy" && r.gold > 0 ? " · bot Dễ nên 60%" : "") + ". Vàng đã vào nông trại.";
       });
     });
 
@@ -1625,7 +1684,9 @@ table.reward td, table.reward th { padding: 7px 10px; }
     // the phone's Back button: close what is open first; false = leave the game
     mc.back = () => {
       if (!$("rewardPop").hidden) { $("rewardPop").hidden = true; return true; }
-      if (!$("sportWrap").hidden) { closeSport(); return true; }
+      if (!$("invitePop").hidden) { $("invitePop").hidden = true; return true; }
+      if (!$("leavePop").hidden) { $("leavePop").hidden = true; return true; }
+      if (!$("sportWrap").hidden) { leaveSport(); return true; }
       for (const id of ["seedSheet", "storeSheet", "houseSheet", "sportSheet", "ripePop"]) if (!$(id).hidden) { $(id).hidden = true; return true; }
       if (!$("setupWrap").hidden && editing) { $("setupWrap").hidden = true; return true; }
       return false;

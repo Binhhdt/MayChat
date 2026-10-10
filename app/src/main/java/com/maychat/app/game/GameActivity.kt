@@ -17,21 +17,30 @@ import androidx.activity.addCallback
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.webkit.WebViewAssetLoader
 import com.maychat.app.data.ChatRepository
 import com.maychat.app.data.attempt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.time.OffsetDateTime
 
 // =====================================================================
 // The farm game (tab "Game"), in its own screen, always sideways.
@@ -122,6 +131,34 @@ class GameActivity : ComponentActivity() {
             }
         }
         view.loadUrl(pageFor(intent))
+        listenForInvites()
+    }
+
+    // A friend invites me to a Hội thao room while I am in the game: the
+    // invite is shown inside the game ("Vào" / "Để sau"). New invite
+    // messages come from the live connection that MayChat already has.
+    private val seenInvites = HashSet<String>()
+
+    private fun listenForInvites() {
+        val me = ChatRepository.currentUserId() ?: return
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ChatRepository.messageEvents.collect { m ->
+                    if (m.kind != "game" || m.senderId == me || m.readAt != null || !seenInvites.add(m.id)) return@collect
+                    val room = m.extra?.takeIf { ROOM_ID.matches(it) } ?: return@collect
+                    // only fresh invites (not an old message that was changed)
+                    val sentAt = runCatching { OffsetDateTime.parse(m.createdAt).toInstant().toEpochMilli() }.getOrNull()
+                    if (sentAt != null && kotlin.math.abs(System.currentTimeMillis() - sentAt) > 10 * 60_000) return@collect
+                    val name = attempt { ChatRepository.loadProfile(m.senderId) }.getOrNull()?.displayName ?: "Bạn bè"
+                    val invite = buildJsonObject {
+                        put("room", room)
+                        put("name", name)
+                        put("text", m.content)
+                    }
+                    web?.evaluateJavascript("window.__mc && window.__mc.invite && window.__mc.invite($invite)", null)
+                }
+            }
+        }
     }
 
     private fun pageFor(intent: Intent?): String {
@@ -204,7 +241,28 @@ class GameActivity : ComponentActivity() {
             if (method == "profile") {
                 profile()
             } else if (method == "friends") {
-                ChatRepository.gameFriends()
+                // name, online, and the MayChat picture (small) of each friend
+                val list = ChatRepository.gameFriendList()
+                val pics = coroutineScope { list.map { (p, _) -> async { avatarOf(p.avatarPath) } }.awaitAll() }
+                buildJsonArray {
+                    list.forEachIndexed { i, (p, online) ->
+                        add(
+                            buildJsonObject {
+                                put("id", p.id)
+                                put("name", p.displayName)
+                                put("online", online)
+                                put("avatar", pics[i])
+                            },
+                        )
+                    }
+                }.toString()
+            } else if (method == "avatars") {
+                // the pictures of the people in a Hội thao room: {"<user id>": "data:..."}
+                val ids = runCatching { json.parseToJsonElement(args).jsonObject["ids"]?.jsonArray?.map { it.jsonPrimitive.content } }
+                    .getOrNull().orEmpty().filter { ROOM_ID.matches(it) }.take(12)
+                val people = if (ids.isEmpty()) emptyList() else ChatRepository.loadProfiles(ids)
+                val pics = coroutineScope { people.map { p -> async { avatarOf(p.avatarPath) } }.awaitAll() }
+                buildJsonObject { people.forEachIndexed { i, p -> put(p.id, pics[i]) } }.toString()
             } else if (method == "rt_join") {
                 val room = runCatching { json.parseToJsonElement(args).jsonObject["room"]?.jsonPrimitive?.content }.getOrNull()
                     ?.takeIf { ROOM_ID.matches(it) } ?: error("bad_room")
@@ -228,6 +286,17 @@ class GameActivity : ComponentActivity() {
             onSuccess = { data -> "{\"ok\":true,\"data\":${data.ifBlank { "null" }}}" },
             onFailure = { e -> "{\"ok\":false,\"error\":${JSONObject.quote(e.message ?: "error")}}" },
         )
+    }
+
+    // Small pictures already made, by their place in Storage.
+    private val avatarCache = HashMap<String, String?>()
+
+    private suspend fun avatarOf(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        synchronized(avatarCache) { if (avatarCache.containsKey(path)) return avatarCache[path] }
+        val pic = attempt { smallPicture(ChatRepository.downloadAvatar(path)) }.getOrNull()
+        synchronized(avatarCache) { avatarCache[path] = pic }
+        return pic
     }
 
     // My name and avatar (small, as a picture the page can show directly).

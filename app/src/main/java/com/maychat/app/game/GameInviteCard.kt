@@ -54,7 +54,7 @@ fun GameInviteCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                if (mine) "Chờ bạn bè bấm Vào" else "Đua 4 map cùng nhau, thưởng vàng ×1,5",
+                if (mine) "Chờ bạn bè bấm Vào" else "Đua 4 map cùng nhau, thắng để nhận vàng",
                 color = textColor.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodySmall,
             )

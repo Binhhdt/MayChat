@@ -1077,25 +1077,17 @@ object ChatRepository {
         return supabase.postgrest.rpc(function, params).data
     }
 
-    // My friends for the Hội thao invite list: [{"id","name","online"}].
-    suspend fun gameFriends(): String {
-        val me = currentUserId() ?: return "[]"
+    // My friends for the Hội thao invite list, online ones first, with
+    // whether they are online now.
+    suspend fun gameFriendList(): List<Pair<Profile, Boolean>> {
+        val me = currentUserId() ?: return emptyList()
         val ids = loadFriendships()
             .filter { it.status == "accepted" }
             .map { if (it.userA == me) it.userB else it.userA }
         val online = onlineUsers.value
-        val people = loadProfiles(ids).sortedWith(compareBy({ it.id !in online }, { it.displayName.lowercase() }))
-        return buildJsonArray {
-            people.forEach { p ->
-                add(
-                    buildJsonObject {
-                        put("id", p.id)
-                        put("name", p.displayName)
-                        put("online", p.id in online)
-                    },
-                )
-            }
-        }.toString()
+        return loadProfiles(ids)
+            .sortedWith(compareBy({ it.id !in online }, { it.displayName.lowercase() }))
+            .map { it to (it.id in online) }
     }
 
     // The live channel of one Hội thao room: the phones in the room send

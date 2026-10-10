@@ -274,7 +274,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   #race .meter-label { font-size: 10.5px; }
   #race .cards, #race .hint { display: none; }
   #race .pads { display: contents; }
-  #race .pad { position: absolute; z-index: 4; opacity: 0.93; }
+  #race .pad { position: absolute; z-index: 4; }
   #padRun { right: calc(10px + env(safe-area-inset-right, 0px)); bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: min(150px, 19vw); height: min(62vh, 230px); min-height: 0; }
   #padJump { left: calc(10px + env(safe-area-inset-left, 0px)); bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: min(150px, 19vw); height: min(34vh, 130px); min-height: 0; }
   #padItem { left: calc(10px + env(safe-area-inset-left, 0px) + min(150px, 19vw) / 2 - 36px); bottom: calc(22px + min(34vh, 130px)); width: 72px; height: 72px; aspect-ratio: auto; }
@@ -797,7 +797,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     let plan = null;
     if (NET.on && NET.host) {
       plan = { i: cup.index, map: cup.maps[cup.index], seed: Math.floor(Math.random() * 2147483647), goAt: serverNow() + 5200 };
-      netSend({ k: "start", ...plan, maps: cup.maps, list: pubRoster(cup.players), level: settings.level });
+      netSend({ k: "start", ...plan, maps: cup.maps, all: pubRoster(cup.players), list: pubRoster(roster), level: settings.level });
     } else if (NET.on && NET.start && NET.start.i === cup.index) plan = NET.start;
     NET.sendAt = -1;
     LEN = raceLength();
@@ -1657,6 +1657,14 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   }
 
   function portrait(p, size) {
+    // a real person in a room between phones: their MayChat picture
+    const pic = p && (p.avatar || (p.uid && NET.avatars[p.uid]));
+    if (pic) {
+      const im = document.createElement("img");
+      im.className = "face"; im.src = pic; im.alt = "";
+      im.style.objectFit = "cover";
+      return im;
+    }
     const c = document.createElement("canvas");
     const px = size * 2;
     c.width = px; c.height = px; c.className = "face";
@@ -3012,6 +3020,9 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (race) {
       race.runners.forEach((r) => {
         const st = shownState(r, t);
+        // a runner of another phone: its legs move with the distance it is
+        // seen to cover (its own phone runs it, so it has no steps here)
+        if (r.remote) { const dx = st.x - (r.shownX || 0); if (dx > 0 && dx < 6) r.phase += dx / 2.1; }
         r.shownX = st.x; r.shownH = st.h;
         const p = lanePoint(r.lane, st.x);
         if (Math.abs(p.dx) > 0.3) r.face = p.dx > 0 ? 1 : -1;
@@ -3265,7 +3276,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   //     which decides whether it was jumped in time.
   // ------------------------------------------------------------------
   const NET = { on: false, host: false, room: null, code: "", me: null, myName: "", hostUid: null,
-    heard: {}, invited: {}, kicked: {}, friends: null, lastHost: 0, timer: null, sendAt: -1, start: null };
+    heard: {}, invited: {}, kicked: {}, left: {}, friends: null, avatars: {}, asked: {}, lastHost: 0, timer: null, sendAt: -1, start: null };
   const EVK = ["jumps", "falls", "spins", "burns", "bolts", "boosts", "shields", "bigJumps"];
   const NET_LAG = 0.3;   // seconds the runners of other phones are drawn late
   const mc = () => window.parent.__mc;
@@ -3312,6 +3323,17 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   let rosterSoon = 0;
   function sendRosterSoon() { clearTimeout(rosterSoon); rosterSoon = setTimeout(sendRoster, 250); }
 
+  // MayChat pictures of the people in the room (asked once per person)
+  function loadAvatars(list) {
+    const ids = (list || roster).map((p) => p.uid).filter((u) => u && !NET.asked[u]);
+    if (!ids.length || !NET.on) return;
+    ids.forEach((u) => { NET.asked[u] = true; });
+    netApi("avatars", { ids }).then((got) => {
+      let any = false;
+      Object.entries(got || {}).forEach(([u, pic]) => { if (pic) { NET.avatars[u] = pic; any = true; } });
+      if (any && !$("lobby").hidden) drawRoster();
+    }, () => { ids.forEach((u) => { delete NET.asked[u]; }); });
+  }
   function whoAmI() {
     const pr = (mc() && mc().profile) || {};
     NET.me = pr.id || null; NET.myName = pr.name || "Bạn";
@@ -3323,14 +3345,15 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     whoAmI();
     const room = await netApi("hoithao_create", { level: settings.level });
     await netApi("rt_join", { room: room.id });
-    Object.assign(NET, { on: true, host: true, room: room.id, code: room.code, hostUid: NET.me, heard: {}, invited: {}, kicked: {}, start: null });
+    Object.assign(NET, { on: true, host: true, room: room.id, code: room.code, hostUid: NET.me, heard: {}, invited: {}, kicked: {}, left: {}, start: null });
     roster[0].id = "u:" + NET.me; roster[0].uid = NET.me;
     $("roomCode").textContent = "#" + room.code;
-    netLoop(); drawSettings(); drawCup(); drawRoster(); sendRoster();
+    netLoop(); drawSettings(); drawCup(); drawRoster(); sendRoster(); loadAvatars();
   }
   function onHello(m) {
     if (NET.kicked[m.from]) return;
     NET.heard[m.from] = Date.now();
+    if (!cup) delete NET.left[m.from];   // back in the room for the next cup
     let p = roster.find((q) => q.uid === m.from);
     if (!p) {
       if (cup || seatsLeft() <= 0) return;
@@ -3345,6 +3368,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (!cup) drawRoster();
     if (!$("friendSheet").hidden && NET.friends) drawFriendsOnline();
     sendRoster();
+    loadAvatars();
   }
   // the end of the cup: the server learns the places first, then the others are told
   function netFinal() {
@@ -3383,17 +3407,23 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     if (cup) return;   // during a cup the players stay as at its start
     roster = list.map(fromPub);
     drawRoster();
+    loadAvatars();
   }
   function onStart(m) {
     if (!MAPS[m.map]) return;
+    const list = meFirst(m.list || []);
+    if (!list) return;
     if (m.i === 0 || !cup) {
-      const list = meFirst(m.list || []);
-      if (!list) return;
-      roster = list.map(fromPub);
+      const all = meFirst(m.all || m.list || []) || list;
       if (LEVELS[m.level]) settings.level = m.level;
-      cup = { maps: (m.maps || []).filter((id) => MAPS[id]), index: 0, players: roster.slice(), rows: [], pts: {}, wins: {}, seconds: {}, time: {} };
-      roster.forEach((p) => { cup.pts[p.id] = []; cup.wins[p.id] = 0; cup.seconds[p.id] = 0; cup.time[p.id] = 0; });
+      const players = all.map(fromPub);
+      cup = { maps: (m.maps || []).filter((id) => MAPS[id]), index: 0, players, rows: [], pts: {}, wins: {}, seconds: {}, time: {} };
+      players.forEach((p) => { cup.pts[p.id] = []; cup.wins[p.id] = 0; cup.seconds[p.id] = 0; cup.time[p.id] = 0; });
     }
+    // the players of this map (someone may have left the cup): the same
+    // objects as in the cup, so the points add up
+    roster = list.map((p) => cup.players.find((q) => q.id === String(p.id)) || fromPub(p));
+    loadAvatars(cup.players);
     clearInterval(nextTimer);
     if (race && race.timers) race.timers.forEach(clearTimeout);
     NET.start = m;
@@ -3423,12 +3453,35 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     });
     netSend({ k: "pos", i: cup.index, list });
   }
+  // A friend left in the middle of a cup (pressed leave, or nothing heard
+  // for 8 seconds): out of this map (placed by the distance run) and not
+  // in the next maps. Only the host decides it, and tells the others.
+  function markOut(uid) {
+    if (!uid || NET.left[uid]) return;
+    NET.left[uid] = true;
+    const p = cup && cup.players.find((q) => q.uid === uid);
+    roster = roster.filter((q) => q.uid !== uid);
+    const r = byId("u:" + uid);
+    if (r && !r.dq && r.finish == null) r.dq = true;
+    netSend({ k: "out", id: "u:" + uid });
+    if (p) feed(`${p.name} đã rời giải`, false);
+  }
+  function onOut(m) {
+    const uid = String(m.id || "").replace(/^u:/, "");
+    if (uid === NET.me) { netLeave("Mất kết nối quá lâu nên bạn đã bị tính là rời giải"); return; }
+    roster = roster.filter((q) => q.id !== m.id);
+    const r = byId(m.id);
+    if (r && !r.dq && r.finish == null) r.dq = true;
+    const p = cup && cup.players.find((q) => q.id === m.id);
+    if (p && uid !== NET.me) feed(`${p.name} đã rời giải`, false);
+  }
   function onPos(m) {
     if (!race || !cup || m.i !== cup.index) return;
     const t = raceTime();
     (m.list || []).forEach((s) => {
       const r = byId(s.id);
       if (!r || !r.remote) return;
+      r.heardAt = Date.now();
       r.x = Number(s.x) || 0; r.v = Number(s.v) || 0;
       r.sent.push({ at: Number(s.t) || 0, x: r.x, h: 0, arrive: t });
       if (r.sent.length > 80) r.sent.shift();
@@ -3472,10 +3525,11 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     switch (m.k) {
       case "hello": if (NET.host) onHello(m); break;
       case "bye":
-        if (NET.host) { roster = roster.filter((p) => p.uid !== m.from); if (!cup) { assignLooks(); drawRoster(); } sendRoster(); }
+        if (NET.host) { if (cup) markOut(m.from); else { roster = roster.filter((p) => p.uid !== m.from); assignLooks(); drawRoster(); } sendRoster(); }
         break;
+      case "out": if (!NET.host && fromHost) onOut(m); break;
       case "roster": if (!NET.host && fromHost) onRoster(m); break;
-      case "closed": if (!NET.host && fromHost) netLeave("Chủ phòng đã đóng phòng"); break;
+      case "closed": if (!NET.host && fromHost) netLeave(cup ? "Chủ phòng đã rời phòng, giải này bị hủy" : "Chủ phòng đã đóng phòng"); break;
       case "kick": if (!NET.host && fromHost && m.uid === NET.me) netLeave("Chủ phòng đã mời bạn ra khỏi phòng"); break;
       case "start": if (!NET.host && fromHost) onStart(m); break;
       case "result": if (!NET.host && fromHost) onResult(m); break;
@@ -3497,6 +3551,11 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
         if (!cup) {
           const gone = roster.filter((p) => p.kind === "friend" && now - (NET.heard[p.uid] || now) > 12000);
           if (gone.length) { roster = roster.filter((p) => !gone.includes(p)); assignLooks(); drawRoster(); }
+        } else if (race && race.phase === "go") {
+          // a friend's phone that went silent in the race (closed, no signal)
+          race.runners.forEach((r) => {
+            if (r.remote && r.p.uid && !r.dq && r.finish == null && now - (r.heardAt || race.goAt + performance.timeOrigin) > 8000) markOut(r.p.uid);
+          });
         }
         sendRoster();
       } else {
@@ -3520,6 +3579,9 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     show("home"); drawSettings(); drawCup(); drawHome();
     if (text) netToast(text);
   }
+  // for the farm page: am I in a room (and in a cup)? leave it on request
+  window.__netBusy = () => (!NET.on ? null : cup && !$("final").hidden ? "room" : cup ? "cup" : "room");
+  window.__netLeaveCup = () => { if (NET.on) netLeave(null); };
   window.__joinRoom = (id) => {
     if (NET.on && NET.room === id) return;   // already in that room
     if (NET.on) netLeave(null);
@@ -3564,7 +3626,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
           .finally(() => { if (!$("friendSheet").hidden) drawFriendsOnline(); });
       });
       li.appendChild(btn);
-      li.prepend(portrait({ color: FAN_COLORS[i % FAN_COLORS.length], design: BOT_POOL[i % BOT_POOL.length].design }, 40));
+      li.prepend(portrait({ color: FAN_COLORS[i % FAN_COLORS.length], design: BOT_POOL[i % BOT_POOL.length].design, avatar: f.avatar || null }, 40));
       ul.appendChild(li);
     });
   }
@@ -3663,6 +3725,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
   drawHome();
   show("home");
   { const q = new URLSearchParams(location.search).get("room"); if (IN_APP && q) netJoin(q); }
+  if (IN_APP) { const sub = document.querySelector(".top .sub"); if (sub) sub.hidden = true; }   // ("Bản thử…" only in the demo)
   if (document.fonts && document.fonts.load) document.fonts.load("800 8px 'Baloo 2'").catch(() => {});
   requestAnimationFrame(frame);
 })();
