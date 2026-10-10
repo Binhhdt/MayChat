@@ -116,6 +116,13 @@ canvas.scene { display: block; width: 100%; height: auto; aspect-ratio: 360 / 28
 .preview canvas { width: 150px; height: 120px; background: #8fd06a; border: 2px solid var(--wood); border-radius: 14px; }
 .preview .big { font: 800 20px var(--display); }
 .levels li { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.levels .price small { display: block; font: 700 11px var(--body); color: var(--muted); text-align: right; }
+.need { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.need span { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font: 800 12px var(--body); background: #effbe8; color: #2f7d48; border: 1.5px solid #9fd79a; }
+.need span.miss { background: #fff1ee; color: #c2392f; border-color: #f2b2a8; }
+.mat-ic { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -0.25em; }
+.list li.subhead { display: block; padding: 6px 4px 2px; font: 800 13px var(--body); color: var(--muted); background: none; border: 0; box-shadow: none; }
+.reward-mats { margin: 2px 0 0; font: 800 16px var(--body); color: #8a5a2b; }
 .levels .lv { font: 800 16px var(--display); text-align: center; }
 .levels li.now { outline: 2px solid var(--gold); }
 .ok { color: var(--good); font-weight: 800; font-size: 13px; }
@@ -363,6 +370,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       <div>
         <div class="big" id="nextName"></div>
         <p class="note" id="nextPerks"></p>
+        <div class="need" id="nextNeed"></div>
       </div>
     </div>
     <button class="btn" id="upgradeBtn" type="button">Nâng cấp</button>
@@ -384,6 +392,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       <tr><td>Hạng 4–6</td><td>80</td></tr>
     </table>
     <p class="note">Đấu với bot Vừa được đủ số vàng trên, bot Dễ được 60%. 2 giải đầu mỗi ngày được thưởng đủ, từ giải thứ 3 chỉ còn 20%. Đấu cùng bạn bè vẫn được thưởng như thường.</p>
+    <p class="note">🏠 Mỗi giải còn được <b>ngói</b> để xây nhà (10 giải đầu mỗi ngày): hạng 1 được 3, hạng 2 được 2, hạng khác 1.</p>
   </div>
 </div>
 <!-- Hội thao, opened inside the farm -->
@@ -402,6 +411,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     <div class="reward-medal" id="rewardMedal">🥇</div>
     <p id="rewardMsg"></p>
     <div class="reward-gold"><span class="coin-sm" id="rewardCoin"></span><b id="rewardGold">+0</b></div>
+    <p class="reward-mats" id="rewardMats" hidden></p>
     <p class="note" id="rewardNote"></p>
     <div class="btns">
       <button class="btn ghost" id="rewardStay" type="button">Xem bảng điểm</button>
@@ -542,12 +552,31 @@ table.reward td, table.reward th { padding: 7px 10px; }
   const HOUSES = [
     null,
     { name: "Chòi tre",  cost: 0,     plots: 6,  perks: "6 ô đất. Trồng cà rốt, lúa mì, ngô." },
-    { name: "Nhà gỗ",    cost: 5000,  plots: 9,  perks: "9 ô đất. Mở hạt bắp cải và cà chua." },
-    { name: "Nhà ngói",  cost: 25000, plots: 12, perks: "12 ô đất. Mở hạt dâu tây. Cây gieo mới lớn nhanh hơn 10%. Thêm bồn hoa trước nhà." },
-    { name: "Nhà lầu",   cost: 80000, plots: 16, perks: "16 ô đất. Mở hạt bí ngô. Thêm hồ cá cạnh nhà." },
-    { name: "Biệt thự",  cost: 200000, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
+    { name: "Nhà gỗ",    cost: 5000,  mats: { go: 30 }, plots: 9,  perks: "9 ô đất. Mở hạt bắp cải và cà chua." },
+    { name: "Nhà ngói",  cost: 25000, mats: { go: 40, ngoi: 60 }, plots: 12, perks: "12 ô đất. Mở hạt dâu tây. Cây gieo mới lớn nhanh hơn 10%. Thêm bồn hoa trước nhà." },
+    { name: "Nhà lầu",   cost: 80000, mats: { ngoi: 80, gach: 100 }, plots: 16, perks: "16 ô đất. Mở hạt bí ngô. Thêm hồ cá cạnh nhà." },
+    { name: "Biệt thự",  cost: 200000, mats: { go: 100, ngoi: 150, gach: 200 }, plots: 20, perks: "20 ô đất, nhà to đẹp nhất. Trong app sẽ hiện trên hồ sơ MayChat của bạn." },
   ];
   const MAX_LV = 5;
+  // Building materials: only from playing (not sold, not bought).
+  const NGOI_SVG = "data:" + "image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M3 12 L16 4 L29 12 L29 27 L3 27 Z" fill="#c8512e" stroke="#7a2b14" stroke-width="2" stroke-linejoin="round"/><path d="M3 17 Q8 14 13 17 Q18 14 23 17 Q26 15 29 17 M3 22 Q8 19 13 22 Q18 19 23 22 Q26 20 29 22" fill="none" stroke="#7a2b14" stroke-width="1.6"/><path d="M8 8.5 L16 4 L24 8.5" fill="none" stroke="#f08a5d" stroke-width="1.6"/></svg>');
+  const MATS = {
+    go:   { name: "Gỗ",   em: "🪵", from: "Thu hoạch cây chín: cứ 5 ô có khoảng 1 ô rơi gỗ." },
+    ngoi: { name: "Ngói", em: "", from: "Đấu Hội thao (10 giải đầu mỗi ngày): hạng 1 được 3, hạng 2 được 2, hạng khác 1." },
+    gach: { name: "Gạch", em: "🧱", from: "Làm nhiệm vụ hằng ngày (mỗi nhiệm vụ 2 gạch); tưới hoặc hái trộm ở nhà bạn bè đôi khi nhặt được gạch." },
+  };
+  const MAT_IDS = ["go", "ngoi", "gach"];
+  const matIcon = (k) => (k === "ngoi" ? `<img class="mat-ic" src="${NGOI_SVG}" alt="">` : MATS[k].em);
+  const matsOf = () => S.mats || (S.mats = {});
+  const haveMat = (k) => Number(matsOf()[k]) || 0;
+  // what a house still lacks: [{ k, need, have }] (gold under k "gold")
+  function lacks(lv) {
+    const h = HOUSES[lv], out = [];
+    if (S.gold < h.cost) out.push({ k: "gold", need: h.cost, have: S.gold });
+    for (const k in h.mats || {}) if (haveMat(k) < h.mats[k]) out.push({ k, need: h.mats[k], have: haveMat(k) });
+    return out;
+  }
+  const matsText = (m) => Object.keys(m || {}).map((k) => `${money(m[k])} ${MATS[k].name.toLowerCase()}`).join(" + ");
   // A harvested plot gives 5 parts; a part sells for a fifth of the price
   // (friends may take 1 part of a ripe plot: "hái trộm").
   const PARTS = 5;
@@ -574,11 +603,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
     plots[0] = { crop: "carrot", at: now - 6 * 60000, dur: 5 * 60000 };
     plots[1] = { crop: "carrot", at: now - 7 * 60000, dur: 5 * 60000 };
     plots[3] = { crop: "wheat", at: now - 11 * 60000, dur: 30 * 60000 };
-    return { v: 1, gold: 300, level: 1, plots, store: {}, offset: 0, fast: false, harvested: 0 };
+    return { v: 1, gold: 300, level: 1, plots, store: {}, mats: {}, offset: 0, fast: false, harvested: 0 };
   }
   function load() {
     if (APP) return fresh();   // in the app: replaced by the farm from the server at once
-    try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) return s; } } catch (e) {}
+    try { const raw = localStorage.getItem(KEY); if (raw) { const s = JSON.parse(raw); if (s && s.v === 1) { s.mats = s.mats || {}; return s; } } } catch (e) {}
     return fresh();
   }
   function save() { if (APP) return; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -1198,6 +1227,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     S.harvested++;
     const [i, j] = PLOTS[k], [x, y] = L(i + 0.5, j + 0.5);
     floatText(x, y - 14, "+" + parts + " " + CROPS[p.crop].em, "#2f7d48");
+    if (!APP && Math.random() < 0.2) { matsOf().go = haveMat("go") + 1; floatText(x, y - 30, "+1 🪵", "#8a5a2b"); }
+    if (!APP && Math.random() < 0.1) { matsOf().gach = haveMat("gach") + 1; floatText(x + 14, y - 30, "+1 🧱", "#a0422a"); }   // (no tasks outside the app)
     S.plots[k] = null;
     return true;
   }
@@ -1254,6 +1285,12 @@ table.reward td, table.reward th { padding: 7px 10px; }
       li.appendChild(b); ul.appendChild(li);
     });
     if (!ul.children.length) ul.innerHTML = `<li><span class="em">🧺</span><span class="nm">Kho đang trống<small>Thu hoạch cây chín để có nông sản đem bán.</small></span><span></span></li>`;
+    const sh = document.createElement("li"); sh.className = "subhead"; sh.textContent = "🏠 Vật liệu xây nhà (không bán được)"; ul.appendChild(sh);
+    MAT_IDS.forEach((k) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="em">${matIcon(k)}</span><span class="nm">${MATS[k].name} × ${money(haveMat(k))}<small>${MATS[k].from}</small></span><span></span>`;
+      ul.appendChild(li);
+    });
     $("sellAllBtn").disabled = !total;
     $("sellAllBtn").textContent = total ? `Bán tất cả · ${money(total)} vàng` : "Bán tất cả";
     $("storeSheet").hidden = false;
@@ -1265,19 +1302,27 @@ table.reward td, table.reward th { padding: 7px 10px; }
     if (S.level >= MAX_LV) {
       $("nextName").textContent = "Biệt thự · cấp cao nhất";
       $("nextPerks").textContent = "Nông trại của bạn đã to đẹp nhất rồi.";
+      $("nextNeed").innerHTML = "";
       $("upgradeBtn").disabled = true; $("upgradeBtn").textContent = "Đã đạt cấp cao nhất";
     } else {
       $("nextName").textContent = `Cấp ${next} · ${h.name}`;
       $("nextPerks").textContent = h.perks;
-      $("upgradeBtn").disabled = S.gold < h.cost;
-      $("upgradeBtn").textContent = S.gold >= h.cost ? `Nâng cấp · ${money(h.cost)} vàng` : `Cần ${money(h.cost)} vàng (thiếu ${money(h.cost - S.gold)})`;
+      // what it takes: gold and materials, each with ✓ or what is missing
+      const need = $("nextNeed"); need.innerHTML = "";
+      const chip = (html, ok) => { const c = document.createElement("span"); if (!ok) c.className = "miss"; c.innerHTML = html + (ok ? " ✓" : ""); need.appendChild(c); };
+      chip(`🪙 ${money(Math.min(S.gold, h.cost))}/${money(h.cost)}`, S.gold >= h.cost);
+      for (const k in h.mats || {}) chip(`${matIcon(k)} ${MATS[k].name} ${money(Math.min(haveMat(k), h.mats[k]))}/${money(h.mats[k])}`, haveMat(k) >= h.mats[k]);
+      const miss = lacks(next);
+      $("upgradeBtn").disabled = miss.length > 0;
+      $("upgradeBtn").textContent = !miss.length ? `Nâng cấp · ${money(h.cost)} vàng` + (h.mats ? " + " + matsText(h.mats) : "")
+        : "Còn thiếu " + miss.map((x) => `${money(x.need - x.have)} ${x.k === "gold" ? "vàng" : MATS[x.k].name.toLowerCase()}`).join(", ");
     }
     const ul = $("levelList"); ul.innerHTML = "";
     for (let lv = 1; lv <= MAX_LV; lv++) {
       const x = HOUSES[lv], li = document.createElement("li");
       if (lv === S.level) li.className = "now";
       li.innerHTML = `<span class="lv">${lv}</span><span class="nm">${x.name}<small>${x.perks}</small></span>` +
-        (lv <= S.level ? `<span class="ok">✓ Đã có</span>` : `<span class="price">${money(x.cost)}</span>`);
+        (lv <= S.level ? `<span class="ok">✓ Đã có</span>` : `<span class="price">${money(x.cost)}${x.mats ? `<small>+ ${matsText(x.mats)}</small>` : ""}</span>`);
       ul.appendChild(li);
     }
     $("houseSheet").hidden = false;
@@ -1285,8 +1330,10 @@ table.reward td, table.reward th { padding: 7px 10px; }
   function upgrade() {
     if (S.level >= MAX_LV) return;
     const h = HOUSES[S.level + 1];
-    if (S.gold < h.cost) return;
-    S.gold -= h.cost; S.level++;
+    if (lacks(S.level + 1).length) return;
+    S.gold -= h.cost;
+    for (const k in h.mats || {}) matsOf()[k] = haveMat(k) - h.mats[k];
+    S.level++;
     save(); refresh();
     $("houseSheet").hidden = true;
     const [x, y] = Qfarm(1.5, 1.5, 30);
@@ -1324,7 +1371,13 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const next = S.level < MAX_LV ? HOUSES[S.level + 1] : null;
     if (ripeN) return `Có ${ripeN} ô chín rồi, chạm vào để thu hoạch nhé!`;
     if (items) return `Kho đang có ${items} món nông sản, đem bán lấy vàng nào!`;
-    if (next && S.gold >= next.cost) return `Đủ vàng rồi! Chạm vào nhà để lên ${next.name}.`;
+    if (next && S.gold >= next.cost) {
+      const miss = lacks(S.level + 1);
+      if (!miss.length) return `Đủ vàng và vật liệu rồi! Chạm vào nhà để lên ${next.name}.`;
+      const m = miss[0];
+      return `Đủ vàng rồi, còn thiếu ${money(m.need - m.have)} ${MATS[m.k].name.toLowerCase()} để lên ${next.name}. ` +
+        (m.k === "go" ? "Thu hoạch để nhặt gỗ nhé!" : m.k === "ngoi" ? "Đấu Hội thao để có ngói nhé!" : "Làm nhiệm vụ ngày để có gạch nhé!");
+    }
     if (empty) return `Còn ${empty} ô đất trống, gieo hạt đi bạn ơi!`;
     return "Cây đang lớn. Kéo để ngắm nông trại, lát nữa quay lại thu hoạch nhé.";
   }
@@ -1393,6 +1446,10 @@ table.reward td, table.reward th { padding: 7px 10px; }
     $("sportToday").textContent = `Hôm nay bạn đã đấu ${n} giải. ` + (left ? `Còn ${left} giải được thưởng đủ.` : "Từ giờ mỗi giải chỉ được 20% tiền thưởng.");
     $("sportCount").textContent = `Hôm nay: ${n} giải`;
   }
+  function showCupMats(ngoi) {
+    $("rewardMats").hidden = !ngoi;
+    $("rewardMats").innerHTML = ngoi ? `+${ngoi} ${matIcon("ngoi")} ngói để xây nhà` : "";
+  }
   function openSport() {
     $("sportSheet").hidden = true;
     const f = $("sportFrame");
@@ -1412,6 +1469,9 @@ table.reward td, table.reward th { padding: 7px 10px; }
     const easy = m.level === "easy";                // bots Dễ: 60% of the gold
     const gold = Math.round(base * share * (easy ? 0.6 : 1));   // (no ×1.5 with friends since 0.36.4)
     S.cups = { day: today(), n: n + 1 };
+    const ngoi = n >= 10 ? 0 : m.place === 1 ? 3 : m.place === 2 ? 2 : 1;
+    matsOf().ngoi = haveMat("ngoi") + ngoi;
+    showCupMats(ngoi);
     addGold(gold); save(); refresh(); drawSport();
     $("rewardMedal").textContent = ["", "🥇", "🥈", "🥉"][m.place] || "🏃";
     $("rewardMsg").textContent = `Bạn về hạng ${m.place}/${m.players} với ${m.points} điểm!`;
@@ -1511,6 +1571,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     });
     const ERR = {
       not_enough_gold: "Không đủ vàng",
+      not_enough_mats: "Chưa đủ vật liệu xây nhà",
       crop_locked: "Hạt này cần nhà cấp cao hơn",
       max_level: "Nhà đã ở cấp cao nhất",
       cup_too_soon: "Giải vừa rồi đã được tính, đợi một lát",
@@ -1526,6 +1587,8 @@ table.reward td, table.reward th { padding: 7px 10px; }
     // ---- for the Hội thao page inside (rooms between phones)
     mc.api = api;
     mc.serverNow = () => Date.now() + (S.offset || 0);
+    mc.heroes = ["kai", "mika"];
+    mc.apply = (st) => apply(st);
     mc.rt = (m) => { try { const w = $("sportFrame").contentWindow; if (w && w.__net) w.__net(m); } catch (e) {} };
 
     // ---- the server's farm -> the screen
@@ -1548,6 +1611,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
     }
     function apply(st) {
       if (!st) return;
+      if (Array.isArray(st.heroes)) mc.heroes = st.heroes;   // Hội thao characters I own
       const plots = Array.isArray(st.plots) ? st.plots.slice(0, 20) : [];
       while (plots.length < 20) plots.push(null);
       // while visiting a friend, my own farm is kept aside (home) and updated there
@@ -1556,6 +1620,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       T.gold = Number(st.gold) || 0;
       T.level = Math.min(MAX_LV, Math.max(1, Number(st.level) || 1));
       T.store = st.store || {};
+      T.mats = st.mats || {};
       T.harvested = st.harvested || 0;
       T.offset = (Number(st.server_now) || Date.now()) - Date.now();   // the farm's clock = the server's clock
       T.fast = false;
@@ -1640,7 +1705,11 @@ table.reward td, table.reward th { padding: 7px 10px; }
     function flush() {
       clearTimeout(flushT); flushT = 0;
       const t = todo; todo = { harvest: [], sell: {}, plant: {} };
-      if (t.harvest.length) send("farm_harvest", { plots: t.harvest });
+      if (t.harvest.length) send("farm_harvest", { plots: t.harvest }, (st) => {
+        // gỗ found while harvesting (the server decides)
+        const go = st && st.drops ? Number(st.drops.go) || 0 : 0;
+        if (go) setTimeout(() => { floatText(cam.x, cam.y - 40, `+${go} 🪵 gỗ`, "#8a5a2b"); toast(`Nhặt được ${go} gỗ khi thu hoạch 🪵`); }, 900);
+      });
       for (const crop in t.sell) send("farm_sell", { crop, n: t.sell[crop] });
       for (const crop in t.plant) send("farm_plant", { plots: t.plant[crop], crop });
     }
@@ -1657,6 +1726,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
       if (!m || m.type !== "hoithao-cup" || e.source !== $("sportFrame").contentWindow) return;
       flush();
       $("rewardNote").textContent = "Đang cộng vàng vào nông trại…";
+      showCupMats(0);
       // a cup with friends: the server pays from the places the host handed in
       const method = m.room ? "farm_cup_room" : "farm_cup";
       const args = m.room ? { room: m.room } : { place: m.place, players: m.players, friends: m.friends || 0, level: m.level === "easy" ? "easy" : "mid" };
@@ -1668,6 +1738,7 @@ table.reward td, table.reward th { padding: 7px 10px; }
         }
         const r = st.reward, share = Number(r.share);
         $("rewardGold").textContent = "+" + money(r.gold);
+        showCupMats(Number(r.ngoi) || 0);
         $("rewardNote").textContent = `Thưởng hạng ${m.place}: ${r.base} vàng` +
           (share >= 1 ? ` · giải ${r.n}/${FULL_CUPS} được thưởng đủ` : share > 0 ? ` · giải thứ ${r.n} hôm nay nên còn 20%` : " · đã quá 10 giải hôm nay nên không còn thưởng") +
           (r.level === "easy" && r.gold > 0 ? " · bot Dễ nên 60%" : "") + ". Vàng đã vào nông trại.";
@@ -1784,14 +1855,14 @@ table.reward td, table.reward th { padding: 7px 10px; }
       quests.list.forEach((q) => {
         const have = Math.min(q.target, quests[QUEST_HAVE[q.id]] || 0), done = questDone(q), claimed = questClaimed(q);
         const li = document.createElement("li");
-        li.innerHTML = `<span class="em">${["", "🧺", "🪙", "🏃"][q.id]}</span><span class="nm">${QUEST_TEXT[q.id]}<small>${money(have)}/${money(q.target)} · thưởng ${q.gold} vàng</small><i class="qbar"><i style="width:${(100 * have / q.target).toFixed(0)}%"></i></i></span>`;
+        li.innerHTML = `<span class="em">${["", "🧺", "🪙", "🏃"][q.id]}</span><span class="nm">${QUEST_TEXT[q.id]}<small>${money(have)}/${money(q.target)} · thưởng ${q.gold} vàng${q.gach ? ` + ${q.gach} 🧱 gạch` : ""}</small><i class="qbar"><i style="width:${(100 * have / q.target).toFixed(0)}%"></i></i></span>`;
         const b = document.createElement("button"); b.type = "button";
         b.className = "mini" + (done && !claimed ? " primary" : "");
         b.textContent = claimed ? "Đã nhận" : done ? "Nhận" : "Chưa xong";
         b.disabled = claimed || !done;
         b.addEventListener("click", () => {
           b.disabled = true;
-          api("farm_quest_claim", { quest: q.id }).then((st) => { apply(st); coinSound(); toast(`Xong nhiệm vụ! +${st.quest_gold} vàng`); }, (e) => { toast(errText(e), true); reload(); });
+          api("farm_quest_claim", { quest: q.id }).then((st) => { apply(st); coinSound(); toast(`Xong nhiệm vụ! +${st.quest_gold} vàng` + (st.quest_gach ? ` · +${st.quest_gach} gạch 🧱` : "")); }, (e) => { toast(errText(e), true); reload(); });
         });
         li.appendChild(b); ul.appendChild(li);
       });
@@ -1958,8 +2029,10 @@ table.reward td, table.reward th { padding: 7px 10px; }
         if (!visiting || visiting.id !== id) return;
         showVisit(v);
         const [i, j] = PLOTS[k], [x, y] = L(i + 0.5, j + 0.5);
-        if (method === "farm_steal") { floatText(x, y - 14, "+1 " + c.em, "#2f7d48"); beep(784, 0.1); toast(`Hái được 1 phần ${c.name.toLowerCase()}, đã vào kho của bạn`); }
-        else { floatText(x, y - 14, "💧 +5 vàng", "#2f6fb5"); coinSound(); toast(`Đã tưới ${c.name.toLowerCase()}: chín sớm hơn · bạn được 5 vàng`); }
+        const brick = Number(v && v.gach) > 0 ? " · nhặt được 1 gạch 🧱" : "";
+        if (brick) floatText(x + 12, y - 30, "+1 🧱", "#a0422a");
+        if (method === "farm_steal") { floatText(x, y - 14, "+1 " + c.em, "#2f7d48"); beep(784, 0.1); toast(`Hái được 1 phần ${c.name.toLowerCase()}, đã vào kho của bạn` + brick); }
+        else { floatText(x, y - 14, "💧 +5 vàng", "#2f6fb5"); coinSound(); toast(`Đã tưới ${c.name.toLowerCase()}: chín sớm hơn · bạn được 5 vàng` + brick); }
       }, (err) => {
         const m = String((err && err.message) || "");
         toast(m.includes("taken") ? "Ô này vừa bị người khác hái mất" : m.includes("watered") ? "Ô này vừa được người khác tưới" :

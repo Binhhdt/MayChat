@@ -286,6 +286,29 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
 }
 @media (max-width: 380px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-height: 640px) { .pad { min-height: 92px; } .cards { display: none; } }
+/* character pictures to pick (Kai and Mika free, the others bought in the app) */
+.row.heros { align-items: flex-start; }
+.row.heros > label { flex: 1 1 100%; }
+.heropick { display: flex; flex-wrap: wrap; gap: 6px; }
+.hero { position: relative; border: 2.5px solid #e6cfa8; background: #fffaf0; border-radius: 14px; padding: 4px 6px 3px; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; font: 800 12px var(--body); color: var(--ink); min-width: 62px; }
+.hero .face { width: 44px; height: 44px; }
+.hero[aria-pressed="true"] { border-color: #43a447; background: #effbe8; box-shadow: 0 0 0 3px #ffe66b; }
+.hero.locked .face { filter: grayscale(0.85) brightness(0.9); }
+.hero small { font: 800 10.5px var(--body); color: #b8860b; }
+.buyrow { display: flex; gap: 12px; align-items: center; }
+.buyrow .face { width: 64px; height: 64px; flex: none; }
+.kick.sure { width: auto; padding: 0 8px; border-radius: 999px; background: #e2453a; color: #fff; font: 800 11px var(--body); }
+@media (orientation: landscape) and (max-height: 620px) {
+  /* the room sideways: what I choose on the left, the players on the right */
+  body:has(#lobby:not([hidden])) .app { max-width: 980px; }
+  #lobby:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; align-items: start;
+    grid-template-areas: "opt room" "btns room" "pb room" "start room"; }
+  #lobby .optcard { grid-area: opt; }
+  #lobby .roomcard { grid-area: room; }
+  #lobby .lobby-btns { grid-area: btns; }
+  #lobby .pb { grid-area: pb; }
+  #lobby #startBtn { grid-area: start; }
+}
 @media (prefers-reduced-motion: reduce) { .pad.down, .btn:active { transform: none; } .pad.item.full { animation: none; } }
 </style>
 
@@ -312,7 +335,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
 
   <!-- ===== ROOM ===== -->
   <section class="screen" id="lobby" hidden>
-    <div class="card">
+    <div class="card roomcard">
       <div class="room-head">
         <b id="roomTitle">Giải 4 map</b>
         <span class="code" id="roomCode">#----</span>
@@ -320,8 +343,8 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       <ul class="players" id="playerList"></ul>
     </div>
 
-    <div class="card">
-      <div class="row"><label for="heroSeg">Nhân vật của bạn</label><div class="seg" id="heroSeg" role="group" aria-label="Nhân vật của bạn"></div></div>
+    <div class="card optcard">
+      <div class="row heros"><label for="heroSeg">Nhân vật của bạn</label><div class="heropick" id="heroSeg" role="group" aria-label="Nhân vật của bạn"></div></div>
       <div class="row"><label for="cupSeg">4 map thi đấu</label><div class="seg" id="cupSeg" role="group" aria-label="Cách chọn 4 map"></div></div>
       <div class="maps" id="mapPick" role="group" aria-label="Chọn 4 map theo thứ tự"></div>
       <p class="map-note" id="mapNote"></p>
@@ -334,6 +357,15 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     <span class="pb" id="pbLobby">Kỷ lục 5 vòng của bạn: <b>--.--</b></span>
     <button class="btn" id="startBtn" type="button" disabled>Đang chờ người vào phòng…</button>
   </section>
+
+  <!-- ===== BUYING A CHARACTER (inside MayChat) ===== -->
+  <div class="sheet" id="buySheet" hidden>
+    <div class="card" role="dialog" aria-label="Mua nhân vật">
+      <div class="sheet-head"><b id="buyTitle">Mua nhân vật</b><button class="mini" id="buyClose" type="button">Đóng</button></div>
+      <div class="buyrow"><span id="buyFace"></span><p class="note" id="buyText"></p></div>
+      <button class="btn" id="buyGo" type="button">Mua</button>
+    </div>
+  </div>
 
   <!-- ===== SETTINGS (sheet) ===== -->
   <div class="sheet" id="settingsSheet" hidden>
@@ -531,6 +563,59 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       el.appendChild(b);
     });
   }
+  // Characters: pictures to pick. Inside MayChat, Kai and Mika are free and
+  // the others are bought once with gold of the farm (the server keeps them).
+  const HERO_PRICE = { lina: 5000, ryuki: 10000, sora: 15000 };
+  const ownedHeroes = () => {
+    if (!IN_APP) return HERO_IDS;
+    try { const h = window.parent.__mc && window.parent.__mc.heroes; return Array.isArray(h) && h.length ? h : ["kai", "mika"]; } catch (e) { return ["kai", "mika"]; }
+  };
+  function pickHero(id) {
+    settings.hero = id;
+    try { localStorage.setItem("hoithao-hero", id); } catch (e) {}
+    drawSettings(); assignLooks(); drawRoster();
+  }
+  function drawHeroes() {
+    const box = $("heroSeg"), owned = ownedHeroes();
+    if (!owned.includes(settings.hero)) settings.hero = owned[0] || "kai";
+    box.innerHTML = "";
+    HERO_IDS.forEach((id) => {
+      const have = owned.includes(id);
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "hero" + (have ? "" : " locked");
+      b.setAttribute("aria-pressed", String(settings.hero === id));
+      b.appendChild(portrait({ design: id, color: HEROES[id].color }, 44));
+      const nm = document.createElement("span"); nm.textContent = HEROES[id].name; b.appendChild(nm);
+      if (!have) { const pr = document.createElement("small"); pr.textContent = "🔒 " + (HERO_PRICE[id] || 0).toLocaleString("vi-VN"); b.appendChild(pr); }
+      b.addEventListener("click", () => (have ? pickHero(id) : openBuy(id)));
+      box.appendChild(b);
+    });
+  }
+  let buying = null;
+  function openBuy(id) {
+    buying = id;
+    $("buyTitle").textContent = "Mua " + HEROES[id].name;
+    const f = $("buyFace"); f.innerHTML = ""; f.appendChild(portrait({ design: id, color: HEROES[id].color }, 64));
+    $("buyText").textContent = `Mở nhân vật ${HEROES[id].name} với ${(HERO_PRICE[id] || 0).toLocaleString("vi-VN")} vàng của nông trại. Mua một lần, dùng mãi.`;
+    $("buyGo").disabled = false; $("buyGo").textContent = `Mua · ${(HERO_PRICE[id] || 0).toLocaleString("vi-VN")} vàng`;
+    $("buySheet").hidden = false;
+  }
+  $("buyClose").addEventListener("click", () => { $("buySheet").hidden = true; });
+  $("buyGo").addEventListener("click", () => {
+    const id = buying;
+    if (!id) return;
+    $("buyGo").disabled = true; $("buyGo").textContent = "Đang mua…";
+    window.parent.__mc.api("farm_buy_hero", { hero: id }).then((st) => {
+      try { window.parent.__mc.apply(st); } catch (e) {}
+      $("buySheet").hidden = true;
+      pickHero(id);
+    }, (e) => {
+      const m = String((e && e.message) || "");
+      $("buyText").textContent = m.includes("not_enough_gold") ? "Chưa đủ vàng. Trồng cây, bán nông sản và đấu Hội thao để có thêm vàng nhé." : "Không mua được, thử lại sau.";
+      $("buyGo").disabled = false; $("buyGo").textContent = "Thử lại";
+    });
+  });
+  { let h = null; try { h = localStorage.getItem("hoithao-hero"); } catch (e) {} if (h && HERO_IDS.includes(h)) settings.hero = h; }
   function drawSettings() {
     // between phones the host chooses the bots; the network is real (no "Mạng giả lập")
     $("levelSeg").closest(".row").hidden = NET.on && !NET.host;
@@ -543,7 +628,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
     });
     segment($("pingSeg"), PINGS.map((p) => [p, p === 0 ? "Không trễ" : p + " ms"]), settings.ping, (v) => { settings.ping = v; drawSettings(); });
     // (the "Có item / Không item" choice was removed: a cup always has items)
-    segment($("heroSeg"), [...HERO_IDS.map((id) => [id, HEROES[id].name]), ["chibi", "Chibi cũ"]], settings.hero, (v) => { settings.hero = v; drawSettings(); assignLooks(); drawRoster(); });
+    drawHeroes();
     segment($("guideSeg"), [[true, "Hiện"], [false, "Ẩn"]], settings.guide, (v) => { settings.guide = v; drawSettings(); });
     segment($("viewSeg"), [["full", "Toàn sân"], ["follow", "Theo tôi"]], settings.view, (v) => { settings.view = v; drawSettings(); });
     segment($("handSeg"), [[true, "Bên phải"], [false, "Bên trái"]], settings.runRight, (v) => { settings.runRight = v; drawSettings(); placePads(); });
@@ -709,7 +794,15 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
         const k = document.createElement("button");
         k.type = "button"; k.className = "kick"; k.textContent = "✕";
         k.setAttribute("aria-label", "Mời " + p.name + " ra khỏi phòng");
-        k.addEventListener("click", () => kick(p));
+        k.addEventListener("click", () => {
+          // a person (not a bot): ask first, the ✕ is easy to touch by mistake
+          if (p.kind === "friend" && !k.classList.contains("sure")) {
+            k.classList.add("sure"); k.textContent = "Mời ra?";
+            setTimeout(() => { k.classList.remove("sure"); k.textContent = "✕"; }, 3000);
+            return;
+          }
+          kick(p);
+        });
         li.appendChild(k);
       } else li.appendChild(document.createElement("span"));
       li.prepend(portrait(p, 40));
@@ -3619,7 +3712,7 @@ body { background: linear-gradient(180deg, #bfe7fd 0%, #cdeffc 40%, #dff3cf 100%
       btn.textContent = inRoom ? "Đã vào" : st === "sending" ? "Đang gửi…" : st === "sent" ? "Mời lại" : "Mời";
       btn.disabled = inRoom || st === "sending" || seatsLeft() <= 0;
       btn.addEventListener("click", () => {
-        NET.invited[f.id] = "sending"; drawFriendsOnline();
+        NET.invited[f.id] = "sending"; delete NET.kicked[f.id]; drawFriendsOnline();
         netApi("hoithao_invite", { room: NET.room, friend: f.id })
           .then(() => { NET.invited[f.id] = "sent"; netToast("Đã gửi lời mời cho " + name); },
                 (e) => { delete NET.invited[f.id]; netToast(netErr(e)); })

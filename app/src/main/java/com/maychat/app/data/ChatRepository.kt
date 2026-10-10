@@ -1073,6 +1073,8 @@ object ChatRepository {
         // daily gift and tasks, friends' farms (supabase_migration_36_farm_daily_friends.sql)
         "farm_daily_claim", "farm_quest_claim", "farm_leaderboard", "farm_visit",
         "farm_water", "farm_steal", "farm_news",
+        // Hội thao characters bought with gold (supabase_migration_37_heroes.sql)
+        "farm_buy_hero",
     )
 
     // The farm of a person for their profile page: (farm name, house level),
