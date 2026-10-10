@@ -205,6 +205,19 @@ private fun SessionGate(myId: String) {
     // below runs alongside (and still signs out if it ever says no).
     var allowed by remember(myId) { mutableStateOf(ListCache.sessionConfirmedRecently(myId)) }
 
+    // An account made with Google has no profile until the person picks a
+    // username ("Hoàn tất hồ sơ"). Looked up only for such accounts (null =
+    // still looking); every other account goes straight in as before.
+    var needProfile by remember(myId) {
+        mutableStateOf<Boolean?>(if (ChatRepository.mayNeedProfile()) null else false)
+    }
+    LaunchedEffect(myId) {
+        while (needProfile == null) {
+            val found = attempt { ChatRepository.loadProfile(myId) }
+            if (found.isSuccess) needProfile = found.getOrNull() == null else delay(3_000)
+        }
+    }
+
     LaunchedEffect(myId) {
         // null = the check itself failed (offline, or migration 05 not run).
         // In that case the user is let in, so a network problem never locks
@@ -221,7 +234,11 @@ private fun SessionGate(myId: String) {
         }
     }
 
-    if (allowed) MainScreens(myId, sessionChecked = true) else SplashScreen()
+    when {
+        !allowed || needProfile == null -> SplashScreen()
+        needProfile == true -> com.maychat.app.ui.auth.CompleteProfileScreen(onDone = { needProfile = false })
+        else -> MainScreens(myId, sessionChecked = true)
+    }
 }
 
 @Composable

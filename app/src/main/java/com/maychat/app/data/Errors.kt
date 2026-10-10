@@ -43,6 +43,18 @@ fun Throwable.toUserMessage(): String {
         "already registered" in text || "user_already_exists" in text ->
             "Email này đã được đăng ký. Hãy đăng nhập."
 
+        "username_taken" in text ->
+            "Tên người dùng này đã có người dùng. Hãy chọn tên khác."
+
+        "invalid_display_name" in text ->
+            "Tên hiển thị cần từ 1 đến 50 ký tự."
+
+        "provider is not enabled" in text || "unsupported provider" in text ->
+            "Máy chủ chưa bật đăng nhập Google (Supabase → Authentication → Providers → Google)."
+
+        "profile_complete" in text && ("does not exist" in text || "could not find" in text || "schema cache" in text) ->
+            "Máy chủ chưa có phần đăng nhập Google. Hãy chạy file supabase_migration_45_google_login.sql."
+
         "invalid_username" in text || "database error saving new user" in text ->
             "Tên người dùng không hợp lệ hoặc đã có người dùng."
 

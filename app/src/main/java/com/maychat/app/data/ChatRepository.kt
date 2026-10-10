@@ -105,6 +105,55 @@ object ChatRepository {
         }
     }
 
+    // "Tiếp tục với Google": Supabase checks the token Google gave and logs
+    // in (or creates the account the first time; an existing account with
+    // the same email is used as is).
+    suspend fun signInWithGoogle(idToken: String, rawNonce: String) {
+        supabase.auth.signInWith(io.github.jan.supabase.auth.providers.builtin.IDToken) {
+            this.idToken = idToken
+            provider = io.github.jan.supabase.auth.providers.Google
+            nonce = rawNonce
+        }
+    }
+
+    // True when this account may still have no profile: made with Google
+    // and the username not chosen yet (accounts made with email always have
+    // one). Only then is the profile looked up before opening the app.
+    fun mayNeedProfile(): Boolean {
+        val user = supabase.auth.currentUserOrNull() ?: return false
+        return user.userMetadata?.get("username") == null
+    }
+
+    // The name and email Google gave, to fill in the "Hoàn tất hồ sơ" screen.
+    fun googleHints(): Pair<String, String> {
+        val user = supabase.auth.currentUserOrNull()
+        val meta = user?.userMetadata
+        fun text(key: String) = (meta?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+        val name = text("full_name").ifEmpty { text("name") }
+        return name to (user?.email ?: text("email"))
+    }
+
+    // "Hoàn tất hồ sơ": makes the profile of an account made with Google
+    // (supabase_migration_45_google_login.sql), then remembers the username
+    // on the account so the check above is skipped from now on.
+    suspend fun completeProfile(username: String, displayName: String) {
+        supabase.postgrest.rpc(
+            "profile_complete",
+            buildJsonObject {
+                put("p_username", username)
+                put("p_display_name", displayName)
+            },
+        )
+        attempt {
+            supabase.auth.updateUser {
+                data = buildJsonObject {
+                    put("username", username)
+                    put("display_name", displayName)
+                }
+            }
+        }
+    }
+
     suspend fun signOut() {
         // Free the account for other devices (does nothing if this device
         // is not the one holding it).

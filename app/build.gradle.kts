@@ -182,8 +182,8 @@ android {
         applicationId = "com.maychat.app"
         minSdk = 26        // Android 8.0 and newer
         targetSdk = 36
-        versionCode = 82
-        versionName = "0.40.4"
+        versionCode = 83
+        versionName = "0.41.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
@@ -298,4 +298,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // Farm game: serves the packaged game pages (assets/game) to the WebView.
     implementation("androidx.webkit:webkit:1.12.1")
+
+    // "Tiếp tục với Google": the phone's Google account picker (Credential Manager).
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +21,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.maychat.app.data.ChatRepository
+import com.maychat.app.data.GoogleLogin
 import com.maychat.app.R
 import com.maychat.app.data.UserFacingException
 import com.maychat.app.data.attempt
@@ -136,6 +140,30 @@ fun AuthScreen() {
             }
             busy = false
             result.onFailure { error = it.toUserMessage() }
+        }
+    }
+
+    // "Tiếp tục với Google": the phone's Google account picker, then Supabase.
+    // A new account then gets the "Hoàn tất hồ sơ" screen (see MayChatApp).
+    fun googleLogin() {
+        ChatRepository.clearAuthNotice()
+        error = null
+        busy = true
+        scope.launch {
+            val result = attempt {
+                val picked = GoogleLogin.pick(context)
+                ChatRepository.signInWithGoogle(picked.idToken, picked.rawNonce)
+            }
+            busy = false
+            result.onFailure { e ->
+                if (e is GoogleLogin.Cancelled) return@onFailure
+                val text = (e.message ?: "").lowercase()
+                error = if ("database error saving new user" in text) {
+                    "Máy chủ chưa sẵn sàng cho đăng nhập Google. Hãy chạy file supabase_migration_45_google_login.sql."
+                } else {
+                    e.toUserMessage()
+                }
+            }
         }
     }
 
@@ -262,6 +290,40 @@ fun AuthScreen() {
             }
             Text(if (registerMode) "Đăng ký" else "Đăng nhập")
         }
+
+        // ---- or with Google (no password to type)
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            HorizontalDivider(modifier = Modifier.weight(1f))
+            Text(
+                "  hoặc  ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider(modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(
+            onClick = { googleLogin() },
+            enabled = !busy,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Text(
+                "G",
+                fontWeight = FontWeight.Bold,
+                color = androidx.compose.ui.graphics.Color(0xFF4285F4),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("Tiếp tục với Google")
+        }
+        Text(
+            "Không cần mật khẩu. Lần đầu dùng Google, bạn chỉ cần chọn tên người dùng.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
         Spacer(Modifier.height(8.dp))
         TextButton(
             onClick = {
